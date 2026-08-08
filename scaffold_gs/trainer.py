@@ -228,6 +228,7 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 out.gaussians,
                 out.meta["width"],
                 out.meta["gaussian_ids"],
+                out.meta["height"],
             )
         if (
             optim.update_from < iteration < optim.update_until
@@ -251,11 +252,21 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 anchors=f"{model.num_anchors}",
             )
         if torch.cuda.is_available() and iteration % 100 == 0:
+            gids = out.meta.get("gaussian_ids")
+            gids_n = gids.numel() if gids is not None else 0
             print(
                 f"[Mem @{iteration}] alloc={torch.cuda.memory_allocated() / 1e9:.2f}GB "
-                f"reserved={torch.cuda.memory_reserved() / 1e9:.2f}GB",
+                f"reserved={torch.cuda.memory_reserved() / 1e9:.2f}GB "
+                f"gids={gids_n}",
                 flush=True,
             )
+
+        # Drop references to this step's render output / graph before the next
+        # iteration; otherwise the previous step's autograd graph and packed
+        # rasterizer buffers stay alive while the next step is built.
+        del out, loss, pred, gt
+        if torch.cuda.is_available() and iteration % 100 == 0:
+            torch.cuda.empty_cache()
 
         if iteration in eval_steps:
             final_metrics = evaluate(model, dataset, result_dir, iteration)

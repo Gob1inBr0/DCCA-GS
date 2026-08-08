@@ -590,12 +590,12 @@ class HACPlusModel(BaseGaussianModel):
         gaussians: NeuralGaussians,
         width: float,
         gaussian_ids: torch.Tensor,
+        height: float,
     ) -> None:
         """Same statistics as official ``training_statis``, but reads the
         screen-space gradients from gsplat's retained ``means2d.grad``."""
         core = self.core
         k = self.cfg.n_offsets
-        vis2d = visibility_filter  # [nnz] bool (packed rows with radii > 0)
         full_visible = torch.zeros(
             self.num_anchors, dtype=torch.bool, device=self.device
         )
@@ -611,13 +611,36 @@ class HACPlusModel(BaseGaussianModel):
         local_anchor = active_local // k
         local_offset = active_local % k
         global_idx = gaussians.anchor_indices[local_anchor] * k + local_offset
-        idx = global_idx[gaussian_ids][vis2d]
+        if means2d.dim() == 3:
+            # Non-packed: one row per decoded Gaussian.
+            vis2d = visibility_filter[0]
+            grad_rows = means2d.grad[0, vis2d, :2]
+            idx = global_idx[vis2d]
+        else:
+            # Packed: one row per (Gaussian, tile). Aggregate tile gradients
+            # back to one gradient per Gaussian (official means2D.grad).
+            vis2d = visibility_filter
+            gids = gaussian_ids[vis2d]
+            if gids.numel() == 0:
+                return
+            grad_rows = means2d.grad[vis2d, :2]
+            grad_sum = torch.zeros(
+                global_idx.shape[0], 2, device=means2d.device, dtype=grad_rows.dtype
+            )
+            grad_sum.index_add_(0, gids, grad_rows)
+            uniq_gids, _ = torch.unique(gids, return_inverse=True)
+            grad_rows = grad_sum[uniq_gids]
+            idx = global_idx[uniq_gids]
         if idx.numel() > 0:
             assert means2d.grad is not None, "means2d grad missing; retain_grad was not set"
-            grad_norm = (
-                means2d.grad[vis2d, :2].norm(dim=-1, keepdim=True)
-                * (width / 2.0)
-            )
+            # Match the official diff-gaussian-rasterization backward, which
+            # scales dL/dmean2D by (0.5*W, 0.5*H) before exposing it as
+            # ``means2D.grad``. Without this the 2e-4 threshold has no
+            # official meaning and anchor growth stalls.
+            grad = grad_rows.clone()
+            grad[:, 0] *= width / 2.0
+            grad[:, 1] *= height / 2.0
+            grad_norm = grad.norm(dim=-1, keepdim=True)
             core.offset_gradient_accum[idx] += grad_norm
             core.offset_denom[idx] += 1.0
 

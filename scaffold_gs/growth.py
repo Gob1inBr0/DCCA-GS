@@ -130,12 +130,14 @@ def training_statis(
     gaussians: NeuralGaussians,
     width: float,
     gaussian_ids: torch.Tensor,
+    height: float,
 ) -> None:
     """Accumulate opacity / 2D-gradient statistics for anchor refinement.
 
     Args:
         means2d: screen-space means from gsplat, ``[1, M, 2]`` (grad retained).
-        visibility_filter: ``[1, M]`` bool, ``radii > 0`` for decoded Gaussians.
+        visibility_filter: ``[1, M]`` bool, one row per decoded Gaussian (the
+            rasterizer runs in non-packed mode so no per-tile duplication).
         gaussians: the ``NeuralGaussians`` object returned by the renderer.
     """
     assert model.opacity_accum is not None
@@ -162,15 +164,38 @@ def training_statis(
     local_offset = active_local % k
     global_idx = global_visible[local_anchor] * k + local_offset
 
-    vis2d = visibility_filter  # [nnz] bool (packed rows)
-    idx = global_idx[gaussian_ids][vis2d]
+    if means2d.dim() == 3:
+        # Non-packed: one row per decoded Gaussian.
+        vis2d = visibility_filter[0]
+        grad_rows = means2d.grad[0, vis2d, :2]
+        idx = global_idx[vis2d]
+    else:
+        # Packed: one row per (Gaussian, tile). Aggregate the tile gradients
+        # back to one gradient per Gaussian, matching the official
+        # diff-gaussian-rasterization means2D.grad semantics.
+        vis2d = visibility_filter
+        gids = gaussian_ids[vis2d]
+        if gids.numel() == 0:
+            return
+        grad_rows = means2d.grad[vis2d, :2]
+        grad_sum = torch.zeros(
+            global_idx.shape[0], 2, device=means2d.device, dtype=grad_rows.dtype
+        )
+        grad_sum.index_add_(0, gids, grad_rows)
+        uniq_gids, _ = torch.unique(gids, return_inverse=True)
+        grad_rows = grad_sum[uniq_gids]
+        idx = global_idx[uniq_gids]
     if idx.numel() > 0:
         assert means2d.grad is not None, "means2d grad missing; retain_grad was not set"
-        # gsplat's means2d is in normalized [-1, 1] screen coords; the official
-        # 3DGS/HAC++ threshold (2e-4) is in pixel units, so rescale by width/2.
-        grad_norm = (
-            means2d.grad[vis2d, :2].norm(dim=-1, keepdim=True) * (width / 2.0)
-        )
+        # gsplat returns the raw pixel-space gradient, while the official
+        # diff-gaussian-rasterization backward scales dL/dmean2D by
+        # (0.5*W, 0.5*H) before exposing it through ``means2D.grad``. Apply
+        # the same per-axis rescale so the 2e-4 densification threshold has
+        # the official meaning.
+        grad = grad_rows.clone()
+        grad[:, 0] *= width / 2.0
+        grad[:, 1] *= height / 2.0
+        grad_norm = grad.norm(dim=-1, keepdim=True)
         model.offset_gradient_accum.index_add_(0, idx, grad_norm)
         model.offset_denom.index_add_(
             0, idx, torch.ones_like(grad_norm, device=device)

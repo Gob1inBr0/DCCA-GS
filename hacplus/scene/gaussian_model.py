@@ -956,20 +956,21 @@ class GaussianModel(nn.Module):
 
             selected_grid_coords_unique, inverse_indices = torch.unique(selected_grid_coords, return_inverse=True, dim=0)
 
-            use_chunk = True
-            if use_chunk:
-                chunk_size = 4096
-                max_iters = grid_coords.shape[0] // chunk_size + (1 if grid_coords.shape[0] % chunk_size != 0 else 0)
-                remove_duplicates_list = []
-                for i in range(max_iters):
-                    cur_remove_duplicates = (selected_grid_coords_unique.unsqueeze(1) == grid_coords[i*chunk_size:(i+1)*chunk_size, :]).all(-1).any(-1).view(-1)
-                    remove_duplicates_list.append(cur_remove_duplicates)
-
-                remove_duplicates = reduce(torch.logical_or, remove_duplicates_list)
-            else:
-                remove_duplicates = (selected_grid_coords_unique.unsqueeze(1) == grid_coords).all(-1).any(-1).view(-1)
-
-            remove_duplicates = ~remove_duplicates
+            # Local memory fix: dedup against existing anchors with O(G+U)
+            # memory instead of the O(U*G*3) broadcast comparison, which can
+            # allocate >20GB once U and G both reach hundreds of thousands.
+            occupied = set(map(tuple, grid_coords.cpu().tolist()))
+            keep = torch.tensor(
+                [
+                    tuple(c.tolist()) not in occupied
+                    for c in selected_grid_coords_unique.cpu()
+                ],
+                dtype=torch.bool,
+                device="cuda",
+            )
+            # keep=True marks NEW cells (not in the occupied set); the official
+            # path ends with remove_duplicates=True for NEW cells.
+            remove_duplicates = keep
             candidate_anchor = selected_grid_coords_unique[remove_duplicates]*cur_size
 
             if candidate_anchor.shape[0] > 0:
@@ -981,8 +982,15 @@ class GaussianModel(nn.Module):
 
                 new_opacities = inverse_sigmoid(0.1 * torch.ones((candidate_anchor.shape[0], 1), dtype=torch.float, device="cuda"))
 
-                new_feat = self._anchor_feat.unsqueeze(dim=1).repeat([1, self.n_offsets, 1]).view([-1, self.feat_dim])[candidate_mask]
-                new_feat = scatter_max(new_feat, inverse_indices.unsqueeze(1).expand(-1, new_feat.size(1)), dim=0)[0][remove_duplicates]
+                # Local memory fix: gather parent features by selected index
+                # instead of materializing the full [N, K, feat] repeat.
+                sel_idx = torch.nonzero(candidate_mask).squeeze(-1)
+                parent_feat = self._anchor_feat[sel_idx // self.n_offsets]
+                new_feat = scatter_max(
+                    parent_feat,
+                    inverse_indices.unsqueeze(1).expand(-1, parent_feat.size(1)),
+                    dim=0,
+                )[0][remove_duplicates]
 
                 new_offsets = torch.zeros_like(candidate_anchor).unsqueeze(dim=1).repeat([1, self.n_offsets, 1]).float().cuda()
                 new_masks = torch.ones_like(candidate_anchor[:, 0:1]).unsqueeze(dim=1).repeat([1, self.n_offsets+1, 1]).float().cuda()

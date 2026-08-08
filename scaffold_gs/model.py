@@ -536,11 +536,18 @@ class ScaffoldGSModel(BaseGaussianModel):
         gaussians: NeuralGaussians,
         width: float,
         gaussian_ids: torch.Tensor,
+        height: float,
     ) -> None:
         from .growth import training_statis
 
         training_statis(
-            self, means2d, visibility_filter, gaussians, width, gaussian_ids
+            self,
+            means2d,
+            visibility_filter,
+            gaussians,
+            width,
+            gaussian_ids,
+            height,
         )
 
     def adjust_anchor(

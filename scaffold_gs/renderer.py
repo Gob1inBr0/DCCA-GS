@@ -144,7 +144,12 @@ def render(
         far_plane=camera.far_plane,
         backgrounds=background,
         render_mode="RGB",
+        # Packed output keeps the rasterizer's tile rows, which is far cheaper
+        # at 300k+ anchors than a dense [N,2] autograd graph. training_statis
+        # aggregates rows back to one gradient per Gaussian (official
+        # semantics) before applying the densification threshold.
         packed=True,
+        sparse_grad=False,
         sh_degree=None,
     )
     if retain_grad:
