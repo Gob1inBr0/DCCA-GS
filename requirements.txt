@@ -1,0 +1,20 @@
+# Core runtime -- torch/torchvision should be installed first to match the
+# CUDA version on the target machine (e.g. conda/pip with the right index).
+torch>=2.1
+torchvision>=0.16
+
+numpy>=1.24
+scipy>=1.10
+Pillow
+imageio
+tqdm
+tyro>=0.8
+pycolmap>=3.10
+plyfile
+torchmetrics>=1.0
+tensorboard
+
+# gsplat -- use the local checkout for development:
+#   pip install -e /Users/chen/Documents/gsplat-main
+# or install the PyPI release:
+#   pip install gsplat
