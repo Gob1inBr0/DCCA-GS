@@ -80,18 +80,22 @@ def load_checkpoint(
 
 def _get_metrics(device: str):
     from torchmetrics.image import (
-        LearnedPerceptualImagePatchSimilarity,
         PeakSignalNoiseRatio,
         StructuralSimilarityIndexMeasure,
     )
 
-    return (
-        PeakSignalNoiseRatio(data_range=1.0).to(device),
-        StructuralSimilarityIndexMeasure(data_range=1.0).to(device),
-        LearnedPerceptualImagePatchSimilarity(
+    psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
+    ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
+    lpips = None
+    try:
+        from torchmetrics.image import LearnedPerceptualImagePatchSimilarity
+
+        lpips = LearnedPerceptualImagePatchSimilarity(
             net_type="vgg", normalize=False
-        ).to(device),
-    )
+        ).to(device)
+    except Exception as exc:  # pragma: no cover - offline / missing weights
+        print(f"[Eval] LPIPS unavailable, skipping: {exc}")
+    return psnr, ssim, lpips
 
 
 def evaluate(
@@ -123,8 +127,12 @@ def evaluate(
 
             psnr_list.append(float(psnr_fn(pred[None], gt[None])))
             ssim_list.append(float(ssim_fn(pred[None], gt[None])))
-            if len(lpips_list) < 64:  # LPIPS is expensive on large val sets
-                lpips_list.append(float(lpips_fn(pred[None], gt[None])))
+            if lpips_fn is not None and len(lpips_list) < 64:
+                try:
+                    lpips_list.append(float(lpips_fn(pred[None], gt[None])))
+                except Exception as exc:  # pragma: no cover
+                    print(f"[Eval] LPIPS failed, skipping: {exc}")
+                    lpips_fn = None
 
             render_np = (pred.permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
             imageio.imwrite(render_dir / f"{iteration:06d}_{cam.uid:04d}.png", render_np)

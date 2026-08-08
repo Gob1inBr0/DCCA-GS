@@ -41,20 +41,20 @@ data/garden/
 
 ```bash
 # 训练（默认 30k 步，每 8 张留 1 张做评估）
-python train.py train --data.data-dir data/garden --data.result-dir results/garden \
-  --model.voxel-size 0.001 --model.appearance-dim 0
+python train.py train --cfg.data.data-dir data/garden --cfg.data.result-dir results/garden \
+  --cfg.model.voxel-size 0.001 --cfg.model.appearance-dim 0
 
 # 评估已有 checkpoint
-python train.py eval --ckpt results/garden/ckpts/ckpt_30000.pth \
-  --data.data-dir data/garden
+python train.py eval --cfg.ckpt results/garden/ckpts/ckpt_30000.pth \
+  --cfg.data.data-dir data/garden
 
 # 导出稳定属性（HAC/HAC++ 输入格式 + 官方 PLY）
-python train.py export --ckpt results/garden/ckpts/ckpt_30000.pth \
-  --out-dir results/garden/export
+python train.py export --cfg.ckpt results/garden/ckpts/ckpt_30000.pth \
+  --cfg.out-dir results/garden/export
 
 # 压缩基线（v1 只导出未压缩属性；hac / hac_pp 预留）
-python train.py compress --ckpt results/garden/ckpts/ckpt_30000.pth \
-  --out-dir results/garden/bitstreams --codec none
+python train.py compress --cfg.ckpt results/garden/ckpts/ckpt_30000.pth \
+  --cfg.out-dir results/garden/bitstreams --cfg.codec none
 ```
 
 复现 MipNeRF360 官方脚本时使用 `--model.appearance-dim 0`；

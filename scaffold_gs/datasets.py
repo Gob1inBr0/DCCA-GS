@@ -183,10 +183,10 @@ class ColmapDataset:
         points3d = _as_dict(reconstruction.points3D)
         point_ids = sorted(points3d)
         self.points = np.array(
-            [points3D[pid].xyz for pid in point_ids], dtype=np.float32
+            [points3d[pid].xyz for pid in point_ids], dtype=np.float32
         ).reshape(-1, 3)
         self.points_rgb = np.array(
-            [points3D[pid].color for pid in point_ids], dtype=np.uint8
+            [points3d[pid].color for pid in point_ids], dtype=np.uint8
         ).reshape(-1, 3)
         print(f"[Dataset] {len(self.points)} SfM points.")
 
