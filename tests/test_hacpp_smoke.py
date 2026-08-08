@@ -83,7 +83,9 @@ def test_hacpp_train_step_and_codec(tmp_path):
     codec = HACPlusCodec()
     meta = codec.encode(model, tmp_path)
     assert meta["total_bits"] > 0
+    assert (tmp_path / "xyz_gpcc.npz").exists()
     model2 = codec.decode(tmp_path)
     assert model2.core.decoded_version
+    assert model2.core._anchor.shape[0] == model.core._anchor.shape[0]
     out2 = model2.render(cam, bg, is_training=False)
     assert out2.image.shape == (1, 64, 64, 3)

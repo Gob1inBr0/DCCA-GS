@@ -38,6 +38,11 @@ try:
         encoder_gaussian_chunk,
         encoder_gaussian_mixed_chunk,
     )
+    from utils.gpcc_utils import (
+        calculate_morton_order,
+        compress_gpcc,
+        decompress_gpcc,
+    )
 except Exception as exc:  # pragma: no cover - missing HAC++ extensions
     _OfficialHACModel = None
     _HACPP_IMPORT_ERROR = exc
@@ -735,15 +740,23 @@ class HACPlusModel(BaseGaussianModel):
         masks = core.get_mask[mask_anchor]  # [N, K, 1]
         N = anchor.shape[0]
 
-        anchor_int = torch.round(anchor / self.voxel_size).cpu().numpy().astype(np.int32)
+        anchor_int = torch.round(anchor / self.voxel_size)
+        sorted_indices = calculate_morton_order(anchor_int)
+        anchor_int = anchor_int[sorted_indices]
+        feat = feat[sorted_indices]
+        offsets = offsets[sorted_indices]
+        scaling = scaling[sorted_indices]
+        masks = masks[sorted_indices]
+        means_strings = compress_gpcc(anchor_int)
         np.savez_compressed(
-            out_dir / "anchors.npz",
-            anchor_int=anchor_int,
+            out_dir / "xyz_gpcc.npz",
+            means_strings=means_strings,
             voxel_size=np.float32(self.voxel_size),
         )
+        bits_xyz = (out_dir / "xyz_gpcc.npz").stat().st_size * 8
         torch.save(core.x_bound_min, out_dir / "x_bound_min.pkl")
         torch.save(core.x_bound_max, out_dir / "x_bound_max.pkl")
-        anchor = torch.from_numpy(anchor_int).float().to(device) * self.voxel_size
+        anchor = anchor_int.float() * self.voxel_size
 
         steps = math.ceil(N / MAX_batch_size)
         bit_feat_list: list = []
@@ -860,16 +873,17 @@ class HACPlusModel(BaseGaussianModel):
         bit_masks = encoder(masks, file_name=str(out_dir / "masks.b"))
 
         total_bits = (
-            sum(bit_feat_list)
+            bits_xyz
+            + sum(bit_feat_list)
             + sum(bit_scaling_list)
             + sum(bit_offsets_list)
             + bit_hash
             + bit_masks
-            + sum(p.stat().st_size * 8 for p in out_dir.glob("*.npz"))
         )
         meta = {
             "codec": "hac_pp",
             "num_anchors": int(N),
+            "bit_anchor": int(bits_xyz),
             "bit_feat": int(sum(bit_feat_list)),
             "bit_scaling": int(sum(bit_scaling_list)),
             "bit_offsets": int(sum(bit_offsets_list)),
@@ -898,10 +912,13 @@ class HACPlusModel(BaseGaussianModel):
             artifact_dir / "x_bound_max.pkl", map_location=device, weights_only=False
         )
 
-        npz = np.load(artifact_dir / "anchors.npz")
-        anchor_int = npz["anchor_int"]
+        npz = np.load(artifact_dir / "xyz_gpcc.npz")
         voxel_size = float(npz["voxel_size"])
-        anchor = torch.from_numpy(anchor_int).float().to(device) * voxel_size
+        means_strings = npz["means_strings"].tobytes()
+        anchor_int = decompress_gpcc(means_strings).to(device)
+        sorted_indices = calculate_morton_order(anchor_int)
+        anchor_int = anchor_int[sorted_indices]
+        anchor = anchor_int * voxel_size
         N = anchor.shape[0]
 
         masks_decoded = decoder(

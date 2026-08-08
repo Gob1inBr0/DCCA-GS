@@ -76,10 +76,12 @@ python train.py train --cfg.model.model-name hac_pp \
   --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 50 --cfg.model.n-offsets 10 \
   --cfg.optim.lambda-rate 0.004 --cfg.optim.max-steps 30000
 
-# 算术编码（生成 attributes.pth + feat/scaling/offsets/masks/hash bitstream）
+# 算术编码（anchor 坐标用 GPCC/tmc3，其余属性用 arithmetic 算术编码）
 python train.py compress --cfg.ckpt results/<scene>/ckpts/ckpt_30000.pth \
   --cfg.out-dir results/<scene>/bitstreams --cfg.codec hac_pp
 ```
+
+GPCC 需要 `tmc3` 可执行文件在 PATH 中（5090 的 `HAC_5090_a100` 环境已自带）。
 
 Scaffold-GS 的扩展点依然保留：`BaseGaussianModel` + `MODELS` 注册表 +
 `AnchorDecoder.predict_gaussians()` 替换入口 + `CompressionCodec` 接口。
