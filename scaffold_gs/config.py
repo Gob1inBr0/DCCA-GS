@@ -65,6 +65,11 @@ class ModelConfig:
     ratio: int = 1
     """Sample every ``ratio``-th SfM point before voxelization."""
 
+    # HAC++ hash-grid settings (defaults match the official HAC-plus args).
+    n_features_per_level: int = 4
+    log2_hashmap_size: int = 13
+    log2_hashmap_size_2D: int = 15
+
 
 @dataclass
 class OptimConfig:
