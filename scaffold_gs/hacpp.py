@@ -1079,6 +1079,16 @@ class HACPlusModel(BaseGaussianModel):
         core._offset = nn.Parameter(offsets, requires_grad=False)
         core._scaling = nn.Parameter(scaling, requires_grad=False)
         core._mask = nn.Parameter(mask, requires_grad=False)
+        # The official decode leaves _rotation/_opacity at the pre-mask size;
+        # resize them so prefilter/render stay consistent (they are not used
+        # for decoded neural Gaussians beyond the identity prefilter rotation).
+        rot = torch.zeros(N, 4, device=device)
+        rot[:, 0] = 1.0
+        core._rotation = nn.Parameter(rot, requires_grad=False)
+        core._opacity = nn.Parameter(
+            inverse_sigmoid(torch.full((N, 1), 0.1, device=device)),
+            requires_grad=False,
+        )
 
         if core.use_2D:
             len_3d = core.encoding_xyz.encoding_xyz.params.shape[0]
