@@ -492,40 +492,75 @@ class HACPlusModel(BaseGaussianModel):
                 grid_offsets, Q_offsets, core._offset.mean()
             ).detach()
 
-        # Decode neural Gaussians (identical math to the official renderer).
-        ob_view = anchor - camera.camera_center(device)
-        ob_dist = ob_view.norm(dim=1, keepdim=True)
-        ob_view = ob_view / ob_dist.clamp_min(1e-8)
-        cat_local_view = torch.cat([feat, ob_view, ob_dist], dim=-1)
-
-        neural_opacity = core.get_opacity_mlp(cat_local_view)  # [n, K]
-        selection_mask = (neural_opacity.reshape(-1) > 0.0)
-        opacity = neural_opacity.reshape(-1)[selection_mask]
-        color = core.get_color_mlp(cat_local_view).reshape(n * k, 3)[selection_mask]
-        scale_rot = core.get_cov_mlp(cat_local_view).reshape(n * k, 7)[selection_mask]
-        offsets = grid_offsets.reshape(-1, 3)[selection_mask]
-
-        scaling_repeat = (
-            grid_scaling.unsqueeze(1).repeat(1, k, 1).reshape(n * k, 6)[selection_mask]
+        # Decode neural Gaussians in anchor chunks so peak memory does not
+        # scale with the total anchor count (same math as the official renderer).
+        camera_center = camera.camera_center(device)
+        neural_opacity_parts = []
+        selection_parts = []
+        xyz_parts, color_parts, opacity_parts, scale_parts, quat_parts = (
+            [],
+            [],
+            [],
+            [],
+            [],
         )
-        anchor_repeat = anchor.unsqueeze(1).repeat(1, k, 1).reshape(n * k, 3)[
-            selection_mask
-        ]
-        scales = scaling_repeat[:, 3:] * torch.sigmoid(scale_rot[:, :3])
-        quats = F.normalize(scale_rot[:, 3:7], dim=-1)
-        xyz = anchor_repeat + offsets * scaling_repeat[:, :3]
+        chunk = 8_192
+        for start in range(0, n, chunk):
+            end = min(start + chunk, n)
+            a = anchor[start:end]
+            f = feat[start:end]
+            go = grid_offsets[start:end]
+            gs = grid_scaling[start:end]
+            bm = binary_grid_masks[start:end]
+            c = end - start
 
-        binary_flat = binary_grid_masks.reshape(-1)[selection_mask]
-        if is_training:
-            opacity = opacity * binary_flat
-            scales = scales * binary_flat.unsqueeze(-1)
-        else:
-            keep = binary_flat.bool()
-            xyz = xyz[keep]
-            color = color[keep]
-            opacity = opacity[keep]
-            scales = scales[keep]
-            quats = quats[keep]
+            ob_view = a - camera_center
+            ob_dist = ob_view.norm(dim=1, keepdim=True)
+            ob_view = ob_view / ob_dist.clamp_min(1e-8)
+            cat_local_view = torch.cat([f, ob_view, ob_dist], dim=-1)
+
+            no = core.get_opacity_mlp(cat_local_view)  # [c, K]
+            sel = (no.reshape(-1) > 0.0)
+            neural_opacity_parts.append(no)
+            selection_parts.append(sel)
+
+            color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
+            scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[sel]
+            offsets_c = go.reshape(-1, 3)[sel]
+            scaling_repeat = (
+                gs.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 6)[sel]
+            )
+            anchor_repeat = a.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 3)[sel]
+            scales_c = scaling_repeat[:, 3:] * torch.sigmoid(scale_rot[:, :3])
+            quats_c = F.normalize(scale_rot[:, 3:7], dim=-1)
+            xyz_c = anchor_repeat + offsets_c * scaling_repeat[:, :3]
+
+            binary_flat = bm.reshape(-1)[sel]
+            opacity_c = no.reshape(-1)[sel]
+            if is_training:
+                opacity_c = opacity_c * binary_flat
+                scales_c = scales_c * binary_flat.unsqueeze(-1)
+            else:
+                keep = binary_flat.bool()
+                xyz_c = xyz_c[keep]
+                color = color[keep]
+                opacity_c = opacity_c[keep]
+                scales_c = scales_c[keep]
+                quats_c = quats_c[keep]
+
+            xyz_parts.append(xyz_c)
+            color_parts.append(color)
+            opacity_parts.append(opacity_c)
+            scale_parts.append(scales_c)
+            quat_parts.append(quats_c)
+
+        neural_opacity = torch.cat(neural_opacity_parts, dim=0)
+        selection_mask = torch.cat(selection_parts, dim=0)
+        xyz = torch.cat(xyz_parts, dim=0)
+        color = torch.cat(color_parts, dim=0)
+        opacity = torch.cat(opacity_parts, dim=0)
+        scales = torch.cat(scale_parts, dim=0)
+        quats = torch.cat(quat_parts, dim=0)
 
         return NeuralGaussians(
             xyz=xyz,
@@ -553,12 +588,14 @@ class HACPlusModel(BaseGaussianModel):
         means2d: torch.Tensor,
         visibility_filter: torch.Tensor,
         gaussians: NeuralGaussians,
+        width: float,
+        gaussian_ids: torch.Tensor,
     ) -> None:
         """Same statistics as official ``training_statis``, but reads the
         screen-space gradients from gsplat's retained ``means2d.grad``."""
         core = self.core
         k = self.cfg.n_offsets
-        vis2d = visibility_filter[0]  # [M] bool (radii > 0)
+        vis2d = visibility_filter  # [nnz] bool (packed rows with radii > 0)
         full_visible = torch.zeros(
             self.num_anchors, dtype=torch.bool, device=self.device
         )
@@ -570,15 +607,17 @@ class HACPlusModel(BaseGaussianModel):
         core.opacity_accum[full_visible] += temp_opacity.sum(dim=1, keepdim=True)
         core.anchor_demon[full_visible] += 1.0
 
-        expanded = full_visible.unsqueeze(1).repeat(1, k).view(-1)
-        combined = torch.zeros(self.num_anchors * k, dtype=torch.bool, device=self.device)
-        combined[expanded] = gaussians.selection_mask
-        selected_positions = combined.clone()
-        combined[selected_positions] = vis2d
-        idx = torch.nonzero(combined).squeeze(-1)
+        active_local = torch.nonzero(gaussians.selection_mask).squeeze(-1)  # [M]
+        local_anchor = active_local // k
+        local_offset = active_local % k
+        global_idx = gaussians.anchor_indices[local_anchor] * k + local_offset
+        idx = global_idx[gaussian_ids][vis2d]
         if idx.numel() > 0:
             assert means2d.grad is not None, "means2d grad missing; retain_grad was not set"
-            grad_norm = means2d.grad[0][vis2d, :2].norm(dim=-1, keepdim=True)
+            grad_norm = (
+                means2d.grad[vis2d, :2].norm(dim=-1, keepdim=True)
+                * (width / 2.0)
+            )
             core.offset_gradient_accum[idx] += grad_norm
             core.offset_denom[idx] += 1.0
 

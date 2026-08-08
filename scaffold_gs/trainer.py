@@ -226,6 +226,8 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 out.meta["means2d"],
                 (out.meta["radii"] > 0).all(dim=-1),
                 out.gaussians,
+                out.meta["width"],
+                out.meta["gaussian_ids"],
             )
         if (
             optim.update_from < iteration < optim.update_until
@@ -237,6 +239,8 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 grad_threshold=optim.densify_grad_threshold,
                 min_opacity=optim.min_opacity,
             )
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         model.optimizer.step()
         model.optimizer.zero_grad(set_to_none=True)
@@ -245,6 +249,12 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             pbar.set_postfix(
                 loss=f"{loss.item():.5f}",
                 anchors=f"{model.num_anchors}",
+            )
+        if torch.cuda.is_available() and iteration % 100 == 0:
+            print(
+                f"[Mem @{iteration}] alloc={torch.cuda.memory_allocated() / 1e9:.2f}GB "
+                f"reserved={torch.cuda.memory_reserved() / 1e9:.2f}GB",
+                flush=True,
             )
 
         if iteration in eval_steps:

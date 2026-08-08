@@ -43,6 +43,9 @@ def _empty_output(
         meta={
             "means2d": torch.zeros(1, 0, 2, device=device),
             "radii": torch.zeros(1, 0, 2, device=device),
+            "gaussian_ids": torch.zeros(0, dtype=torch.long, device=device),
+            "width": w,
+            "height": h,
         },
         gaussians=gaussians,
         visible_mask=torch.zeros(0, dtype=torch.bool, device=device),
@@ -71,23 +74,30 @@ def prefilter_anchors(
     quats = F.normalize(p.rotation, dim=-1)
     opacities = torch.ones(n, device=model.device)
 
-    _, _, meta = rasterization(
-        means=p.anchor,
-        quats=quats,
-        scales=scales,
-        opacities=opacities,
-        colors=torch.zeros(n, 1, device=model.device),  # ignored for depth-only
-        viewmats=viewmats,
-        Ks=Ks,
-        width=camera.width,
-        height=camera.height,
-        near_plane=camera.near_plane,
-        far_plane=camera.far_plane,
-        render_mode="D",
-        packed=False,
-    )
-    radii = meta["radii"]  # [1, N, 2]
-    return (radii[0] > 0).all(dim=-1)
+    visible = torch.zeros(n, dtype=torch.bool, device=model.device)
+    chunk = 65_536
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        _, _, meta = rasterization(
+            means=p.anchor[start:end],
+            quats=quats[start:end],
+            scales=scales[start:end],
+            opacities=opacities[start:end],
+            colors=torch.zeros(end - start, 1, device=model.device),
+            viewmats=viewmats,
+            Ks=Ks,
+            width=camera.width,
+            height=camera.height,
+            near_plane=camera.near_plane,
+            far_plane=camera.far_plane,
+            render_mode="D",
+            packed=True,
+        )
+        gids = meta["gaussian_ids"]  # [nnz]
+        radii = meta["radii"]  # [nnz, 2]
+        vis_rows = (radii > 0).all(dim=-1)
+        visible[start:end][gids[vis_rows]] = True
+    return visible
 
 
 def render(
@@ -132,9 +142,9 @@ def render(
         height=camera.height,
         near_plane=camera.near_plane,
         far_plane=camera.far_plane,
-        backgrounds=background[None],
+        backgrounds=background,
         render_mode="RGB",
-        packed=False,
+        packed=True,
         sh_degree=None,
     )
     if retain_grad:

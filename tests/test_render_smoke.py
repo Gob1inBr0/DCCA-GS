@@ -52,6 +52,8 @@ def test_render_and_train_step():
         out.meta["means2d"],
         (out.meta["radii"] > 0).all(dim=-1),
         out.gaussians,
+        out.meta["width"],
+        out.meta["gaussian_ids"],
     )
     model.optimizer.step()
     model.optimizer.zero_grad(set_to_none=True)

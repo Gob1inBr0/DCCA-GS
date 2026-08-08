@@ -128,6 +128,8 @@ def training_statis(
     means2d: torch.Tensor,
     visibility_filter: torch.Tensor,
     gaussians: NeuralGaussians,
+    width: float,
+    gaussian_ids: torch.Tensor,
 ) -> None:
     """Accumulate opacity / 2D-gradient statistics for anchor refinement.
 
@@ -160,11 +162,15 @@ def training_statis(
     local_offset = active_local % k
     global_idx = global_visible[local_anchor] * k + local_offset
 
-    vis2d = visibility_filter[0]  # [M]
-    idx = global_idx[vis2d]
+    vis2d = visibility_filter  # [nnz] bool (packed rows)
+    idx = global_idx[gaussian_ids][vis2d]
     if idx.numel() > 0:
         assert means2d.grad is not None, "means2d grad missing; retain_grad was not set"
-        grad_norm = means2d.grad[0][vis2d, :2].norm(dim=-1, keepdim=True)
+        # gsplat's means2d is in normalized [-1, 1] screen coords; the official
+        # 3DGS/HAC++ threshold (2e-4) is in pixel units, so rescale by width/2.
+        grad_norm = (
+            means2d.grad[vis2d, :2].norm(dim=-1, keepdim=True) * (width / 2.0)
+        )
         model.offset_gradient_accum.index_add_(0, idx, grad_norm)
         model.offset_denom.index_add_(
             0, idx, torch.ones_like(grad_norm, device=device)
