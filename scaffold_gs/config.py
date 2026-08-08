@@ -115,6 +115,30 @@ class OptimConfig:
     appearance_lr_delay_mult: float = 0.01
     appearance_lr_max_steps: int = 30_000
 
+    # HAC++-specific schedules (mask / hash-grid / context MLPs).
+    mask_lr_init: float = 0.01
+    mask_lr_final: float = 0.0001
+    mask_lr_delay_mult: float = 0.01
+    mask_lr_max_steps: int = 30_000
+
+    encoding_xyz_lr_init: float = 0.005
+    encoding_xyz_lr_final: float = 0.00001
+    encoding_xyz_lr_delay_mult: float = 0.33
+    encoding_xyz_lr_max_steps: int = 30_000
+
+    mlp_grid_lr_init: float = 0.005
+    mlp_grid_lr_final: float = 0.00001
+    mlp_grid_lr_delay_mult: float = 0.01
+    mlp_grid_lr_max_steps: int = 30_000
+
+    mlp_deform_lr_init: float = 0.005
+    mlp_deform_lr_final: float = 0.0005
+    mlp_deform_lr_delay_mult: float = 0.01
+    mlp_deform_lr_max_steps: int = 30_000
+
+    lambda_rate: float = 0.004
+    """Rate-distortion weight for HAC++ (official default 0.004)."""
+
     lambda_dssim: float = 0.2
     scale_reg_lambda: float = 0.01
 

@@ -89,17 +89,14 @@ def cat_params_and_optimizer(
         if not _is_anchor_group(name) or name not in tensors:
             continue
         old = group["params"][0]
-        ext = tensors[name].to(old.device)
-        new_param = nn.Parameter(
-            torch.cat([old.detach(), ext], dim=0), requires_grad=old.requires_grad
-        )
+        new_param = getattr(model.anchor_params, name)
         state = model.optimizer.state.get(old)
         if state is not None:
             state["exp_avg"] = torch.cat(
-                [state["exp_avg"], torch.zeros_like(ext)], dim=0
+                [state["exp_avg"], torch.zeros_like(tensors[name])], dim=0
             )
             state["exp_avg_sq"] = torch.cat(
-                [state["exp_avg_sq"], torch.zeros_like(ext)], dim=0
+                [state["exp_avg_sq"], torch.zeros_like(tensors[name])], dim=0
             )
             del model.optimizer.state[old]
             model.optimizer.state[new_param] = state
@@ -116,9 +113,7 @@ def prune_params_and_optimizer(model: BaseGaussianModel, mask: torch.Tensor) -> 
         if not _is_anchor_group(name):
             continue
         old = group["params"][0]
-        new_param = nn.Parameter(
-            old.detach()[mask], requires_grad=old.requires_grad
-        )
+        new_param = getattr(model.anchor_params, name)
         state = model.optimizer.state.get(old)
         if state is not None:
             state["exp_avg"] = state["exp_avg"][mask]
@@ -168,7 +163,8 @@ def training_statis(
     vis2d = visibility_filter[0]  # [M]
     idx = global_idx[vis2d]
     if idx.numel() > 0:
-        grad_norm = means2d[0][vis2d, :2].norm(dim=-1, keepdim=True)
+        assert means2d.grad is not None, "means2d grad missing; retain_grad was not set"
+        grad_norm = means2d.grad[0][vis2d, :2].norm(dim=-1, keepdim=True)
         model.offset_gradient_accum.index_add_(0, idx, grad_norm)
         model.offset_denom.index_add_(
             0, idx, torch.ones_like(grad_norm, device=device)

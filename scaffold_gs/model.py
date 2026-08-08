@@ -44,6 +44,11 @@ class NeuralGaussians:
     selection_mask: torch.Tensor  # [n * K] bool, True where opacity > 0
     visible_mask: torch.Tensor  # [N] bool anchors used for this camera
     anchor_indices: torch.Tensor  # [n] global indices of visible anchors
+    # Optional HAC++ rate statistics (None for Scaffold-GS).
+    bit_per_param: Optional[torch.Tensor] = None
+    bit_per_feat_param: Optional[torch.Tensor] = None
+    bit_per_scaling_param: Optional[torch.Tensor] = None
+    bit_per_offsets_param: Optional[torch.Tensor] = None
 
 
 class AnchorParams(nn.Module):
@@ -407,8 +412,10 @@ class ScaffoldGSModel(BaseGaussianModel):
         visible_mask: Optional[torch.Tensor] = None,
         is_training: bool = False,
         appearance_id: Optional[int] = None,
+        step: int = 0,
     ) -> NeuralGaussians:
         del is_training  # Scaffold-GS decodes the same way in train/eval.
+        del step
         center = camera.camera_center(self.device)
         return self.decoder.predict_gaussians(
             self.anchor_params,
@@ -733,19 +740,42 @@ class ScaffoldGSModel(BaseGaussianModel):
 
     def load_mlp_checkpoints(self, path: str | Path) -> None:
         path = Path(path)
-        self.decoder.mlp_opacity.load_state_dict(torch.load(path / "opacity_mlp.pt"))
-        self.decoder.mlp_cov.load_state_dict(torch.load(path / "cov_mlp.pt"))
-        self.decoder.mlp_color.load_state_dict(torch.load(path / "color_mlp.pt"))
+        self.decoder.mlp_opacity.load_state_dict(
+            torch.load(path / "opacity_mlp.pt", weights_only=False)
+        )
+        self.decoder.mlp_cov.load_state_dict(
+            torch.load(path / "cov_mlp.pt", weights_only=False)
+        )
+        self.decoder.mlp_color.load_state_dict(
+            torch.load(path / "color_mlp.pt", weights_only=False)
+        )
         if self.decoder.use_feat_bank:
             self.decoder.mlp_feature_bank.load_state_dict(
-                torch.load(path / "feature_bank_mlp.pt")
+                torch.load(path / "feature_bank_mlp.pt", weights_only=False)
             )
         if self.decoder.embedding_appearance is not None:
             self.decoder.embedding_appearance.load_state_dict(
-                torch.load(path / "embedding_appearance.pt")
+                torch.load(path / "embedding_appearance.pt", weights_only=False)
             )
 
 
 MODELS: Dict[str, Type[BaseGaussianModel]] = {
     ScaffoldGSModel.model_name: ScaffoldGSModel,
 }
+
+
+def get_model_class(name: str) -> Type[BaseGaussianModel]:
+    """Resolve a model class, lazily importing heavy/optional modules.
+
+    ``hac_pp`` lives in :mod:`scaffold_gs.hacpp` and requires the HAC++
+    CUDA extensions (``_gridencoder`` / ``arithmetic``), so it is only
+    imported when actually requested.
+    """
+    if name in MODELS:
+        return MODELS[name]
+    if name == "hac_pp":
+        from .hacpp import HACPlusModel
+
+        MODELS[name] = HACPlusModel
+        return HACPlusModel
+    raise KeyError(f"Unknown model: {name!r}. Available: {sorted(MODELS)}")

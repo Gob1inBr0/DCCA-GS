@@ -97,6 +97,7 @@ def render(
     is_training: bool = False,
     retain_grad: bool = False,
     appearance_id: Optional[int] = None,
+    **kwargs,
 ) -> RenderOutput:
     """Render one camera with the decoded neural Gaussians."""
     from gsplat.rendering import rasterization
@@ -110,6 +111,7 @@ def render(
         visible_mask=visible_mask,
         is_training=is_training,
         appearance_id=appearance_id,
+        **kwargs,
     )
     if gaussians.xyz.shape[0] == 0:
         out = _empty_output(camera, model.device, model.cfg.n_offsets)

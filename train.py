@@ -80,10 +80,15 @@ def cmd_compress(cfg: CompressConfig) -> None:
     model, _, iteration = _load_for_io(cfg)
     out_dir = Path(cfg.out_dir)
     if cfg.codec not in CODECS:
-        raise NotImplementedError(
-            f"Codec '{cfg.codec}' is not implemented yet. "
-            "Available: none. HAC / HAC++ codecs will register here later."
-        )
+        if cfg.codec == "hac_pp":
+            from scaffold_gs.hacpp import HACPlusCodec
+
+            CODECS["hac_pp"] = HACPlusCodec
+        else:
+            raise NotImplementedError(
+                f"Codec '{cfg.codec}' is not implemented yet. "
+                "Available: none, hac_pp."
+            )
     codec = CODECS[cfg.codec]()
     metadata = codec.encode(model, out_dir)
     metadata["iteration"] = iteration

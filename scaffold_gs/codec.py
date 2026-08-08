@@ -59,10 +59,12 @@ class RawAttributeCodec(CompressionCodec):
         }
 
     def decode(self, artifact_dir: Path) -> BaseGaussianModel:
-        from .model import MODELS
+        from .model import get_model_class
 
-        attrs = torch.load(artifact_dir / "attributes.pth")
-        model_cls = MODELS[attrs["config"]["model_name"]]
+        attrs = torch.load(
+            artifact_dir / "attributes.pth", map_location="cuda", weights_only=False
+        )
+        model_cls = get_model_class(attrs["config"]["model_name"])
         return model_cls.from_attributes(attrs, "cuda")
 
 

@@ -62,10 +62,27 @@ python train.py compress --cfg.ckpt results/garden/ckpts/ckpt_30000.pth \
 
 ## 扩展 HAC / HAC++
 
-1. 在 `scaffold_gs/model.py` 中新增 `HACModel` / `HACPlusModel` 并注册进 `MODELS`。
-2. 复用 `renderer`、`growth`、`trainer`；只替换 `AnchorDecoder.predict_gaussians()`
-   为哈希网格上下文解码。
-3. 在 `scaffold_gs/codec.py` 注册 `hac` / `hac_pp` 编解码器，`compress` 子命令即可使用。
+HAC++ 模块已集成（`scaffold_gs/hacpp.py` + 官方核心 `hacplus/`），
+渲染仍走 gsplat，编码走官方 `arithmetic` 算术编码器。
+
+```bash
+# 在 5090 上使用 HAC++ 环境（已装 _gridencoder/arithmetic/simple_knn）
+conda activate HAC_5090_a100
+cd ~/gsplat2hac
+
+# 率失真训练（feat_dim=50、n_offsets=10 与官方一致）
+python train.py train --cfg.model.model-name hac_pp \
+  --cfg.data.data-dir <你的COLMAP场景> --cfg.data.result-dir results/<scene> \
+  --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 50 --cfg.model.n-offsets 10 \
+  --cfg.optim.lambda-rate 0.004 --cfg.optim.max-steps 30000
+
+# 算术编码（生成 attributes.pth + feat/scaling/offsets/masks/hash bitstream）
+python train.py compress --cfg.ckpt results/<scene>/ckpts/ckpt_30000.pth \
+  --cfg.out-dir results/<scene>/bitstreams --cfg.codec hac_pp
+```
+
+Scaffold-GS 的扩展点依然保留：`BaseGaussianModel` + `MODELS` 注册表 +
+`AnchorDecoder.predict_gaussians()` 替换入口 + `CompressionCodec` 接口。
 
 ## 测试
 
@@ -74,3 +91,4 @@ pytest tests/ -x -q
 ```
 
 `test_render_smoke.py` 需要 CUDA GPU；模型/生长单测可在 CPU 上运行。
+`test_hacpp_smoke.py` 需要 HAC++ CUDA 扩展，请在 `HAC_5090_a100` 环境运行。

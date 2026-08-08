@@ -18,3 +18,8 @@ tensorboard
 #   pip install -e /Users/chen/Documents/gsplat-main
 # or install the PyPI release:
 #   pip install gsplat
+
+# HAC++ module (scaffold_gs/hacpp.py + hacplus/) additionally requires the
+# CUDA extensions from the official HAC-plus repo:
+#   _gridencoder, arithmetic, simple_knn, torch_scatter
+# On the 5090 server these are pre-installed in the `HAC_5090_a100` conda env.

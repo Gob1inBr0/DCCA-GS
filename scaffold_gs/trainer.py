@@ -16,7 +16,7 @@ import tqdm
 from .config import DataConfig, ModelConfig, OptimConfig, TrainConfig
 from .datasets import ColmapDataset
 from .losses import l1_loss, ssim_loss
-from .model import BaseGaussianModel, MODELS
+from .model import BaseGaussianModel, get_model_class
 from .utils import set_random_seed
 
 
@@ -57,9 +57,9 @@ def save_checkpoint(
 def load_checkpoint(
     path: str | Path, device: str
 ) -> tuple[BaseGaussianModel, OptimConfig, int, Dict[str, Any]]:
-    ckpt = torch.load(path, map_location=device)
+    ckpt = torch.load(path, map_location=device, weights_only=False)
     model_cfg = ModelConfig(**ckpt["model_config"])
-    model_cls = MODELS[ckpt["model_name"]]
+    model_cls = get_model_class(ckpt["model_name"])
     model = model_cls(model_cfg, device)
     model.voxel_size = ckpt["voxel_size"]
     model.spatial_lr_scale = ckpt["spatial_lr_scale"]
@@ -171,7 +171,7 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         device=device,
     )
 
-    model = MODELS[cfg.model.model_name](cfg.model, device)
+    model = get_model_class(cfg.model.model_name)(cfg.model, device)
     model.init_from_pcd(dataset.points, dataset.points_rgb, dataset.scene_scale)
     model.set_appearance(dataset.num_cameras)
     model.create_optimizer(cfg.optim)
@@ -197,6 +197,7 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             is_training=True,
             retain_grad=retain_grad,
             appearance_id=cam.appearance_id,
+            step=iteration,
         )
 
         gt = dataset.get_image(cam)
@@ -212,6 +213,9 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             + optim.lambda_dssim * ssim
             + optim.scale_reg_lambda * scale_reg
         )
+        rate_term = getattr(model, "rate_loss_term", None)
+        if rate_term is not None:
+            loss = loss + rate_term(out.gaussians, iteration)
 
         loss.backward()
 
