@@ -19,12 +19,6 @@ from PIL import Image
 
 from .utils import camera_extent_radius
 
-try:
-    import pycolmap
-except ImportError:  # pragma: no cover - exercised on machines without pycolmap
-    pycolmap = None
-
-
 def _image_w2c(image) -> np.ndarray:
     cam_from_world = image.cam_from_world
     if callable(cam_from_world):
@@ -89,6 +83,12 @@ class ColmapDataset:
         preload_images: bool = True,
         device: str = "cuda",
     ) -> None:
+        # Imported lazily: pycolmap must load *after* torch_scatter on the
+        # HAC++ env, otherwise the process segfaults at dlopen time.
+        try:
+            import pycolmap
+        except ImportError:  # pragma: no cover
+            pycolmap = None
         if pycolmap is None:
             raise ImportError(
                 "pycolmap is required to load COLMAP scenes. "

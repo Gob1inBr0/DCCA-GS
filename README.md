@@ -83,6 +83,10 @@ python train.py compress --cfg.ckpt results/<scene>/ckpts/ckpt_30000.pth \
 
 GPCC 需要 `tmc3` 可执行文件在 PATH 中（5090 的 `HAC_5090_a100` 环境已自带）。
 
+在 5090 上运行 HAC++ 时建议加 `export PYTHONNOUSERSITE=1`，
+避免 `~/.local/lib/python3.10/site-packages` 里的旧 torch 干扰
+（否则可能出现 torch_scatter 加载时的偶发 Bus error）。
+
 Scaffold-GS 的扩展点依然保留：`BaseGaussianModel` + `MODELS` 注册表 +
 `AnchorDecoder.predict_gaussians()` 替换入口 + `CompressionCodec` 接口。
 

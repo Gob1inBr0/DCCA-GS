@@ -398,6 +398,50 @@ class HACPlusModel(BaseGaussianModel):
             if step == 10000:
                 core.update_anchor_bound()
             if step > 10000:
+                # Quantization noise on the rendering attributes (official
+                # renderer behavior): the model must learn to survive the
+                # hard quantization applied at eval/encode time.
+                feat_context_orig = core.calc_interp_feat(anchor)
+                ctx_out = core.get_grid_mlp(feat_context_orig)
+                (
+                    _mean,
+                    _scale,
+                    _prob,
+                    _mean_scaling,
+                    _scale_scaling,
+                    _mean_offsets,
+                    _scale_offsets,
+                    qa,
+                    qs,
+                    qo,
+                ) = torch.split(
+                    ctx_out,
+                    [
+                        self.cfg.feat_dim,
+                        self.cfg.feat_dim,
+                        self.cfg.feat_dim,
+                        6,
+                        6,
+                        3 * k,
+                        3 * k,
+                        1,
+                        1,
+                        1,
+                    ],
+                    dim=-1,
+                )
+                Q_feat = 1.0 * (1 + torch.tanh(qa.repeat(1, self.cfg.feat_dim)))
+                Q_scaling = 0.001 * (1 + torch.tanh(qs.repeat(1, 6)))
+                Q_offsets = 0.2 * (
+                    1 + torch.tanh(qo.repeat(1, 3 * k))
+                ).view(-1, k, 3)
+                feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
+                grid_scaling = grid_scaling + (
+                    torch.rand_like(grid_scaling) - 0.5
+                ) * Q_scaling
+                grid_offsets = grid_offsets + (
+                    torch.rand_like(grid_offsets) - 0.5
+                ) * Q_offsets
                 (
                     bit_per_param,
                     bit_per_feat_param,

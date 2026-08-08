@@ -162,6 +162,9 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     ply_dir.mkdir(parents=True, exist_ok=True)
 
+    # Create the model first: for hac_pp this imports torch_scatter via the
+    # vendored HAC++ core, and pycolmap must load afterwards (see datasets.py).
+    model = get_model_class(cfg.model.model_name)(cfg.model, device)
     dataset = ColmapDataset(
         data_dir=cfg.data.data_dir,
         data_factor=cfg.data.data_factor,
@@ -171,7 +174,6 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         device=device,
     )
 
-    model = get_model_class(cfg.model.model_name)(cfg.model, device)
     model.init_from_pcd(dataset.points, dataset.points_rgb, dataset.scene_scale)
     model.set_appearance(dataset.num_cameras)
     model.create_optimizer(cfg.optim)
