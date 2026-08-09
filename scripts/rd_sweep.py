@@ -147,10 +147,16 @@ def main() -> None:
     for cfg in configs:
         tag = _tag(cfg)
         out_dir = result_dir / tag
+        decoded = None
         try:
             codec = HACPlusCodec()
             meta = codec.encode(model, out_dir, **cfg)
-            decoded = codec.decode(out_dir, **cfg)
+            decoded = codec.decode(
+                out_dir,
+                q_scale_feat=cfg["q_scale_feat"],
+                q_scale_scaling=cfg["q_scale_scaling"],
+                q_scale_offsets=cfg["q_scale_offsets"],
+            )
             metrics = evaluate(decoded, dataset, out_dir / "eval", iteration)
             row: Dict[str, Any] = {
                 "tag": tag,
@@ -193,7 +199,8 @@ def main() -> None:
                 "error": f"{type(exc).__name__}: {exc}",
             }
         rows.append(row)
-        del decoded
+        if decoded is not None:
+            del decoded
         torch.cuda.empty_cache()
 
     for row in rows:
