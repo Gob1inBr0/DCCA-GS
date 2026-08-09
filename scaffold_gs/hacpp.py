@@ -828,8 +828,27 @@ class HACPlusModel(BaseGaussianModel):
         )
 
     @torch.no_grad()
-    def encode_attributes(self, out_dir: Path) -> Dict[str, Any]:
-        """Entropy-code anchor attributes with the official arithmetic codec."""
+    def encode_attributes(
+        self,
+        out_dir: Path,
+        q_scale_feat: float = 1.0,
+        q_scale_scaling: float = 1.0,
+        q_scale_offsets: float = 1.0,
+        mask_keep_ratio: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Entropy-code anchor attributes with the official arithmetic codec.
+
+        Args:
+            out_dir: directory where bitstream artifacts are written.
+            q_scale_feat / q_scale_scaling / q_scale_offsets: post-hoc
+                multipliers applied to the learned quantization steps on both
+                encode and decode. 1.0 preserves official behavior; larger
+                values coarsen quantization (fewer bits, more distortion).
+            mask_keep_ratio: optional post-hoc anchor pruning. If in (0, 1),
+                keep only the top fraction of anchors ranked by the learned
+                anchor-mask rate instead of the official ``mask_anchor`` rule.
+                ``None`` or 1.0 preserves official behavior.
+        """
         from scene.gaussian_model import bit2MB_scale
 
         core = self.core
@@ -838,7 +857,19 @@ class HACPlusModel(BaseGaussianModel):
         k = self.cfg.n_offsets
         device = self.device
 
-        mask_anchor = core.get_mask_anchor.to(torch.bool)[:, 0]
+        n_total = core._anchor.shape[0]
+        if mask_keep_ratio is not None and mask_keep_ratio < 1.0:
+            if not (0.0 < mask_keep_ratio < 1.0):
+                raise ValueError(
+                    f"mask_keep_ratio must be in (0, 1), got {mask_keep_ratio}"
+                )
+            mask_rate = core.get_mask.mean(dim=1)[:, 0]  # [N] soft anchor score
+            keep_n = max(1, int(round(n_total * mask_keep_ratio)))
+            keep = torch.zeros(n_total, dtype=torch.bool, device=device)
+            keep[torch.topk(mask_rate, keep_n).indices] = True
+            mask_anchor = keep
+        else:
+            mask_anchor = core.get_mask_anchor.to(torch.bool)[:, 0]
         anchor = core.get_anchor[mask_anchor]
         feat = core._anchor_feat[mask_anchor]
         offsets = core._offset[mask_anchor]
@@ -901,9 +932,9 @@ class HACPlusModel(BaseGaussianModel):
             mean_offsets = mean_offsets.contiguous().view(-1)
             scale_scaling = scale_scaling.contiguous().view(-1).clamp(min=1e-9)
             scale_offsets = scale_offsets.contiguous().view(-1).clamp(min=1e-9)
-            Q_feat = 1.0 * (1 + torch.tanh(qa))
-            Q_scaling = 0.001 * (1 + torch.tanh(qs))
-            Q_offsets = 0.2 * (1 + torch.tanh(qo))
+            Q_feat = q_scale_feat * 1.0 * (1 + torch.tanh(qa))
+            Q_scaling = q_scale_scaling * 0.001 * (1 + torch.tanh(qs))
+            Q_offsets = q_scale_offsets * 0.2 * (1 + torch.tanh(qo))
 
             # features (channel-context, 10 channels per step)
             feat_slice = feat[start:end]
@@ -989,6 +1020,11 @@ class HACPlusModel(BaseGaussianModel):
         meta = {
             "codec": "hac_pp",
             "num_anchors": int(N),
+            "num_anchors_total": int(n_total),
+            "q_scale_feat": float(q_scale_feat),
+            "q_scale_scaling": float(q_scale_scaling),
+            "q_scale_offsets": float(q_scale_offsets),
+            "mask_keep_ratio": mask_keep_ratio,
             "bit_anchor": int(bits_xyz),
             "bit_feat": int(sum(bit_feat_list)),
             "bit_scaling": int(sum(bit_scaling_list)),
@@ -1003,8 +1039,17 @@ class HACPlusModel(BaseGaussianModel):
         return meta
 
     @torch.no_grad()
-    def decode_attributes(self, artifact_dir: Path) -> None:
-        """Restore quantized attributes from the bitstream (official decode)."""
+    def decode_attributes(
+        self,
+        artifact_dir: Path,
+        q_scale_feat: float = 1.0,
+        q_scale_scaling: float = 1.0,
+        q_scale_offsets: float = 1.0,
+    ) -> None:
+        """Restore quantized attributes from the bitstream (official decode).
+
+        The ``q_scale_*`` values must match the ones used at encode time.
+        """
         from scene.gaussian_model import bit2MB_scale
 
         core = self.core
@@ -1069,9 +1114,9 @@ class HACPlusModel(BaseGaussianModel):
             mean_offsets = mean_offsets.contiguous().view(-1)
             scale_scaling = scale_scaling.contiguous().view(-1).clamp(min=1e-9)
             scale_offsets = scale_offsets.contiguous().view(-1).clamp(min=1e-9)
-            Q_feat = 1.0 * (1 + torch.tanh(qa))
-            Q_scaling = 0.001 * (1 + torch.tanh(qs))
-            Q_offsets = 0.2 * (1 + torch.tanh(qo))
+            Q_feat = q_scale_feat * 1.0 * (1 + torch.tanh(qa))
+            Q_scaling = q_scale_scaling * 0.001 * (1 + torch.tanh(qs))
+            Q_offsets = q_scale_offsets * 0.2 * (1 + torch.tanh(qo))
 
             n_num = end - start
             feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
@@ -1178,13 +1223,18 @@ class HACPlusCodec(CompressionCodec):
 
     name = "hac_pp"
 
-    def encode(self, model: BaseGaussianModel, output_dir: Path) -> Dict[str, Any]:
+    def encode(
+        self,
+        model: BaseGaussianModel,
+        output_dir: Path,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         if not isinstance(model, HACPlusModel):
             raise TypeError("hac_pp codec requires a HACPlusModel.")
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         torch.save(model.export_attributes(), output_dir / "attributes.pth")
-        meta = model.encode_attributes(output_dir)
+        meta = model.encode_attributes(output_dir, **kwargs)
         meta["raw_attribute_MB"] = round(
             sum(
                 int(t.nelement() * t.element_size())
@@ -1196,11 +1246,15 @@ class HACPlusCodec(CompressionCodec):
         )
         return meta
 
-    def decode(self, artifact_dir: Path) -> BaseGaussianModel:
+    def decode(
+        self,
+        artifact_dir: Path,
+        **kwargs: Any,
+    ) -> BaseGaussianModel:
         artifact_dir = Path(artifact_dir)
         attrs = torch.load(
             artifact_dir / "attributes.pth", map_location="cuda", weights_only=False
         )
         model = HACPlusModel.from_attributes(attrs, "cuda")
-        model.decode_attributes(artifact_dir)
+        model.decode_attributes(artifact_dir, **kwargs)
         return model
