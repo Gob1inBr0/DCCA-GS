@@ -123,7 +123,7 @@ def prune_params_and_optimizer(model: BaseGaussianModel, mask: torch.Tensor) -> 
         group["params"][0] = new_param
 
 
-def training_statis(
+def accumulate_growth_stats(
     model: BaseGaussianModel,
     means2d: torch.Tensor,
     visibility_filter: torch.Tensor,
@@ -138,7 +138,7 @@ def training_statis(
         means2d: screen-space means from gsplat, ``[1, M, 2]`` (grad retained).
         visibility_filter: ``[1, M]`` bool, one row per decoded Gaussian (the
             rasterizer runs in non-packed mode so no per-tile duplication).
-        gaussians: the ``NeuralGaussians`` object returned by the renderer.
+    gaussians: the ``NeuralGaussians`` object returned by the renderer.
     """
     assert model.opacity_accum is not None
     assert model.offset_gradient_accum is not None
@@ -147,22 +147,21 @@ def training_statis(
 
     k = model.cfg.n_offsets
     device = model.device
-    vis = gaussians.visible_mask
-    global_visible = torch.nonzero(vis).squeeze(-1)
-    if global_visible.numel() == 0:
+    anchor_indices = gaussians.anchor_indices
+    if anchor_indices.numel() == 0:
         return
 
     # Opacity / visit statistics for visible anchors.
     temp_opacity = gaussians.neural_opacity.clamp(min=0.0)  # [n, K]
-    model.opacity_accum[global_visible] += temp_opacity.sum(dim=1, keepdim=True)
-    model.anchor_demon[global_visible] += 1.0
+    model.opacity_accum[anchor_indices] += temp_opacity.sum(dim=1, keepdim=True)
+    model.anchor_demon[anchor_indices] += 1.0
 
     # Map masked (decoded) Gaussians back to global anchor*K+offset indices.
     selection_mask = gaussians.selection_mask  # [n*K]
     active_local = torch.nonzero(selection_mask).squeeze(-1)  # [M]
     local_anchor = active_local // k
     local_offset = active_local % k
-    global_idx = global_visible[local_anchor] * k + local_offset
+    global_idx = anchor_indices[local_anchor] * k + local_offset
 
     if means2d.dim() == 3:
         # Non-packed: one row per decoded Gaussian.
@@ -200,6 +199,21 @@ def training_statis(
         model.offset_denom.index_add_(
             0, idx, torch.ones_like(grad_norm, device=device)
         )
+
+
+def training_statis(
+    model: BaseGaussianModel,
+    means2d: torch.Tensor,
+    visibility_filter: torch.Tensor,
+    gaussians: NeuralGaussians,
+    width: float,
+    gaussian_ids: torch.Tensor,
+    height: float,
+) -> None:
+    """Shared growth-statistics entry point (see ``accumulate_growth_stats``)."""
+    accumulate_growth_stats(
+        model, means2d, visibility_filter, gaussians, width, gaussian_ids, height
+    )
 
 
 def grow_anchors(

@@ -20,22 +20,22 @@ from simple_knn._C import distCUDA2
 from torch import nn
 from torch_scatter import scatter_max
 
-from utils.general_utils import (build_scaling_rotation, get_expon_lr_func,
+from hacplus.utils.general_utils import (build_scaling_rotation, get_expon_lr_func,
                                  inverse_sigmoid, strip_symmetric)
-from utils.graphics_utils import BasicPointCloud
-from utils.system_utils import mkdir_p
-from utils.entropy_models import Entropy_bernoulli, Entropy_gaussian, Entropy_factorized, Entropy_gaussian_mix_prob_2
+from hacplus.utils.graphics_utils import BasicPointCloud
+from hacplus.utils.system_utils import mkdir_p
+from hacplus.utils.entropy_models import Entropy_bernoulli, Entropy_gaussian, Entropy_factorized, Entropy_gaussian_mix_prob_2
 
-from utils.encodings import \
+from hacplus.utils.encodings import \
     STE_binary, STE_multistep, Quantize_anchor, \
     GridEncoder, \
     anchor_round_digits, \
     get_binary_vxl_size
 
-from utils.encodings_cuda import \
+from hacplus.utils.encodings_cuda import \
     encoder, decoder, \
     encoder_gaussian_chunk, decoder_gaussian_chunk, encoder_gaussian_mixed_chunk, decoder_gaussian_mixed_chunk
-from utils.gpcc_utils import compress_gpcc, decompress_gpcc, calculate_morton_order
+from hacplus.utils.gpcc_utils import compress_gpcc, decompress_gpcc, calculate_morton_order
 
 bit2MB_scale = 8 * 1024 * 1024
 MAX_batch_size = 3000

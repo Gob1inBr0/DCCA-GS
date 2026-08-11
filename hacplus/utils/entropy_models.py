@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as nnf
 import numpy as np
 from torch.distributions.uniform import Uniform
-from utils.encodings import use_clamp
+from hacplus.utils.encodings import use_clamp
 
 class Entropy_gaussian_clamp(nn.Module):
     def __init__(self, Q=1):

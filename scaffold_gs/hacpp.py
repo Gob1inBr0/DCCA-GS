@@ -27,10 +27,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
-    import hacplus  # noqa: F401  (registers sys.path)
-    from scene.gaussian_model import MAX_batch_size, GaussianModel as _OfficialHACModel
-    from utils.encodings import STE_multistep, get_binary_vxl_size
-    from utils.encodings_cuda import (
+    from hacplus.scene.gaussian_model import (
+        MAX_batch_size,
+        GaussianModel as _OfficialHACModel,
+    )
+    from hacplus.utils.encodings import STE_multistep, get_binary_vxl_size
+    from hacplus.utils.encodings_cuda import (
         decoder,
         decoder_gaussian_chunk,
         decoder_gaussian_mixed_chunk,
@@ -38,7 +40,7 @@ try:
         encoder_gaussian_chunk,
         encoder_gaussian_mixed_chunk,
     )
-    from utils.gpcc_utils import (
+    from hacplus.utils.gpcc_utils import (
         calculate_morton_order,
         compress_gpcc,
         decompress_gpcc,
@@ -49,6 +51,7 @@ except Exception as exc:  # pragma: no cover - missing HAC++ extensions
 
 from .codec import CompressionCodec
 from .config import ModelConfig, OptimConfig
+from .hac_core import HACCoreView
 from .model import BaseGaussianModel, NeuralGaussians
 from .utils import inverse_sigmoid, knn_distances, median_nn_distance, voxelize_points
 
@@ -62,19 +65,19 @@ class _ParamsView:
 
     @property
     def anchor(self) -> torch.Tensor:
-        return self._m.core.get_anchor
+        return self._m._view.get_anchor()
 
     @property
     def scaling(self) -> torch.Tensor:
-        return self._m.core.get_scaling
+        return self._m._view.get_scaling()
 
     @property
     def rotation(self) -> torch.Tensor:
-        return self._m.core.get_rotation
+        return self._m._view.get_rotation()
 
     @property
     def num_anchors(self) -> int:
-        return self._m.core.get_anchor.shape[0]
+        return self._m._view.num_anchors
 
 
 def _empty_gaussians(model: "HACPlusModel", n_total: int) -> NeuralGaussians:
@@ -129,6 +132,7 @@ class HACPlusModel(BaseGaussianModel):
             is_synthetic_nerf=False,
         )
         self.core.to(self.device)
+        self._view = HACCoreView(self.core)
         self.anchor_params = _ParamsView(self)
         self.optim_cfg: Optional[OptimConfig] = None
         self.voxel_size = cfg.voxel_size
@@ -183,17 +187,17 @@ class HACPlusModel(BaseGaussianModel):
 
     def state_dict(self, *args, **kwargs):
         sd = self.core.state_dict(*args, **kwargs)
-        sd["_x_bound_min"] = self.core.x_bound_min
-        sd["_x_bound_max"] = self.core.x_bound_max
-        sd["_decoded_version"] = torch.tensor(int(self.core.decoded_version))
+        sd["_x_bound_min"] = self._view.x_bound_min
+        sd["_x_bound_max"] = self._view.x_bound_max
+        sd["_decoded_version"] = torch.tensor(int(self._view.decoded_version))
         return sd
 
     def load_state_dict(self, *args, **kwargs):
         sd = dict(args[0])
         if "_x_bound_min" in sd:
-            self.core.x_bound_min = sd.pop("_x_bound_min").to(self.device)
-            self.core.x_bound_max = sd.pop("_x_bound_max").to(self.device)
-            self.core.decoded_version = bool(sd.pop("_decoded_version").item())
+            self._view.x_bound_min = sd.pop("_x_bound_min").to(self.device)
+            self._view.x_bound_max = sd.pop("_x_bound_max").to(self.device)
+            self._view.decoded_version = bool(sd.pop("_decoded_version").item())
         for key in (
             "_anchor",
             "_offset",
@@ -262,21 +266,21 @@ class HACPlusModel(BaseGaussianModel):
         rot = torch.zeros(n, 4, device=device)
         rot[:, 0] = 1.0
 
-        core._anchor = nn.Parameter(anchor, requires_grad=True)
-        core._offset = nn.Parameter(
+        self._view.anchor = nn.Parameter(anchor, requires_grad=True)
+        self._view.offset = nn.Parameter(
             torch.zeros(n, k, 3, device=device), requires_grad=True
         )
-        core._mask = nn.Parameter(
+        self._view.mask = nn.Parameter(
             torch.ones(n, k + 1, 1, device=device), requires_grad=True
         )
-        core._anchor_feat = nn.Parameter(
+        self._view.anchor_feat = nn.Parameter(
             torch.zeros(n, self.cfg.feat_dim, device=device), requires_grad=True
         )
-        core._scaling = nn.Parameter(
+        self._view.scaling = nn.Parameter(
             torch.from_numpy(scales_log).float().to(device), requires_grad=True
         )
-        core._rotation = nn.Parameter(rot, requires_grad=False)
-        core._opacity = nn.Parameter(
+        self._view.rotation = nn.Parameter(rot, requires_grad=False)
+        self._view.opacity = nn.Parameter(
             inverse_sigmoid(torch.full((n, 1), 0.1, device=device)),
             requires_grad=False,
         )
@@ -289,10 +293,10 @@ class HACPlusModel(BaseGaussianModel):
         core.update_anchor_bound()
         # Guard against anchor grids whose min/max sit exactly on 0, which the
         # official calc_interp_feat assertion rejects.
-        if (core.x_bound_min == 0).any():
-            core.x_bound_min = core.x_bound_min - 1e-4
-        if (core.x_bound_max == 0).any():
-            core.x_bound_max = core.x_bound_max + 1e-4
+        if (self._view.x_bound_min == 0).any():
+            self._view.x_bound_min = self._view.x_bound_min - 1e-4
+        if (self._view.x_bound_max == 0).any():
+            self._view.x_bound_max = self._view.x_bound_max + 1e-4
 
     def create_optimizer(self, optim_cfg: OptimConfig) -> None:
         self.optim_cfg = optim_cfg
@@ -376,8 +380,8 @@ class HACPlusModel(BaseGaussianModel):
             return _empty_gaussians(self, n_total)
 
         anchor = core.get_anchor[anchor_indices]
-        feat = core._anchor_feat[anchor_indices]
-        grid_offsets = core._offset[anchor_indices]
+        feat = self._view.anchor_feat[anchor_indices]
+        grid_offsets = self._view.offset[anchor_indices]
         grid_scaling = core.get_scaling[anchor_indices]
         binary_grid_masks = core.get_mask[anchor_indices]  # [n, K, 1]
         k = self.cfg.n_offsets
@@ -448,7 +452,7 @@ class HACPlusModel(BaseGaussianModel):
                     bit_per_scaling_param,
                     bit_per_offsets_param,
                 ) = self._estimate_rate_terms(anchor, feat, grid_scaling, grid_offsets)
-        elif not core.decoded_version:
+        elif not self._view.decoded_version:
             feat_context = core.calc_interp_feat(anchor)
             (
                 _mean,
@@ -484,12 +488,12 @@ class HACPlusModel(BaseGaussianModel):
             Q_offsets = Q_offsets * (
                 1 + torch.tanh(Q_offsets_adj.repeat(1, 3 * k))
             ).view(-1, k, 3)
-            feat = STE_multistep.apply(feat, Q_feat, core._anchor_feat.mean()).detach()
+            feat = STE_multistep.apply(feat, Q_feat, self._view.anchor_feat.mean()).detach()
             grid_scaling = STE_multistep.apply(
                 grid_scaling, Q_scaling, core.get_scaling.mean()
             ).detach()
             grid_offsets = STE_multistep.apply(
-                grid_offsets, Q_offsets, core._offset.mean()
+                grid_offsets, Q_offsets, self._view.offset.mean()
             ).detach()
 
         # Decode neural Gaussians in anchor chunks so peak memory does not
@@ -592,57 +596,12 @@ class HACPlusModel(BaseGaussianModel):
         gaussian_ids: torch.Tensor,
         height: float,
     ) -> None:
-        """Same statistics as official ``training_statis``, but reads the
-        screen-space gradients from gsplat's retained ``means2d.grad``."""
-        core = self.core
-        k = self.cfg.n_offsets
-        full_visible = torch.zeros(
-            self.num_anchors, dtype=torch.bool, device=self.device
-        )
-        full_visible[gaussians.anchor_indices] = True
+        """Shared growth statistics; see ``growth.accumulate_growth_stats``."""
+        from .growth import accumulate_growth_stats
 
-        temp_opacity = gaussians.neural_opacity.clone().view(-1).clamp(min=0.0).view(
-            -1, k
+        accumulate_growth_stats(
+            self, means2d, visibility_filter, gaussians, width, gaussian_ids, height
         )
-        core.opacity_accum[full_visible] += temp_opacity.sum(dim=1, keepdim=True)
-        core.anchor_demon[full_visible] += 1.0
-
-        active_local = torch.nonzero(gaussians.selection_mask).squeeze(-1)  # [M]
-        local_anchor = active_local // k
-        local_offset = active_local % k
-        global_idx = gaussians.anchor_indices[local_anchor] * k + local_offset
-        if means2d.dim() == 3:
-            # Non-packed: one row per decoded Gaussian.
-            vis2d = visibility_filter[0]
-            grad_rows = means2d.grad[0, vis2d, :2]
-            idx = global_idx[vis2d]
-        else:
-            # Packed: one row per (Gaussian, tile). Aggregate tile gradients
-            # back to one gradient per Gaussian (official means2D.grad).
-            vis2d = visibility_filter
-            gids = gaussian_ids[vis2d]
-            if gids.numel() == 0:
-                return
-            grad_rows = means2d.grad[vis2d, :2]
-            grad_sum = torch.zeros(
-                global_idx.shape[0], 2, device=means2d.device, dtype=grad_rows.dtype
-            )
-            grad_sum.index_add_(0, gids, grad_rows)
-            uniq_gids, _ = torch.unique(gids, return_inverse=True)
-            grad_rows = grad_sum[uniq_gids]
-            idx = global_idx[uniq_gids]
-        if idx.numel() > 0:
-            assert means2d.grad is not None, "means2d grad missing; retain_grad was not set"
-            # Match the official diff-gaussian-rasterization backward, which
-            # scales dL/dmean2D by (0.5*W, 0.5*H) before exposing it as
-            # ``means2D.grad``. Without this the 2e-4 threshold has no
-            # official meaning and anchor growth stalls.
-            grad = grad_rows.clone()
-            grad[:, 0] *= width / 2.0
-            grad[:, 1] *= height / 2.0
-            grad_norm = grad.norm(dim=-1, keepdim=True)
-            core.offset_gradient_accum[idx] += grad_norm
-            core.offset_denom[idx] += 1.0
 
     def adjust_anchor(
         self,
@@ -677,33 +636,23 @@ class HACPlusModel(BaseGaussianModel):
     # ------------------------------------------------------------------
 
     def export_attributes(self) -> Dict[str, Any]:
-        core = self.core
-        decoder_state = {
-            "mlp_opacity": core.mlp_opacity.state_dict(),
-            "mlp_cov": core.mlp_cov.state_dict(),
-            "mlp_color": core.mlp_color.state_dict(),
-            "mlp_grid": core.mlp_grid.state_dict(),
-            "mlp_deform": core.mlp_deform.state_dict(),
-            "encoding_xyz": core.encoding_xyz.state_dict(),
-        }
-        if core.use_feat_bank:
-            decoder_state["mlp_feature_bank"] = core.mlp_feature_bank.state_dict()
+        decoder_state = self._view.decoder_state()
         return {
             "model_name": self.model_name,
-            "anchor": core._anchor.detach().cpu().clone(),
-            "offset": core._offset.detach().cpu().clone(),
-            "mask": core._mask.detach().cpu().clone(),
-            "anchor_feat": core._anchor_feat.detach().cpu().clone(),
-            "scaling": core._scaling.detach().cpu().clone(),
-            "rotation": core._rotation.detach().cpu().clone(),
-            "opacity": core._opacity.detach().cpu().clone(),
+            "anchor": self._view.anchor.detach().cpu().clone(),
+            "offset": self._view.offset.detach().cpu().clone(),
+            "mask": self._view.mask.detach().cpu().clone(),
+            "anchor_feat": self._view.anchor_feat.detach().cpu().clone(),
+            "scaling": self._view.scaling.detach().cpu().clone(),
+            "rotation": self._view.rotation.detach().cpu().clone(),
+            "opacity": self._view.opacity.detach().cpu().clone(),
             "decoder": decoder_state,
             "config": self.cfg.__dict__.copy(),
             "voxel_size": float(self.voxel_size),
             "spatial_lr_scale": float(self.spatial_lr_scale),
-            "x_bound_min": core.x_bound_min.detach().cpu().clone(),
-            "x_bound_max": core.x_bound_max.detach().cpu().clone(),
-            "decoded_version": bool(core.decoded_version),
+            "x_bound_min": self._view.x_bound_min.detach().cpu().clone(),
+            "x_bound_max": self._view.x_bound_max.detach().cpu().clone(),
+            "decoded_version": bool(self._view.decoded_version),
         }
 
     @classmethod
@@ -712,28 +661,20 @@ class HACPlusModel(BaseGaussianModel):
         model = cls(cfg, device)
         model.voxel_size = attrs["voxel_size"]
         model.spatial_lr_scale = attrs["spatial_lr_scale"]
-        core = model.core
-        core._anchor = nn.Parameter(attrs["anchor"].to(device), requires_grad=True)
-        core._offset = nn.Parameter(attrs["offset"].to(device), requires_grad=True)
-        core._mask = nn.Parameter(attrs["mask"].to(device), requires_grad=True)
-        core._anchor_feat = nn.Parameter(
+        view = model._view
+        view.anchor = nn.Parameter(attrs["anchor"].to(device), requires_grad=True)
+        view.offset = nn.Parameter(attrs["offset"].to(device), requires_grad=True)
+        view.mask = nn.Parameter(attrs["mask"].to(device), requires_grad=True)
+        view.anchor_feat = nn.Parameter(
             attrs["anchor_feat"].to(device), requires_grad=True
         )
-        core._scaling = nn.Parameter(attrs["scaling"].to(device), requires_grad=True)
-        core._rotation = nn.Parameter(attrs["rotation"].to(device), requires_grad=False)
-        core._opacity = nn.Parameter(attrs["opacity"].to(device), requires_grad=False)
-        core.x_bound_min = attrs["x_bound_min"].to(device)
-        core.x_bound_max = attrs["x_bound_max"].to(device)
-        core.decoded_version = bool(attrs.get("decoded_version", False))
-        ds = attrs["decoder"]
-        core.mlp_opacity.load_state_dict(ds["mlp_opacity"])
-        core.mlp_cov.load_state_dict(ds["mlp_cov"])
-        core.mlp_color.load_state_dict(ds["mlp_color"])
-        core.mlp_grid.load_state_dict(ds["mlp_grid"])
-        core.mlp_deform.load_state_dict(ds["mlp_deform"])
-        core.encoding_xyz.load_state_dict(ds["encoding_xyz"])
-        if core.use_feat_bank:
-            core.mlp_feature_bank.load_state_dict(ds["mlp_feature_bank"])
+        view.scaling = nn.Parameter(attrs["scaling"].to(device), requires_grad=True)
+        view.rotation = nn.Parameter(attrs["rotation"].to(device), requires_grad=False)
+        view.opacity = nn.Parameter(attrs["opacity"].to(device), requires_grad=False)
+        view.x_bound_min = attrs["x_bound_min"].to(device)
+        view.x_bound_max = attrs["x_bound_max"].to(device)
+        view.decoded_version = bool(attrs.get("decoded_version", False))
+        view.load_decoder_state(attrs["decoder"])
         return model
 
     # ------------------------------------------------------------------
@@ -746,8 +687,8 @@ class HACPlusModel(BaseGaussianModel):
         k = self.cfg.n_offsets
         choose = torch.rand_like(core.get_anchor[:, 0]) <= 0.05
         anchor_c = core.get_anchor[choose]
-        feat_c = core._anchor_feat[choose]
-        offsets_c = core._offset[choose]
+        feat_c = self._view.anchor_feat[choose]
+        offsets_c = self._view.offset[choose]
         scaling_c = core.get_scaling[choose]
         masks_c = core.get_mask[choose]
         mask_anchor_c = core.get_mask_anchor[choose]
@@ -798,7 +739,7 @@ class HACPlusModel(BaseGaussianModel):
             probs[..., 0],
             probs[..., 1],
             Q=Q_feat,
-            x_mean=core._anchor_feat.mean(),
+            x_mean=self._view.anchor_feat.mean(),
         )
         bit_feat = bit_feat * mask_anchor_c
         bit_scaling = core.entropy_gaussian.forward(
@@ -810,7 +751,7 @@ class HACPlusModel(BaseGaussianModel):
             mean_offsets,
             scale_offsets,
             Q_offsets,
-            core._offset.mean(),
+            self._view.offset.mean(),
         )
         bit_offsets = bit_offsets * mask_anchor_c * masks_c
 
@@ -849,7 +790,7 @@ class HACPlusModel(BaseGaussianModel):
                 anchor-mask rate instead of the official ``mask_anchor`` rule.
                 ``None`` or 1.0 preserves official behavior.
         """
-        from scene.gaussian_model import bit2MB_scale
+        from hacplus.scene.gaussian_model import bit2MB_scale
 
         core = self.core
         out_dir = Path(out_dir)
@@ -857,7 +798,7 @@ class HACPlusModel(BaseGaussianModel):
         k = self.cfg.n_offsets
         device = self.device
 
-        n_total = core._anchor.shape[0]
+        n_total = self._view.anchor.shape[0]
         if mask_keep_ratio is not None and mask_keep_ratio < 1.0:
             if not (0.0 < mask_keep_ratio < 1.0):
                 raise ValueError(
@@ -871,8 +812,8 @@ class HACPlusModel(BaseGaussianModel):
         else:
             mask_anchor = core.get_mask_anchor.to(torch.bool)[:, 0]
         anchor = core.get_anchor[mask_anchor]
-        feat = core._anchor_feat[mask_anchor]
-        offsets = core._offset[mask_anchor]
+        feat = self._view.anchor_feat[mask_anchor]
+        offsets = self._view.offset[mask_anchor]
         scaling = core.get_scaling[mask_anchor]
         masks = core.get_mask[mask_anchor]  # [N, K, 1]
         N = anchor.shape[0]
@@ -891,8 +832,8 @@ class HACPlusModel(BaseGaussianModel):
             voxel_size=np.float32(self.voxel_size),
         )
         bits_xyz = (out_dir / "xyz_gpcc.npz").stat().st_size * 8
-        torch.save(core.x_bound_min, out_dir / "x_bound_min.pkl")
-        torch.save(core.x_bound_max, out_dir / "x_bound_max.pkl")
+        torch.save(self._view.x_bound_min, out_dir / "x_bound_min.pkl")
+        torch.save(self._view.x_bound_max, out_dir / "x_bound_max.pkl")
         anchor = anchor_int.float() * self.voxel_size
 
         steps = math.ceil(N / MAX_batch_size)
@@ -938,7 +879,7 @@ class HACPlusModel(BaseGaussianModel):
 
             # features (channel-context, 10 channels per step)
             feat_slice = feat[start:end]
-            feat_q = STE_multistep.apply(feat_slice, Q_feat, core._anchor_feat.mean())
+            feat_q = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
             mean_scale = torch.cat([mean, scale, prob], dim=-1)
             scale = scale.clamp(min=1e-9)
             bit_feat = 0
@@ -989,7 +930,7 @@ class HACPlusModel(BaseGaussianModel):
             mask_slice = masks[start:end].repeat(1, 1, 3).view(-1, 3 * k).view(-1)
             offsets_slice = offsets[start:end].view(-1, 3 * k).view(-1)
             offsets_q = STE_multistep.apply(
-                offsets_slice, Q_offsets, core._offset.mean()
+                offsets_slice, Q_offsets, self._view.offset.mean()
             )
             offsets_q[~mask_slice.bool()] = 0.0
             bit_offsets_list.append(
@@ -1050,16 +991,16 @@ class HACPlusModel(BaseGaussianModel):
 
         The ``q_scale_*`` values must match the ones used at encode time.
         """
-        from scene.gaussian_model import bit2MB_scale
+        from hacplus.scene.gaussian_model import bit2MB_scale
 
         core = self.core
         artifact_dir = Path(artifact_dir)
         k = self.cfg.n_offsets
         device = self.device
-        core.x_bound_min = torch.load(
+        self._view.x_bound_min = torch.load(
             artifact_dir / "x_bound_min.pkl", map_location=device, weights_only=False
         )
-        core.x_bound_max = torch.load(
+        self._view.x_bound_max = torch.load(
             artifact_dir / "x_bound_max.pkl", map_location=device, weights_only=False
         )
 
@@ -1180,41 +1121,24 @@ class HACPlusModel(BaseGaussianModel):
         mask = torch.zeros(N, k + 1, 1, device=device)
         mask[:, :k] = masks_decoded
 
-        core.decoded_version = True
-        core._anchor = nn.Parameter(anchor, requires_grad=False)
-        core._anchor_feat = nn.Parameter(feat, requires_grad=False)
-        core._offset = nn.Parameter(offsets, requires_grad=False)
-        core._scaling = nn.Parameter(scaling, requires_grad=False)
-        core._mask = nn.Parameter(mask, requires_grad=False)
+        self._view.decoded_version = True
+        self._view.anchor = nn.Parameter(anchor, requires_grad=False)
+        self._view.anchor_feat = nn.Parameter(feat, requires_grad=False)
+        self._view.offset = nn.Parameter(offsets, requires_grad=False)
+        self._view.scaling = nn.Parameter(scaling, requires_grad=False)
+        self._view.mask = nn.Parameter(mask, requires_grad=False)
         # The official decode leaves _rotation/_opacity at the pre-mask size;
         # resize them so prefilter/render stay consistent (they are not used
         # for decoded neural Gaussians beyond the identity prefilter rotation).
         rot = torch.zeros(N, 4, device=device)
         rot[:, 0] = 1.0
-        core._rotation = nn.Parameter(rot, requires_grad=False)
-        core._opacity = nn.Parameter(
+        self._view.rotation = nn.Parameter(rot, requires_grad=False)
+        self._view.opacity = nn.Parameter(
             inverse_sigmoid(torch.full((N, 1), 0.1, device=device)),
             requires_grad=False,
         )
 
-        if core.use_2D:
-            len_3d = core.encoding_xyz.encoding_xyz.params.shape[0]
-            len_2d = core.encoding_xyz.encoding_xy.params.shape[0]
-            core.encoding_xyz.encoding_xyz.params = nn.Parameter(
-                hash_decoded[0:len_3d], requires_grad=False
-            )
-            core.encoding_xyz.encoding_xy.params = nn.Parameter(
-                hash_decoded[len_3d : len_3d + len_2d], requires_grad=False
-            )
-            core.encoding_xyz.encoding_xz.params = nn.Parameter(
-                hash_decoded[len_3d + len_2d : len_3d + 2 * len_2d], requires_grad=False
-            )
-            core.encoding_xyz.encoding_yz.params = nn.Parameter(
-                hash_decoded[len_3d + 2 * len_2d : len_3d + 3 * len_2d],
-                requires_grad=False,
-            )
-        else:
-            core.encoding_xyz.params = nn.Parameter(hash_decoded, requires_grad=False)
+        self._view.set_hash_params(hash_decoded)
         print(f"[HAC++] Decoded {N} anchors from {artifact_dir}")
 
 
