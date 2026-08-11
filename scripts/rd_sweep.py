@@ -93,6 +93,41 @@ def _tag(cfg: Dict[str, Any]) -> str:
     )
 
 
+def _load_rd_csv(path: Path) -> List[Dict[str, float]]:
+    rows = []
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            try:
+                rows.append(
+                    {
+                        "total_MB": float(row["total_MB"]),
+                        "psnr": float(row["psnr"]),
+                    }
+                )
+            except (KeyError, ValueError):
+                continue
+    return rows
+
+
+def _bd_rate(
+    anchor: List[Dict[str, float]], test: List[Dict[str, float]]
+) -> float:
+    """Average log-rate difference between test and anchor over the overlap
+    of PSNR ranges (percent). Positive means the test curve needs more rate."""
+    xa = np.asarray([r["psnr"] for r in anchor], dtype=np.float64)
+    ya = np.log10(np.asarray([r["total_MB"] for r in anchor], dtype=np.float64))
+    xt = np.asarray([r["psnr"] for r in test], dtype=np.float64)
+    yt = np.log10(np.asarray([r["total_MB"] for r in test], dtype=np.float64))
+    lo = max(float(xa.min()), float(xt.min()))
+    hi = min(float(xa.max()), float(xt.max()))
+    if hi <= lo:
+        return float("nan")
+    xs = np.linspace(lo, hi, 100)
+    ya_i = np.interp(xs, xa, ya)
+    yt_i = np.interp(xs, xt, yt)
+    return float(np.mean(yt_i - ya_i) * 100.0)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ckpt", required=True)
@@ -106,6 +141,11 @@ def main() -> None:
     p.add_argument("--q-scale-scaling", type=float, nargs="+", default=[1.0])
     p.add_argument("--q-scale-offsets", type=float, nargs="+", default=[1.0])
     p.add_argument("--q-scale-joint", type=float, nargs="+", default=[])
+    p.add_argument(
+        "--baseline-csv",
+        default=None,
+        help="Optional baseline RD CSV (total_MB, psnr) used for BD-rate.",
+    )
     args = p.parse_args()
 
     result_dir = Path(args.result_dir)
@@ -140,6 +180,7 @@ def main() -> None:
         args.q_scale_joint,
     )
     rows: List[Dict[str, Any]] = []
+    baseline_rd = _load_rd_csv(Path(args.baseline_csv)) if args.baseline_csv else []
     baseline_key: Optional[str] = None
     baseline_mb = None
     baseline_psnr = None
@@ -213,6 +254,10 @@ def main() -> None:
         row["orig_psnr"] = float(orig_metrics["psnr"])
         row["orig_ssim"] = float(orig_metrics["ssim"])
         row["orig_lpips"] = float(orig_metrics["lpips"])
+        if baseline_rd:
+            row["bd_rate_vs_baseline"] = round(
+                _bd_rate(baseline_rd, [row]), 3
+            )
 
     summary = {
         "ckpt": args.ckpt,
@@ -225,6 +270,7 @@ def main() -> None:
             "lpips": float(orig_metrics["lpips"]),
         },
         "raw_attribute_MB": raw_mb,
+        "baseline_csv": args.baseline_csv,
         "rows": rows,
     }
     with open(result_dir / "results.json", "w") as f:
@@ -250,6 +296,7 @@ def main() -> None:
         "delta_psnr_vs_baseline",
         "ssim",
         "lpips",
+        "bd_rate_vs_baseline",
         "raw_attribute_MB",
         "orig_psnr",
         "orig_ssim",

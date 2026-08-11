@@ -147,6 +147,7 @@ class HACCoreView:
             "mlp_color": core.mlp_color.state_dict(),
             "mlp_grid": core.mlp_grid.state_dict(),
             "mlp_deform": core.mlp_deform.state_dict(),
+            "mlp_complexity": core.mlp_complexity.state_dict(),
             "encoding_xyz": core.encoding_xyz.state_dict(),
         }
         if core.use_feat_bank:
@@ -160,9 +161,24 @@ class HACCoreView:
         core.mlp_color.load_state_dict(state["mlp_color"])
         core.mlp_grid.load_state_dict(state["mlp_grid"])
         core.mlp_deform.load_state_dict(state["mlp_deform"])
+        core.mlp_complexity.load_state_dict(state["mlp_complexity"])
         core.encoding_xyz.load_state_dict(state["encoding_xyz"])
         if core.use_feat_bank:
             core.mlp_feature_bank.load_state_dict(state["mlp_feature_bank"])
+
+    # ------------------------------------------------------------------
+    # Pure training state (no I1 accumulators in PHG v1)
+    # ------------------------------------------------------------------
+
+    def state_tensors(self) -> Dict[str, int]:
+        return {
+            "current_step": int(self._core.current_step),
+            "current_iter": int(self._core.current_iter),
+        }
+
+    def load_state_tensors(self, state: Dict[str, int]) -> None:
+        self._core.current_step = int(state.get("current_step", 0))
+        self._core.current_iter = int(state.get("current_iter", 0))
 
     # ------------------------------------------------------------------
     # Hash-grid parameters (nested private modules live here only)

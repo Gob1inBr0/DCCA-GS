@@ -1,24 +1,26 @@
-# Scaffold-GS on gsplat
+# PHG (PKUGS-HAC-Gsplat)
 
 基于 [gsplat](https://github.com/nerfstudio-project/gsplat) 的
-[Scaffold-GS](https://github.com/city-super/Scaffold-GS)
-忠实核心实现（CVPR 2024），并预留 HAC / HAC++ 压缩方法接入点。
+Scaffold-GS / HAC++ 压缩框架。v1 默认启用 I2 内容感知公式量化，
+I1（纯坐标层级 Anchor-Hash 上下文）默认关闭、可通过配置开启。
 
 ## 特性
 
 - anchor 体素初始化（`voxel_size`，0 时自动取 1-NN 距离中位数）
 - 每个 anchor 解码 K=10 个神经高斯：opacity / covariance / color 三个 MLP
 - gsplat 光栅化（视锥预过滤 + 预计算颜色渲染）
-- anchor 层级生长与剪枝（官方 `update_depth=3`、`update_init_factor=16` 等默认参数）
+- anchor 层级生长与剪枝
 - COLMAP 训练 / 评估：PSNR、SSIM、LPIPS
 - 官方兼容 PLY + MLP checkpoint 保存格式
 - `BaseGaussianModel` + `MODELS` 注册表 + `CompressionCodec` 接口，
   后续 HAC / HAC++ 只需新增模型/编解码器，无需改训练器
+- I1：尺度感知分层上下文（`concat(base, parent, level)`，解码端可重算）
+- I2：内容感知公式量化（`Q = Q0 * (1 + tanh(z) * α)`，formula 模式）
 
 ## 环境安装
 
 ```bash
-cd /Users/chen/Documents/scaffold-gs
+cd /Users/chen/Documents/PHG
 python -m venv .venv && source .venv/bin/activate
 pip install -e /Users/chen/Documents/gsplat-main
 pip install -r requirements.txt
@@ -68,13 +70,23 @@ HAC++ 模块已集成（`scaffold_gs/hacpp.py` + 官方核心 `hacplus/`），
 ```bash
 # 在 5090 上使用 HAC++ 环境（已装 _gridencoder/arithmetic/simple_knn）
 conda activate HAC_5090_a100
-cd ~/gsplat2hac
+cd ~/PHG
 
 # 率失真训练（feat_dim=50、n_offsets=10 与官方一致）
 python train.py train --cfg.model.model-name hac_pp \
   --cfg.data.data-dir <你的COLMAP场景> --cfg.data.result-dir results/<scene> \
   --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 50 --cfg.model.n-offsets 10 \
   --cfg.optim.lambda-rate 0.004 --cfg.optim.max-steps 30000
+
+# 开启 I1 并让 I1/I2 提前生效（用于短验证）
+python train.py train --cfg.model.model-name hac_pp \
+  --cfg.data.data-dir <你的COLMAP场景> --cfg.data.result-dir results/<scene> \
+  --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 50 --cfg.model.n-offsets 10 \
+  --cfg.model.hierarchical-context \
+  --cfg.model.hierarchical-context-start-iter 500 \
+  --cfg.model.content-aware-start-iter 1000 \
+  --cfg.model.content-aware-ramp-iters 500 \
+  --cfg.optim.lambda-rate 0.004 --cfg.optim.max-steps 3000
 
 # 算术编码（anchor 坐标用 GPCC/tmc3，其余属性用 arithmetic 算术编码）
 python train.py compress --cfg.ckpt results/<scene>/ckpts/ckpt_30000.pth \

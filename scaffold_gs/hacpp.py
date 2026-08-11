@@ -16,6 +16,7 @@ be importable (the 5090 ``HAC_5090_a100`` conda env already provides them).
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,6 +55,11 @@ from .config import ModelConfig, OptimConfig
 from .hac_core import HACCoreView
 from .model import BaseGaussianModel, NeuralGaussians
 from .utils import inverse_sigmoid, knn_distances, median_nn_distance, voxelize_points
+
+
+def _tensor_sha256(t: torch.Tensor) -> str:
+    data = t.detach().cpu().contiguous().numpy().tobytes()
+    return hashlib.sha256(data).hexdigest()
 
 
 class _ParamsView:
@@ -130,6 +136,17 @@ class HACPlusModel(BaseGaussianModel):
             use_2D=True,
             decoded_version=False,
             is_synthetic_nerf=False,
+            hierarchical_context=cfg.hierarchical_context,
+            hierarchical_context_start_iter=cfg.hierarchical_context_start_iter,
+            content_aware_quant=cfg.content_aware_quant,
+            content_aware_q_mode=cfg.content_aware_q_mode,
+            complexity_scale=cfg.complexity_scale,
+            content_aware_start_iter=cfg.content_aware_start_iter,
+            content_aware_ramp_iters=cfg.content_aware_ramp_iters,
+            mlp_complexity_hidden=cfg.mlp_complexity_hidden,
+            mlp_complexity_layers=cfg.mlp_complexity_layers,
+            level_threshold_low=cfg.level_threshold_low,
+            level_threshold_high=cfg.level_threshold_high,
         )
         self.core.to(self.device)
         self._view = HACCoreView(self.core)
@@ -190,14 +207,22 @@ class HACPlusModel(BaseGaussianModel):
         sd["_x_bound_min"] = self._view.x_bound_min
         sd["_x_bound_max"] = self._view.x_bound_max
         sd["_decoded_version"] = torch.tensor(int(self._view.decoded_version))
+        sd["_phg_state"] = self._view.state_tensors()
         return sd
 
     def load_state_dict(self, *args, **kwargs):
         sd = dict(args[0])
+        if not any(key.startswith("mlp_complexity.") for key in sd):
+            raise RuntimeError(
+                "PHG v1 codec requires an mlp_complexity checkpoint; "
+                "old pre-PHG checkpoints are not codec-compatible."
+            )
         if "_x_bound_min" in sd:
             self._view.x_bound_min = sd.pop("_x_bound_min").to(self.device)
             self._view.x_bound_max = sd.pop("_x_bound_max").to(self.device)
             self._view.decoded_version = bool(sd.pop("_decoded_version").item())
+        if "_phg_state" in sd:
+            self._view.load_state_tensors(sd.pop("_phg_state"))
         for key in (
             "_anchor",
             "_offset",
@@ -346,6 +371,10 @@ class HACPlusModel(BaseGaussianModel):
             mlp_deform_lr_final=optim_cfg.mlp_deform_lr_final,
             mlp_deform_lr_delay_mult=optim_cfg.mlp_deform_lr_delay_mult,
             mlp_deform_lr_max_steps=optim_cfg.mlp_deform_lr_max_steps,
+            mlp_complexity_lr_init=optim_cfg.mlp_complexity_lr_init,
+            mlp_complexity_lr_final=optim_cfg.mlp_complexity_lr_final,
+            mlp_complexity_lr_delay_mult=optim_cfg.mlp_complexity_lr_delay_mult,
+            mlp_complexity_lr_max_steps=optim_cfg.mlp_complexity_lr_max_steps,
         )
         self.core.training_setup(args)
         self.optimizer = self.core.optimizer
@@ -369,6 +398,9 @@ class HACPlusModel(BaseGaussianModel):
         del appearance_id
         core = self.core
         device = self.device
+        if step > 0:
+            core.current_step = int(step)
+            core.current_iter = int(step)
         n_total = core.get_anchor.shape[0]
         if n_total == 0:
             return _empty_gaussians(self, n_total)
@@ -405,7 +437,9 @@ class HACPlusModel(BaseGaussianModel):
                 # Quantization noise on the rendering attributes (official
                 # renderer behavior): the model must learn to survive the
                 # hard quantization applied at eval/encode time.
-                feat_context_orig = core.calc_interp_feat(anchor)
+                feat_context_orig = core.calc_context_feat(
+                    anchor, anchor_indices=anchor_indices, caller="generate_gaussians"
+                )
                 ctx_out = core.get_grid_mlp(feat_context_orig)
                 (
                     _mean,
@@ -439,6 +473,28 @@ class HACPlusModel(BaseGaussianModel):
                 Q_offsets = 0.2 * (
                     1 + torch.tanh(qo.repeat(1, 3 * k))
                 ).view(-1, k, 3)
+                if core.is_content_aware_quant_active():
+                    (
+                        Q_feat,
+                        Q_scaling,
+                        Q_offsets,
+                        _,
+                        _,
+                        _,
+                        _,
+                    ) = core._codec_apply_content_aware_quant_params(
+                        "generate_gaussians",
+                        anchor,
+                        binary_grid_masks,
+                        Q_feat,
+                        Q_scaling,
+                        Q_offsets,
+                        None,
+                        None,
+                        None,
+                        _mean_scaling,
+                        _mean_offsets,
+                    )
                 feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
                 grid_scaling = grid_scaling + (
                     torch.rand_like(grid_scaling) - 0.5
@@ -453,7 +509,9 @@ class HACPlusModel(BaseGaussianModel):
                     bit_per_offsets_param,
                 ) = self._estimate_rate_terms(anchor, feat, grid_scaling, grid_offsets)
         elif not self._view.decoded_version:
-            feat_context = core.calc_interp_feat(anchor)
+            feat_context = core.calc_context_feat(
+                anchor, anchor_indices=anchor_indices, caller="generate_gaussians"
+            )
             (
                 _mean,
                 _scale,
@@ -488,6 +546,28 @@ class HACPlusModel(BaseGaussianModel):
             Q_offsets = Q_offsets * (
                 1 + torch.tanh(Q_offsets_adj.repeat(1, 3 * k))
             ).view(-1, k, 3)
+            if core.is_content_aware_quant_active():
+                (
+                    Q_feat,
+                    Q_scaling,
+                    Q_offsets,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = core._codec_apply_content_aware_quant_params(
+                    "generate_gaussians",
+                    anchor,
+                    binary_grid_masks,
+                    Q_feat,
+                    Q_scaling,
+                    Q_offsets,
+                    None,
+                    None,
+                    None,
+                    _mean_scaling,
+                    _mean_offsets,
+                )
             feat = STE_multistep.apply(feat, Q_feat, self._view.anchor_feat.mean()).detach()
             grid_scaling = STE_multistep.apply(
                 grid_scaling, Q_scaling, core.get_scaling.mean()
@@ -693,7 +773,7 @@ class HACPlusModel(BaseGaussianModel):
         masks_c = core.get_mask[choose]
         mask_anchor_c = core.get_mask_anchor[choose]
 
-        ctx = core.calc_interp_feat(anchor_c)
+        ctx = core.calc_context_feat(anchor_c, caller="_estimate_rate_terms")
         out = core.get_grid_mlp(ctx)
         mean, scale, prob, mean_scaling, scale_scaling, mean_offsets, scale_offsets, qa, qs, qo = torch.split(
             out,
@@ -717,6 +797,28 @@ class HACPlusModel(BaseGaussianModel):
         Q_feat = 1.0 * (1 + torch.tanh(qa))
         Q_scaling = 0.001 * (1 + torch.tanh(qs))
         Q_offsets = 0.2 * (1 + torch.tanh(qo))
+        if core.is_content_aware_quant_active():
+            (
+                Q_feat,
+                Q_scaling,
+                Q_offsets,
+                _,
+                _,
+                _,
+                _,
+            ) = core._codec_apply_content_aware_quant_params(
+                "_estimate_rate_terms",
+                anchor_c,
+                masks_c,
+                Q_feat,
+                Q_scaling,
+                Q_offsets,
+                None,
+                None,
+                None,
+                mean_scaling,
+                mean_offsets,
+            )
 
         feat_c = feat_c + (torch.rand_like(feat_c) - 0.5) * Q_feat
         mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
@@ -791,6 +893,11 @@ class HACPlusModel(BaseGaussianModel):
                 ``None`` or 1.0 preserves official behavior.
         """
         from hacplus.scene.gaussian_model import bit2MB_scale
+        from hacplus.utils.codec_consistency import (
+            CODEC_HEADER_FILENAME,
+            CONTENT_AWARE_Q_META_FILENAME,
+            FORMULA_INPUT_VERSION,
+        )
 
         core = self.core
         out_dir = Path(out_dir)
@@ -836,6 +943,52 @@ class HACPlusModel(BaseGaussianModel):
         torch.save(self._view.x_bound_max, out_dir / "x_bound_max.pkl")
         anchor = anchor_int.float() * self.voxel_size
 
+        codec_header = {
+            "format": "phg_v1",
+            "codec": "hac_pp",
+            "codec_iteration": int(core.current_step),
+            "num_anchors": int(N),
+            "num_anchors_total": int(n_total),
+            "model": {
+                "feat_dim": self.cfg.feat_dim,
+                "n_offsets": k,
+                "voxel_size": float(self.voxel_size),
+                "hierarchical_context": bool(core.hierarchical_context),
+                "hierarchical_context_start_iter": int(
+                    core.hierarchical_context_start_iter
+                ),
+                "content_aware_quant": bool(core.content_aware_quant),
+                "content_aware_q_mode": str(core.content_aware_q_mode),
+                "complexity_scale": float(core.complexity_scale),
+                "content_aware_start_iter": int(core.content_aware_start_iter),
+                "content_aware_ramp_iters": int(core.content_aware_ramp_iters),
+                "mlp_complexity_hidden": (
+                    None
+                    if core.mlp_complexity_hidden is None
+                    else int(core.mlp_complexity_hidden)
+                ),
+                "mlp_complexity_layers": int(core.mlp_complexity_layers),
+                "level_threshold_low": float(core.level_threshold_low),
+                "level_threshold_high": float(core.level_threshold_high),
+            },
+            "formula_input_version": FORMULA_INPUT_VERSION,
+            "anchor_int_sha256": _tensor_sha256(anchor_int),
+            "masks_sha256": _tensor_sha256(masks),
+        }
+        with open(out_dir / CODEC_HEADER_FILENAME, "w") as f:
+            json.dump(codec_header, f, indent=2, sort_keys=True)
+
+        if core.content_aware_quant:
+            q_meta = {
+                "mode": str(core.content_aware_q_mode),
+                "version": FORMULA_INPUT_VERSION,
+                "complexity_scale": float(core.complexity_scale),
+                "start_iter": int(core.content_aware_start_iter),
+                "ramp_iters": int(core.content_aware_ramp_iters),
+            }
+            with open(out_dir / CONTENT_AWARE_Q_META_FILENAME, "w") as f:
+                json.dump(q_meta, f, indent=2, sort_keys=True)
+
         steps = math.ceil(N / MAX_batch_size)
         bit_feat_list: list = []
         bit_scaling_list: list = []
@@ -849,7 +1002,7 @@ class HACPlusModel(BaseGaussianModel):
             offsets_b = str(out_dir / f"offsets_{s}.b")
 
             anchor_slice = anchor[start:end]
-            ctx = core.calc_interp_feat(anchor_slice)
+            ctx = core.calc_context_feat(anchor_slice, caller="encode_attributes")
             mean, scale, prob, mean_scaling, scale_scaling, mean_offsets, scale_offsets, qa, qs, qo = torch.split(
                 core.get_grid_mlp(ctx),
                 [
@@ -867,8 +1020,8 @@ class HACPlusModel(BaseGaussianModel):
                 dim=-1,
             )
             qa = qa.repeat(1, self.cfg.feat_dim)
-            qs = qs.repeat(1, 6).view(-1)
-            qo = qo.repeat(1, 3 * k).view(-1)
+            qs = qs.repeat(1, 6)
+            qo = qo.repeat(1, 3 * k)
             mean_scaling = mean_scaling.contiguous().view(-1)
             mean_offsets = mean_offsets.contiguous().view(-1)
             scale_scaling = scale_scaling.contiguous().view(-1).clamp(min=1e-9)
@@ -876,6 +1029,32 @@ class HACPlusModel(BaseGaussianModel):
             Q_feat = q_scale_feat * 1.0 * (1 + torch.tanh(qa))
             Q_scaling = q_scale_scaling * 0.001 * (1 + torch.tanh(qs))
             Q_offsets = q_scale_offsets * 0.2 * (1 + torch.tanh(qo))
+            if core.is_content_aware_quant_active():
+                masks_slice = masks[start:end]
+                (
+                    Q_feat,
+                    Q_scaling,
+                    Q_offsets,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = core._codec_apply_content_aware_quant_params(
+                    "encode_attributes",
+                    anchor_slice,
+                    masks_slice,
+                    Q_feat,
+                    Q_scaling,
+                    Q_offsets,
+                    None,
+                    None,
+                    None,
+                    mean_scaling.view(-1, 6),
+                    mean_offsets.view(-1, 3 * k),
+                )
+            Q_feat_flat = Q_feat.contiguous().view(-1)
+            Q_scaling_flat = Q_scaling.contiguous().view(-1)
+            Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
             # features (channel-context, 10 channels per step)
             feat_slice = feat[start:end]
@@ -913,14 +1092,14 @@ class HACPlusModel(BaseGaussianModel):
             # scaling
             scaling_slice = scaling[start:end].view(-1)
             scaling_q = STE_multistep.apply(
-                scaling_slice, Q_scaling, core.get_scaling.mean()
+                scaling_slice, Q_scaling_flat, core.get_scaling.mean()
             )
             bit_scaling_list.append(
                 encoder_gaussian_chunk(
                     scaling_q,
                     mean_scaling,
                     scale_scaling,
-                    Q_scaling,
+                    Q_scaling_flat,
                     file_name=scaling_b,
                     chunk_size=100_000,
                 )
@@ -930,7 +1109,7 @@ class HACPlusModel(BaseGaussianModel):
             mask_slice = masks[start:end].repeat(1, 1, 3).view(-1, 3 * k).view(-1)
             offsets_slice = offsets[start:end].view(-1, 3 * k).view(-1)
             offsets_q = STE_multistep.apply(
-                offsets_slice, Q_offsets, self._view.offset.mean()
+                offsets_slice, Q_offsets_flat, self._view.offset.mean()
             )
             offsets_q[~mask_slice.bool()] = 0.0
             bit_offsets_list.append(
@@ -938,7 +1117,7 @@ class HACPlusModel(BaseGaussianModel):
                     offsets_q[mask_slice.bool()],
                     mean_offsets[mask_slice.bool()],
                     scale_offsets[mask_slice.bool()],
-                    Q_offsets[mask_slice.bool()],
+                    Q_offsets_flat[mask_slice.bool()],
                     file_name=offsets_b,
                     chunk_size=100_000,
                 )
@@ -958,6 +1137,10 @@ class HACPlusModel(BaseGaussianModel):
             + bit_hash
             + bit_masks
         )
+        aux_bytes = (out_dir / CODEC_HEADER_FILENAME).stat().st_size
+        if (out_dir / CONTENT_AWARE_Q_META_FILENAME).exists():
+            aux_bytes += (out_dir / CONTENT_AWARE_Q_META_FILENAME).stat().st_size
+        total_bits += aux_bytes * 8
         meta = {
             "codec": "hac_pp",
             "num_anchors": int(N),
@@ -972,6 +1155,7 @@ class HACPlusModel(BaseGaussianModel):
             "bit_offsets": int(sum(bit_offsets_list)),
             "bit_hash": int(bit_hash),
             "bit_masks": int(bit_masks),
+            "bit_header": int(aux_bytes * 8),
             "total_bits": int(total_bits),
             "total_MB": round(total_bits / bit2MB_scale, 4),
         }
@@ -992,11 +1176,47 @@ class HACPlusModel(BaseGaussianModel):
         The ``q_scale_*`` values must match the ones used at encode time.
         """
         from hacplus.scene.gaussian_model import bit2MB_scale
+        from hacplus.utils.codec_consistency import (
+            CODEC_HEADER_FILENAME,
+            CONTENT_AWARE_Q_META_FILENAME,
+            FORMULA_INPUT_VERSION,
+        )
 
         core = self.core
         artifact_dir = Path(artifact_dir)
         k = self.cfg.n_offsets
         device = self.device
+        header_path = artifact_dir / CODEC_HEADER_FILENAME
+        if not header_path.is_file():
+            raise FileNotFoundError(f"PHG v1 decode requires {CODEC_HEADER_FILENAME}")
+        with open(header_path) as f:
+            codec_header = json.load(f)
+        if codec_header.get("format") != "phg_v1":
+            raise RuntimeError(
+                f"unsupported codec header format: {codec_header.get('format')!r}"
+            )
+        if codec_header.get("formula_input_version") != FORMULA_INPUT_VERSION:
+            raise RuntimeError(
+                "formula input version mismatch: "
+                f"{codec_header.get('formula_input_version')!r}"
+            )
+        core.current_step = int(codec_header.get("codec_iteration", 0))
+        core.current_iter = core.current_step
+        if codec_header.get("model", {}).get("content_aware_quant"):
+            q_meta_path = artifact_dir / CONTENT_AWARE_Q_META_FILENAME
+            if not q_meta_path.is_file():
+                raise FileNotFoundError(
+                    f"content-aware quantization requires {CONTENT_AWARE_Q_META_FILENAME}"
+                )
+            with open(q_meta_path) as f:
+                q_meta = json.load(f)
+            if q_meta.get("mode") != "formula" or q_meta.get("version") != FORMULA_INPUT_VERSION:
+                raise RuntimeError("content-aware Q meta is not the PHG v1 formula contract")
+            if abs(float(q_meta.get("complexity_scale", -1.0)) - float(core.complexity_scale)) > 1e-6:
+                raise RuntimeError(
+                    "complexity_scale mismatch between bitstream and model: "
+                    f"{q_meta.get('complexity_scale')} vs {core.complexity_scale}"
+                )
         self._view.x_bound_min = torch.load(
             artifact_dir / "x_bound_min.pkl", map_location=device, weights_only=False
         )
@@ -1012,10 +1232,14 @@ class HACPlusModel(BaseGaussianModel):
         anchor_int = anchor_int[sorted_indices]
         anchor = anchor_int * voxel_size
         N = anchor.shape[0]
+        if _tensor_sha256(anchor_int) != codec_header.get("anchor_int_sha256"):
+            raise RuntimeError("anchor_int hash mismatch after GPCC round-trip")
 
         masks_decoded = decoder(
             N * k, str(artifact_dir / "masks.b"), device=str(device)
         ).float().view(-1, k, 1)
+        if _tensor_sha256(masks_decoded) != codec_header.get("masks_sha256"):
+            raise RuntimeError("masks hash mismatch after arithmetic decode")
         n_hash = int(core.get_encoding_params().numel())
         hash_decoded = decoder(
             n_hash, str(artifact_dir / "hash.b"), device=str(device)
@@ -1031,7 +1255,7 @@ class HACPlusModel(BaseGaussianModel):
             scaling_b = str(artifact_dir / f"scaling_{s}.b")
             offsets_b = str(artifact_dir / f"offsets_{s}.b")
             anchor_slice = anchor[start:end]
-            ctx = core.calc_interp_feat(anchor_slice)
+            ctx = core.calc_context_feat(anchor_slice, caller="decode_attributes")
             mean, scale, prob, mean_scaling, scale_scaling, mean_offsets, scale_offsets, qa, qs, qo = torch.split(
                 core.get_grid_mlp(ctx),
                 [
@@ -1049,8 +1273,8 @@ class HACPlusModel(BaseGaussianModel):
                 dim=-1,
             )
             qa = qa.repeat(1, self.cfg.feat_dim)
-            qs = qs.repeat(1, 6).view(-1)
-            qo = qo.repeat(1, 3 * k).view(-1)
+            qs = qs.repeat(1, 6)
+            qo = qo.repeat(1, 3 * k)
             mean_scaling = mean_scaling.contiguous().view(-1)
             mean_offsets = mean_offsets.contiguous().view(-1)
             scale_scaling = scale_scaling.contiguous().view(-1).clamp(min=1e-9)
@@ -1058,6 +1282,32 @@ class HACPlusModel(BaseGaussianModel):
             Q_feat = q_scale_feat * 1.0 * (1 + torch.tanh(qa))
             Q_scaling = q_scale_scaling * 0.001 * (1 + torch.tanh(qs))
             Q_offsets = q_scale_offsets * 0.2 * (1 + torch.tanh(qo))
+            if core.is_content_aware_quant_active():
+                masks_slice = masks_decoded[start:end]
+                (
+                    Q_feat,
+                    Q_scaling,
+                    Q_offsets,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = core._codec_apply_content_aware_quant_params(
+                    "decode_attributes",
+                    anchor_slice,
+                    masks_slice,
+                    Q_feat,
+                    Q_scaling,
+                    Q_offsets,
+                    None,
+                    None,
+                    None,
+                    mean_scaling.view(-1, 6),
+                    mean_offsets.view(-1, 3 * k),
+                )
+            Q_feat_flat = Q_feat.contiguous().view(-1)
+            Q_scaling_flat = Q_scaling.contiguous().view(-1)
+            Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
             n_num = end - start
             feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
@@ -1091,7 +1341,7 @@ class HACPlusModel(BaseGaussianModel):
             scaling_decoded = decoder_gaussian_chunk(
                 mean_scaling,
                 scale_scaling,
-                Q_scaling,
+                Q_scaling_flat,
                 file_name=scaling_b,
                 chunk_size=100_000,
             ).view(n_num, 6)
@@ -1106,7 +1356,7 @@ class HACPlusModel(BaseGaussianModel):
             offsets_decoded[masks_tmp] = decoder_gaussian_chunk(
                 mean_offsets[masks_tmp],
                 scale_offsets[masks_tmp],
-                Q_offsets[masks_tmp],
+                Q_offsets_flat[masks_tmp],
                 file_name=offsets_b,
                 chunk_size=100_000,
             )
@@ -1139,6 +1389,16 @@ class HACPlusModel(BaseGaussianModel):
         )
 
         self._view.set_hash_params(hash_decoded)
+        diag = {
+            "bit_exact_roundtrip": True,
+            "anchor_int_sha256": _tensor_sha256(anchor_int),
+            "masks_sha256": _tensor_sha256(masks_decoded),
+        }
+        last_input = getattr(core, "_last_formula_complexity_input", None)
+        if last_input is not None:
+            diag["formula_input_sha256"] = _tensor_sha256(last_input)
+        with open(artifact_dir / "codec_roundtrip_diagnostics.json", "w") as f:
+            json.dump(diag, f, indent=2, sort_keys=True)
         print(f"[HAC++] Decoded {N} anchors from {artifact_dir}")
 
 

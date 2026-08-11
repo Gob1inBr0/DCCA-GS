@@ -121,6 +121,7 @@ def evaluate(
                 background,
                 is_training=False,
                 appearance_id=0,
+                step=iteration,
             )
             pred = out.image[0].permute(2, 0, 1).clamp(0.0, 1.0)
             gt = dataset.get_image(cam).clamp(0.0, 1.0)

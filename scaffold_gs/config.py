@@ -70,6 +70,56 @@ class ModelConfig:
     log2_hashmap_size: int = 13
     log2_hashmap_size_2D: int = 15
 
+    # I1: scale-aware hierarchical anchor-hash context (pure coordinate,
+    # decoder-recomputable; default OFF until the I1 on/off ablation settles it).
+    hierarchical_context: bool = False
+    hierarchical_context_start_iter: int = 12_000
+
+    # I2: content-aware formula quantization (default ON, formula mode only).
+    content_aware_quant: bool = True
+    content_aware_q_mode: str = "formula"
+    complexity_scale: float = 0.35
+    content_aware_start_iter: int = 20_000
+    content_aware_ramp_iters: int = 10_000
+    mlp_complexity_hidden: Optional[int] = None
+    """Hidden width of the complexity MLP; None -> feat_dim // 2."""
+
+    mlp_complexity_layers: int = 1
+    """Number of hidden layers in the complexity MLP (>= 1)."""
+
+    level_threshold_low: float = 0.33
+    level_threshold_high: float = 0.66
+    """Spatial-distance thresholds used by I1 level ids (decoder-recomputable)."""
+
+    # Reserved future stages: enabling them must fail loudly, not half-implement.
+    vq_enabled: bool = False
+    dither_enabled: bool = False
+    sensitivity_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        if self.content_aware_q_mode != "formula":
+            raise ValueError(
+                "content_aware_q_mode must be 'formula' in PHG v1; "
+                f"got {self.content_aware_q_mode!r}"
+            )
+        if self.mlp_complexity_layers < 1:
+            raise ValueError("mlp_complexity_layers must be >= 1")
+        if not (0.0 <= self.level_threshold_low < self.level_threshold_high <= 1.0):
+            raise ValueError(
+                "level thresholds must satisfy "
+                "0 <= low < high <= 1"
+            )
+        for name, enabled in (
+            ("vq_enabled", self.vq_enabled),
+            ("dither_enabled", self.dither_enabled),
+            ("sensitivity_enabled", self.sensitivity_enabled),
+        ):
+            if enabled:
+                raise NotImplementedError(
+                    f"{name} is reserved for a future PHG stage and is not "
+                    "implemented in v1."
+                )
+
 
 @dataclass
 class OptimConfig:
@@ -140,6 +190,12 @@ class OptimConfig:
     mlp_deform_lr_final: float = 0.0005
     mlp_deform_lr_delay_mult: float = 0.01
     mlp_deform_lr_max_steps: int = 30_000
+
+    # I2 complexity MLP schedule.
+    mlp_complexity_lr_init: float = 0.005
+    mlp_complexity_lr_final: float = 0.0005
+    mlp_complexity_lr_delay_mult: float = 0.01
+    mlp_complexity_lr_max_steps: int = 30_000
 
     lambda_rate: float = 0.004
     """Rate-distortion weight for HAC++ (official default 0.004)."""

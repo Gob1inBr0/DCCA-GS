@@ -254,6 +254,17 @@ class GaussianModel(nn.Module):
                  use_2D: bool=True,
                  decoded_version: bool=False,
                  is_synthetic_nerf: bool=False,
+                 hierarchical_context: bool=False,
+                 hierarchical_context_start_iter: int=12000,
+                 content_aware_quant: bool=True,
+                 content_aware_q_mode: str="formula",
+                 complexity_scale: float=0.35,
+                 content_aware_start_iter: int=20000,
+                 content_aware_ramp_iters: int=10000,
+                 mlp_complexity_hidden: int=None,
+                 mlp_complexity_layers: int=1,
+                 level_threshold_low: float=0.33,
+                 level_threshold_high: float=0.66,
                  ):
         super().__init__()
         print('hash_params:', use_2D, n_features_per_level,
@@ -281,6 +292,21 @@ class GaussianModel(nn.Module):
         self.Q = Q
         self.use_2D = use_2D
         self.decoded_version = decoded_version
+        self.hierarchical_context = bool(hierarchical_context)
+        self.hierarchical_context_start_iter = int(hierarchical_context_start_iter)
+        self.content_aware_quant = bool(content_aware_quant)
+        if content_aware_q_mode != "formula":
+            raise ValueError("PHG v1 only supports content_aware_q_mode='formula'")
+        self.content_aware_q_mode = str(content_aware_q_mode)
+        self.complexity_scale = float(complexity_scale)
+        self.content_aware_start_iter = int(content_aware_start_iter)
+        self.content_aware_ramp_iters = max(int(content_aware_ramp_iters), 1)
+        self.mlp_complexity_hidden = mlp_complexity_hidden
+        self.mlp_complexity_layers = max(int(mlp_complexity_layers), 1)
+        self.level_threshold_low = float(level_threshold_low)
+        self.level_threshold_high = float(level_threshold_high)
+        self.current_step = 0
+        self.current_iter = 0
 
         self._anchor = torch.empty(0)
         self._offset = torch.empty(0)
@@ -366,11 +392,27 @@ class GaussianModel(nn.Module):
             nn.Sigmoid()
         ).cuda()
 
+        self.base_grid_context_dim = self.encoding_xyz.output_dim
+        if self.hierarchical_context:
+            self.grid_context_dim = self.base_grid_context_dim * 2 + 3
+        else:
+            self.grid_context_dim = self.base_grid_context_dim
         self.mlp_grid = nn.Sequential(
-            nn.Linear(self.encoding_xyz.output_dim, feat_dim*2),
+            nn.Linear(self.grid_context_dim, feat_dim*2),
             nn.ReLU(True),
             nn.Linear(feat_dim*2, (feat_dim+6+3*self.n_offsets)*2+feat_dim+1+1+1),
         ).cuda()
+
+        hidden = (
+            feat_dim // 2
+            if self.mlp_complexity_hidden is None
+            else int(self.mlp_complexity_hidden)
+        )
+        layers = [nn.Linear(8, hidden), nn.ReLU(True)]
+        for _ in range(self.mlp_complexity_layers - 1):
+            layers += [nn.Linear(hidden, hidden), nn.ReLU(True)]
+        layers.append(nn.Linear(hidden, 3))
+        self.mlp_complexity = nn.Sequential(*layers).cuda()
 
         if not is_synthetic_nerf:
             self.mlp_deform = Channel_CTX_fea().cuda()
@@ -409,6 +451,7 @@ class GaussianModel(nn.Module):
         self.encoding_xyz.eval()
         self.mlp_grid.eval()
         self.mlp_deform.eval()
+        self.mlp_complexity.eval()
 
         if self.use_feat_bank:
             self.mlp_feature_bank.eval()
@@ -420,6 +463,7 @@ class GaussianModel(nn.Module):
         self.encoding_xyz.train()
         self.mlp_grid.train()
         self.mlp_deform.train()
+        self.mlp_complexity.train()
 
         if self.use_feat_bank:
             self.mlp_feature_bank.train()
@@ -530,6 +574,208 @@ class GaussianModel(nn.Module):
         features = self.encoding_xyz(x)  # [N, 4*12]
         return features
 
+    # ------------------------------------------------------------------
+    # PHG I1: decoder-recomputable scale-aware hierarchical context
+    # ------------------------------------------------------------------
+
+    def get_scene_center(self):
+        return (self.x_bound_min + self.x_bound_max) * 0.5
+
+    def get_scene_extent(self):
+        return torch.clamp(self.x_bound_max - self.x_bound_min, min=1e-6)
+
+    def is_hierarchical_context_active(self):
+        return bool(self.hierarchical_context) and (
+            self.current_iter >= self.hierarchical_context_start_iter
+        )
+
+    def compute_anchor_level_ids(self, anchor):
+        """Spatial-distance-only level ids (decoder-recomputable from grid coords)."""
+        center = self.get_scene_center()
+        extent = self.get_scene_extent()
+        diag = torch.norm(extent, dim=-1, keepdim=True).clamp(min=1e-6)
+        spatial = torch.norm(anchor - center, dim=-1, keepdim=True) / diag
+        level = torch.zeros(anchor.shape[0], dtype=torch.long, device=anchor.device)
+        level[spatial[:, 0] >= self.level_threshold_low] = 1
+        level[spatial[:, 0] >= self.level_threshold_high] = 2
+        return level
+
+    def compute_anchor_level_onehot(self, anchor):
+        level = self.compute_anchor_level_ids(anchor)
+        return torch.nn.functional.one_hot(level, num_classes=3).to(anchor.dtype)
+
+    def calc_context_feat(self, x, anchor_indices=None, caller=""):
+        """I1 context = concat(base, parent, level); no view context is stored.
+
+        ``anchor_indices``/``caller`` are accepted for adapter compatibility but
+        are not needed because every input is recomputable from grid coords.
+        """
+        del anchor_indices, caller
+        base = self.calc_interp_feat(x)
+        if not self.is_hierarchical_context_active():
+            return base
+        parent_stride = max(self.voxel_size * self.update_hierachy_factor, 1e-6)
+        parent_anchor = torch.round(x / parent_stride) * parent_stride
+        parent = self.calc_interp_feat(parent_anchor)
+        level = self.compute_anchor_level_onehot(x).to(base.dtype)
+        return torch.cat([base, parent, level], dim=-1)
+
+    # ------------------------------------------------------------------
+    # PHG I2: content-aware formula quantization (decoder-recomputable)
+    # ------------------------------------------------------------------
+
+    @property
+    def get_complexity_mlp(self):
+        return self.mlp_complexity
+
+    def get_complexity_chunk_size(self):
+        return 4096
+
+    def is_content_aware_quant_active(self):
+        return bool(self.content_aware_quant) and (
+            self.current_step >= self.content_aware_start_iter
+        )
+
+    def _content_aware_ramp_progress(self):
+        if self.current_step < self.content_aware_start_iter:
+            return 0.0
+        return float(
+            min(
+                max(
+                    (self.current_step - self.content_aware_start_iter)
+                    / float(self.content_aware_ramp_iters),
+                    0.0,
+                ),
+                1.0,
+            )
+        )
+
+    def _estimate_formula_local_density(self, anchor):
+        n = anchor.shape[0]
+        if n <= 1:
+            return torch.full(
+                (n, 1), 0.5, device=anchor.device, dtype=anchor.dtype
+            )
+        with torch.no_grad():
+            if n <= 4096:
+                dists = torch.cdist(anchor, anchor)
+                dists.fill_diagonal_(float("inf"))
+                nn_dist = dists.min(dim=1)[0].unsqueeze(-1)
+            else:
+                sample_idx = (
+                    torch.linspace(0, n - 1, steps=4096, device=anchor.device)
+                    .round()
+                    .long()
+                )
+                sample_anchors = anchor[sample_idx]
+                chunks = []
+                step = self.get_complexity_chunk_size()
+                for start in range(0, n, step):
+                    end = min(start + step, n)
+                    dists = torch.cdist(anchor[start:end], sample_anchors)
+                    chunks.append(dists.min(dim=1)[0].unsqueeze(-1))
+                nn_dist = torch.cat(chunks, dim=0)
+            voxel = max(self.voxel_size, 1e-6)
+            return torch.exp(-nn_dist / voxel)
+
+    def build_formula_complexity_input(
+        self, anchor, predicted_mean_scaling, predicted_mean_offsets, masks
+    ):
+        from hacplus.utils.codec_consistency import build_formula_complexity_features
+
+        local_density = self._estimate_formula_local_density(anchor)
+        return build_formula_complexity_features(
+            local_density,
+            predicted_mean_scaling,
+            predicted_mean_offsets,
+            masks,
+            self.n_offsets,
+        )
+
+    def estimate_formula_content_complexity(
+        self, anchor, predicted_mean_scaling, predicted_mean_offsets, masks
+    ):
+        formula_input = self.build_formula_complexity_input(
+            anchor, predicted_mean_scaling, predicted_mean_offsets, masks
+        )
+        return self.get_complexity_mlp(formula_input), formula_input
+
+    def _q_base_value(self, name):
+        return {"feat": 1.0, "scaling": 0.001, "offsets": 0.2}[name]
+
+    def _make_field_q_params(self, name, q_adj):
+        adj = 1 + torch.tanh(q_adj)
+        return float(self._q_base_value(name)) * adj, None
+
+    def _apply_field_complexity(self, name, Q, QS, complexity_field):
+        del QS  # formula path only; no inv_scale mode in PHG v1
+        return Q * complexity_field.to(dtype=Q.dtype, device=Q.device), None
+
+    def _codec_apply_content_aware_quant_params(
+        self,
+        tag,
+        anchor,
+        masks,
+        Q_feat,
+        Q_scaling,
+        Q_offsets,
+        QS_feat,
+        QS_scaling,
+        QS_offsets,
+        mean_scaling,
+        mean_offsets,
+        exact_scaling=None,
+        exact_offsets=None,
+        photo_stats=None,
+        q_mode=None,
+        complexity_strength=None,
+    ):
+        del tag, exact_scaling, exact_offsets, photo_stats, q_mode
+        if not self.content_aware_quant:
+            return (
+                Q_feat,
+                Q_scaling,
+                Q_offsets,
+                QS_feat,
+                QS_scaling,
+                QS_offsets,
+                None,
+            )
+        from hacplus.utils.codec_consistency import formula_complexity_multiplier
+
+        complexity_adj, formula_input = self.estimate_formula_content_complexity(
+            anchor, mean_scaling, mean_offsets, masks
+        )
+        strength = (
+            self.complexity_scale * self._content_aware_ramp_progress()
+            if complexity_strength is None
+            else float(complexity_strength)
+        )
+        multiplier = formula_complexity_multiplier(complexity_adj, strength)
+        Q_feat = Q_feat * multiplier[:, 0:1].reshape(
+            -1, *([1] * (Q_feat.dim() - 1))
+        )
+        Q_scaling = Q_scaling * multiplier[:, 1:2].reshape(
+            -1, *([1] * (Q_scaling.dim() - 1))
+        )
+        Q_offsets = Q_offsets * multiplier[:, 2:3].reshape(
+            -1, *([1] * (Q_offsets.dim() - 1))
+        )
+        self._last_formula_complexity_input = formula_input.detach()
+        return (
+            Q_feat,
+            Q_scaling,
+            Q_offsets,
+            QS_feat,
+            QS_scaling,
+            QS_offsets,
+            complexity_adj,
+        )
+
+    def _field_quantize(self, name, x, Q, QS, center):
+        del name, QS  # formula path only; q_step/STE_multistep in PHG v1
+        return STE_multistep.apply(x, Q, center)
+
     @property
     def set_anchor(self, new_anchor):
         assert self._anchor.shape == new_anchor.shape
@@ -618,6 +864,7 @@ class GaussianModel(nn.Module):
                 {'params': self.encoding_xyz.parameters(), 'lr': training_args.encoding_xyz_lr_init, "name": "encoding_xyz"},
                 {'params': self.mlp_grid.parameters(), 'lr': training_args.mlp_grid_lr_init, "name": "mlp_grid"},
                 {'params': self.mlp_deform.parameters(), 'lr': training_args.mlp_deform_lr_init, "name": "mlp_deform"},
+                {'params': self.mlp_complexity.parameters(), 'lr': training_args.mlp_complexity_lr_init, "name": "mlp_complexity"},
             ]
         else:
             l = [
@@ -636,6 +883,7 @@ class GaussianModel(nn.Module):
                 {'params': self.encoding_xyz.parameters(), 'lr': training_args.encoding_xyz_lr_init, "name": "encoding_xyz"},
                 {'params': self.mlp_grid.parameters(), 'lr': training_args.mlp_grid_lr_init, "name": "mlp_grid"},
                 {'params': self.mlp_deform.parameters(), 'lr': training_args.mlp_deform_lr_init, "name": "mlp_deform"},
+                {'params': self.mlp_complexity.parameters(), 'lr': training_args.mlp_complexity_lr_init, "name": "mlp_complexity"},
             ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
@@ -690,6 +938,13 @@ class GaussianModel(nn.Module):
                                                     lr_delay_mult=training_args.mlp_deform_lr_delay_mult,
                                                     max_steps=training_args.mlp_deform_lr_max_steps)
 
+        self.mlp_complexity_scheduler_args = get_expon_lr_func(
+            lr_init=training_args.mlp_complexity_lr_init,
+            lr_final=training_args.mlp_complexity_lr_final,
+            lr_delay_mult=training_args.mlp_complexity_lr_delay_mult,
+            max_steps=training_args.mlp_complexity_lr_max_steps,
+        )
+
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
         for param_group in self.optimizer.param_groups:
@@ -722,6 +977,9 @@ class GaussianModel(nn.Module):
                 param_group['lr'] = lr
             if param_group["name"] == "mlp_deform":
                 lr = self.mlp_deform_scheduler_args(iteration)
+                param_group['lr'] = lr
+            if param_group["name"] == "mlp_complexity":
+                lr = self.mlp_complexity_scheduler_args(iteration)
                 param_group['lr'] = lr
 
     def construct_list_of_attributes(self):
