@@ -70,7 +70,7 @@ HAC++ 模块已集成（`scaffold_gs/hacpp.py` + 官方核心 `hacplus/`），
 ```bash
 # 在 5090 上使用 HAC++ 环境（已装 _gridencoder/arithmetic/simple_knn）
 conda activate HAC_5090_a100
-cd ~/PHG
+cd ~/xieliang/chentong/PHG
 
 # 率失真训练（feat_dim=50、n_offsets=10 与官方一致）
 python train.py train --cfg.model.model-name hac_pp \
