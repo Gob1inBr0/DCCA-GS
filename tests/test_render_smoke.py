@@ -61,3 +61,10 @@ def test_render_and_train_step():
 
     out2 = model.render(cam, bg, is_training=True)
     assert out2.image.shape == (1, 64, 64, 3)
+
+    # tile_size passthrough: a larger tile must render without errors.
+    # (tile 64 exceeds the shared-memory limit on this GPU; 32 is the max
+    # that the gsplat kernel accepts on sm_120.)
+    model.cfg.tile_size = 32
+    out3 = model.render(cam, bg, is_training=True, retain_grad=True)
+    assert out3.image.shape == (1, 64, 64, 3)

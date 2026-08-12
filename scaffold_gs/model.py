@@ -416,10 +416,12 @@ class ScaffoldGSModel(BaseGaussianModel):
         camera,
         visible_mask: Optional[torch.Tensor] = None,
         is_training: bool = False,
+        retain_grad: bool = False,
         appearance_id: Optional[int] = None,
         step: int = 0,
     ) -> NeuralGaussians:
         del is_training  # Scaffold-GS decodes the same way in train/eval.
+        del retain_grad  # No per-step gradient retention needed for Scaffold-GS.
         del step
         center = camera.camera_center(self.device)
         return self.decoder.predict_gaussians(

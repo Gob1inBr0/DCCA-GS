@@ -172,6 +172,7 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         test_every=cfg.data.test_every,
         white_background=cfg.data.white_background,
         preload_images=cfg.data.preload_images,
+        max_width=cfg.data.max_width,
         device=device,
     )
 

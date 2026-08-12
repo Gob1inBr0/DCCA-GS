@@ -43,6 +43,7 @@ def cmd_eval(cfg: EvalConfig) -> None:
         test_every=cfg.data.test_every,
         white_background=cfg.data.white_background,
         preload_images=cfg.data.preload_images,
+        max_width=cfg.data.max_width,
         device=cfg.device,
     )
     out_dir = cfg.out_dir or str(Path(cfg.data.result_dir) / "eval")

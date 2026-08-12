@@ -76,6 +76,7 @@ def prefilter_anchors(
 
     visible = torch.zeros(n, dtype=torch.bool, device=model.device)
     chunk = 65_536
+    tile_size = int(getattr(model.cfg, "tile_size", 16))
     for start in range(0, n, chunk):
         end = min(start + chunk, n)
         _, _, meta = rasterization(
@@ -92,6 +93,7 @@ def prefilter_anchors(
             far_plane=camera.far_plane,
             render_mode="D",
             packed=True,
+            tile_size=tile_size,
         )
         gids = meta["gaussian_ids"]  # [nnz]
         radii = meta["radii"]  # [nnz, 2]
@@ -152,6 +154,7 @@ def render(
         packed=True,
         sparse_grad=False,
         sh_degree=None,
+        tile_size=int(getattr(model.cfg, "tile_size", 16)),
     )
     if retain_grad:
         meta["means2d"].retain_grad()

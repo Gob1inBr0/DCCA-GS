@@ -151,8 +151,11 @@ def accumulate_growth_stats(
     if anchor_indices.numel() == 0:
         return
 
-    # Opacity / visit statistics for visible anchors.
-    temp_opacity = gaussians.neural_opacity.clamp(min=0.0)  # [n, K]
+    # Opacity / visit statistics for visible anchors. Detached: these are
+    # statistics, not part of the loss graph. In-place writes on indexed views
+    # with grad-requiring sources keep the previous step's autograd graph alive
+    # (~10MB/step), which grew training memory linearly until OOM.
+    temp_opacity = gaussians.neural_opacity.detach().clamp(min=0.0)  # [n, K]
     model.opacity_accum[anchor_indices] += temp_opacity.sum(dim=1, keepdim=True)
     model.anchor_demon[anchor_indices] += 1.0
 

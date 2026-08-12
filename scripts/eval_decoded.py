@@ -28,6 +28,12 @@ def main() -> None:
     p.add_argument("--data-factor", type=int, default=2)
     p.add_argument("--test-every", type=int, default=8)
     p.add_argument(
+        "--max-width",
+        type=int,
+        default=None,
+        help="Rescale images so width == max_width (official resolution=-1 rule).",
+    )
+    p.add_argument(
         "--no-preload-images",
         action="store_true",
         help="Load images on demand instead of preloading all cameras to GPU "
@@ -49,6 +55,7 @@ def main() -> None:
         test_every=args.test_every,
         white_background=False,
         preload_images=not args.no_preload_images,
+        max_width=args.max_width,
         device=args.device,
     )
     evaluate(model, dataset, args.result_dir, iteration=30_000)

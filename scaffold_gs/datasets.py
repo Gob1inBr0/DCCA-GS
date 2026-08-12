@@ -32,6 +32,14 @@ def _as_dict(map_like) -> Dict[int, object]:
     return {int(k): v for k, v in map_like.items()}
 
 
+def max_width_size(width: int, height: int, max_width: int):
+    """Official HAC++ ``resolution=-1`` resize rule (int truncation)."""
+    if width > max_width:
+        scale = width / float(max_width)
+        return max_width, int(height / scale)
+    return width, height
+
+
 @dataclass
 class SceneCamera:
     """A single camera with everything needed for gsplat rasterization."""
@@ -81,6 +89,7 @@ class ColmapDataset:
         test_every: int = 8,
         white_background: bool = False,
         preload_images: bool = True,
+        max_width: Optional[int] = None,
         device: str = "cuda",
     ) -> None:
         # Imported lazily: pycolmap must load *after* torch_scatter on the
@@ -98,6 +107,7 @@ class ColmapDataset:
         self.data_factor = max(1, int(data_factor))
         self.test_every = max(1, int(test_every))
         self.white_background = white_background
+        self.max_width = max_width
         self.device = torch.device(device)
 
         colmap_dir = self.data_dir / "sparse" / "0"
@@ -122,6 +132,11 @@ class ColmapDataset:
             cam = cameras[int(im.camera_id)]
             K = np.asarray(cam.calibration_matrix(), dtype=np.float64).copy()
             K[:2, :] /= self.data_factor
+            width = int(cam.width) // self.data_factor
+            height = int(cam.height) // self.data_factor
+            if self.max_width is not None and width > self.max_width:
+                width, height = max_width_size(width, height, self.max_width)
+                K[:2, :] *= float(self.max_width) / (int(cam.width) // self.data_factor)
             w2c = _image_w2c(im)
             c2w = np.linalg.inv(w2c)
             records.append(
@@ -130,8 +145,8 @@ class ColmapDataset:
                     "name": im.name,
                     "c2w": c2w,
                     "K": K,
-                    "width": int(cam.width) // self.data_factor,
-                    "height": int(cam.height) // self.data_factor,
+                    "width": width,
+                    "height": height,
                 }
             )
         records.sort(key=lambda r: r["name"])

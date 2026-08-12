@@ -35,6 +35,12 @@ class DataConfig:
     preload_images: bool = True
     """Load all images into GPU memory up front (default, fast for small scenes)."""
 
+    max_width: Optional[int] = None
+    """Cap image width like official HAC++ ``resolution=-1`` (e.g. 1600).
+    When set and the original width exceeds it, images/K are rescaled to
+    ``(max_width, round(h * max_width / w))``. Takes precedence over
+    ``data_factor`` for sizing (data_factor still selects the image folder)."""
+
 
 @dataclass
 class ModelConfig:
@@ -51,6 +57,10 @@ class ModelConfig:
 
     voxel_size: float = 0.001
     """Voxel size for anchor initialization; <=0 means median 1-NN distance."""
+
+    tile_size: int = 16
+    """gsplat rasterization tile size; larger values cut packed-intersection
+    memory (intersections scale as 1/tile_size^2) at a small speed cost."""
 
     update_depth: int = 3
     update_init_factor: int = 16
