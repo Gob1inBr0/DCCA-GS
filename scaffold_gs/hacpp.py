@@ -73,6 +73,30 @@ def _load_override(value, n: int, device) -> Optional[torch.Tensor]:
     return torch.from_numpy(arr).to(device)
 
 
+def anchor_codec_order(model) -> torch.Tensor:
+    """Global anchor indices in codec order (mask_anchor + Morton sort).
+
+    Any per-anchor side-channel (e.g. I6 ``q_override_*``) must be written in
+    this exact order so encode and decode see the same per-anchor mapping.
+    """
+    core = model.core
+    mask_anchor = core.get_mask_anchor.to(torch.bool)[:, 0]
+    anchor = core.get_anchor.detach()[mask_anchor]
+    anchor_int = torch.round(anchor / model.voxel_size)
+    sorted_indices = calculate_morton_order(anchor_int)
+    return torch.nonzero(mask_anchor).squeeze(-1)[sorted_indices]
+
+
+def sensitivity_multiplier(z, strength: float):
+    """Bounded I6 Q multiplier ``1 + strength * tanh(-z)``.
+
+    Clamped to [0.1, 2.0]: near-zero Q steps make the arithmetic coder's CDF
+    produce NaN (observed at strength >= 1 with the relative z-score), and
+    unbounded multipliers would make the strength sweep degenerate.
+    """
+    return (1.0 + float(strength) * torch.tanh(-z)).clamp(0.1, 2.0)
+
+
 class _ParamsView:
     """Duck-typed accessor so the shared gsplat prefilter/renderer can consume
     the HAC++ core without a Scaffold-style ``AnchorParams`` module."""
@@ -608,7 +632,6 @@ class HACPlusModel(BaseGaussianModel):
         sens_active = (
             self.cfg.sensitivity_enabled
             and is_training
-            and retain_grad
             and step >= self.cfg.sensitivity_start_iter
         )
         if sens_active:
@@ -762,13 +785,14 @@ class HACPlusModel(BaseGaussianModel):
         ``mlp_complexity``; the target side (previous-step EMA z-score) is
         detached.
         """
+        core = self.core
         if (
             not self.cfg.sensitivity_enabled
             or gaussians.complexity_logits is None
             or self.cfg.sensitivity_weight <= 0.0
+            or core.current_step < self.cfg.sensitivity_start_iter
         ):
             return torch.zeros((), device=self.device)
-        core = self.core
         idx = gaussians.anchor_indices
         ema = torch.stack(
             [
@@ -778,11 +802,16 @@ class HACPlusModel(BaseGaussianModel):
             ],
             dim=-1,
         )
-        std = torch.sqrt(core.sensitivity_var.clamp_min(1e-8))
-        z_score = (ema - core.sensitivity_mean) / std
+        # I6 mapping follows the design doc's relative normalization
+        # s_norm = accum / (mean(accum) + eps). The variance-EMA z-score
+        # never converges from its unit init at alpha=0.99 and flattens the
+        # signal (grad norms span several orders of magnitude per anchor).
+        z_score = (ema - core.sensitivity_mean) / core.sensitivity_mean.clamp_min(
+            1e-12
+        )
         strength = self.cfg.sensitivity_strength
         pred = 1.0 + strength * torch.tanh(gaussians.complexity_logits)
-        target = (1.0 + strength * torch.tanh(-z_score)).detach()
+        target = sensitivity_multiplier(z_score, strength).detach()
         return self.cfg.sensitivity_weight * torch.nn.functional.mse_loss(
             pred, target
         )
@@ -801,7 +830,9 @@ class HACPlusModel(BaseGaussianModel):
         grads = [
             gaussians.pre_quant_feat.grad.norm(dim=-1, keepdim=True),
             gaussians.pre_quant_scaling.grad.norm(dim=-1, keepdim=True),
-            gaussians.pre_quant_offsets.grad.norm(dim=-1, keepdim=True),
+            gaussians.pre_quant_offsets.grad.flatten(1).norm(
+                dim=-1, keepdim=True
+            ),
         ]
         for ema_tensor, g in zip(
             (

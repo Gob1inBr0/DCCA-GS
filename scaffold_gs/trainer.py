@@ -228,7 +228,6 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         sens_accum = getattr(model, "accumulate_sensitivity", None)
         if (
             sens_accum is not None
-            and retain_grad
             and iteration >= cfg.model.sensitivity_start_iter
         ):
             sens_accum(out.gaussians)

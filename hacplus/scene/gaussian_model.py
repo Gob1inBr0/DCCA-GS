@@ -1177,6 +1177,18 @@ class GaussianModel(nn.Module):
 
     def prune_anchor(self,mask):
         valid_points_mask = ~mask
+        n_target = int(valid_points_mask.shape[0])
+        for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+            tensor = getattr(self, name)
+            if tensor.numel() == 0:
+                continue
+            if tensor.shape[0] < n_target:
+                pad = torch.zeros(
+                    (n_target - tensor.shape[0], 1), device=tensor.device
+                )
+                setattr(self, name, torch.cat([tensor, pad], dim=0))
+            elif tensor.shape[0] > n_target:
+                setattr(self, name, tensor[:n_target])
 
         optimizable_tensors = self._prune_anchor_optimizer(valid_points_mask)
 

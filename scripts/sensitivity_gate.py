@@ -22,7 +22,11 @@ import numpy as np
 import torch
 
 from scaffold_gs.datasets import ColmapDataset
-from scaffold_gs.hacpp import HACPlusCodec
+from scaffold_gs.hacpp import (
+    HACPlusCodec,
+    anchor_codec_order,
+    sensitivity_multiplier,
+)
 from scaffold_gs.trainer import evaluate, load_checkpoint
 
 
@@ -88,12 +92,18 @@ def _build_override(model, path: Path):
         core.sensitivity_offsets,
     ]
     strength = model.cfg.sensitivity_strength
+    codec_idx = anchor_codec_order(model).cpu().numpy()
     paths = {}
     for i, (name, t) in enumerate(zip(fields, tensors)):
-        z = (t - core.sensitivity_mean[i]) / torch.sqrt(
-            core.sensitivity_var[i] + 1e-8
+        z = (t - core.sensitivity_mean[i]) / core.sensitivity_mean[i].clamp_min(
+            1e-12
         )
-        mult = (1.0 + strength * torch.tanh(-z)).cpu().numpy().astype(np.float32)
+        mult = (
+            sensitivity_multiplier(z, strength)
+            .cpu()
+            .numpy()
+            .astype(np.float32)
+        )[codec_idx]
         p = path / f"q_override_{name}.npy"
         np.save(p, mult)
         paths[name] = p

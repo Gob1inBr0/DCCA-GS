@@ -27,6 +27,12 @@ def main() -> None:
     p.add_argument("--result-dir", required=True)
     p.add_argument("--data-factor", type=int, default=2)
     p.add_argument("--test-every", type=int, default=8)
+    p.add_argument(
+        "--no-preload-images",
+        action="store_true",
+        help="Load images on demand instead of preloading all cameras to GPU "
+        "(needed for large scenes like 4-28, where 1200 images ~ 28GB).",
+    )
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
 
@@ -42,7 +48,7 @@ def main() -> None:
         data_factor=args.data_factor,
         test_every=args.test_every,
         white_background=False,
-        preload_images=True,
+        preload_images=not args.no_preload_images,
         device=args.device,
     )
     evaluate(model, dataset, args.result_dir, iteration=30_000)

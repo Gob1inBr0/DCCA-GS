@@ -86,9 +86,16 @@ def test_sensitivity_gradient_reaches_mlp_complexity():
     bg = torch.zeros(3, device="cuda")
 
     out1 = model.render(cam, bg, is_training=True, retain_grad=True, appearance_id=0, step=12_000)
+    assert out1.gaussians.pre_quant_feat is not None, (
+        "renderer must forward retain_grad to generate_gaussians"
+    )
+    assert out1.gaussians.pre_quant_feat.requires_grad
     loss1 = (out1.image**2).mean()
     loss1.backward()
+    assert out1.gaussians.pre_quant_feat.grad is not None
+    assert out1.gaussians.pre_quant_feat.grad.abs().sum() > 0
     model.accumulate_sensitivity(out1.gaussians)
+    assert model.core.sensitivity_feat.abs().sum() > 0
     model.optimizer.zero_grad(set_to_none=True)
 
     out2 = model.render(cam, bg, is_training=True, retain_grad=True, appearance_id=0, step=12_001)
@@ -102,6 +109,22 @@ def test_sensitivity_gradient_reaches_mlp_complexity():
     ]
     assert grads, "sensitivity supervision did not reach mlp_complexity"
     assert any(grad.abs().sum() > 0 for grad in grads)
+
+
+def test_sensitivity_active_after_growth_window():
+    """I6 accumulation must keep working after retain_grad is turned off."""
+    model = _make_sens_model()
+    cam = _make_camera()
+    bg = torch.zeros(3, device="cuda")
+
+    out = model.render(
+        cam, bg, is_training=True, retain_grad=False, appearance_id=0, step=12_001
+    )
+    assert out.gaussians.pre_quant_feat is not None
+    out.image.sum().backward()
+    assert out.gaussians.pre_quant_feat.grad is not None
+    model.accumulate_sensitivity(out.gaussians)
+    assert model.core.sensitivity_feat.abs().sum() > 0
 
 
 def test_q_override_roundtrip(tmp_path: Path):

@@ -120,6 +120,7 @@ def render(
         camera,
         visible_mask=visible_mask,
         is_training=is_training,
+        retain_grad=retain_grad,
         appearance_id=appearance_id,
         **kwargs,
     )
