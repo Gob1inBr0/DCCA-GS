@@ -96,6 +96,19 @@ class ModelConfig:
     dither_enabled: bool = False
     sensitivity_enabled: bool = False
 
+    # I6: render-sensitivity weighted supervision (default OFF).
+    sensitivity_weight: float = 1e-3
+    """Weight of L_sens = MSE(pred multiplier, sensitivity target)."""
+
+    sensitivity_ema: float = 0.99
+    """EMA smoothing for per-anchor sensitivity gradient norms."""
+
+    sensitivity_strength: float = 1.0
+    """Bounded mapping strength: 1 + strength * tanh(.)."""
+
+    sensitivity_start_iter: int = 20_000
+    """First iteration at which sensitivity supervision/accumulation runs."""
+
     def __post_init__(self) -> None:
         if self.content_aware_q_mode != "formula":
             raise ValueError(
@@ -112,12 +125,19 @@ class ModelConfig:
         for name, enabled in (
             ("vq_enabled", self.vq_enabled),
             ("dither_enabled", self.dither_enabled),
-            ("sensitivity_enabled", self.sensitivity_enabled),
         ):
             if enabled:
                 raise NotImplementedError(
                     f"{name} is reserved for a future PHG stage and is not "
                     "implemented in v1."
+                )
+        if self.sensitivity_enabled:
+            if self.sensitivity_weight <= 0.0:
+                raise ValueError("sensitivity_weight must be > 0 when enabled")
+            if not self.content_aware_quant:
+                raise ValueError(
+                    "sensitivity_enabled requires content_aware_quant=True "
+                    "(supervision targets mlp_complexity used by I2)"
                 )
 
 

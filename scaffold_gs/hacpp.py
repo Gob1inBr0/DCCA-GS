@@ -62,6 +62,17 @@ def _tensor_sha256(t: torch.Tensor) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _load_override(value, n: int, device) -> Optional[torch.Tensor]:
+    if value is None:
+        return None
+    if isinstance(value, (str, Path)):
+        arr = np.load(value)
+    else:
+        arr = np.asarray(value)
+    arr = np.asarray(arr, dtype=np.float32).reshape(n, 1)
+    return torch.from_numpy(arr).to(device)
+
+
 class _ParamsView:
     """Duck-typed accessor so the shared gsplat prefilter/renderer can consume
     the HAC++ core without a Scaffold-style ``AnchorParams`` module."""
@@ -208,6 +219,7 @@ class HACPlusModel(BaseGaussianModel):
         sd["_x_bound_max"] = self._view.x_bound_max
         sd["_decoded_version"] = torch.tensor(int(self._view.decoded_version))
         sd["_phg_state"] = self._view.state_tensors()
+        sd["_sensitivity_state"] = self._view.sensitivity_state()
         return sd
 
     def load_state_dict(self, *args, **kwargs):
@@ -223,6 +235,8 @@ class HACPlusModel(BaseGaussianModel):
             self._view.decoded_version = bool(sd.pop("_decoded_version").item())
         if "_phg_state" in sd:
             self._view.load_state_tensors(sd.pop("_phg_state"))
+        if "_sensitivity_state" in sd:
+            self._view.load_sensitivity_state(sd.pop("_sensitivity_state"))
         for key in (
             "_anchor",
             "_offset",
@@ -241,7 +255,15 @@ class HACPlusModel(BaseGaussianModel):
                         requires_grad=key not in ("_rotation", "_opacity"),
                     ),
                 )
-        return self.core.load_state_dict(sd, strict=kwargs.get("strict", True))
+        result = self.core.load_state_dict(sd, strict=kwargs.get("strict", True))
+        if self.core.sensitivity_feat.numel() == 0 and self.num_anchors > 0:
+            n = self.num_anchors
+            self.core.sensitivity_feat = torch.zeros(n, 1, device=self.device)
+            self.core.sensitivity_scaling = torch.zeros(n, 1, device=self.device)
+            self.core.sensitivity_offsets = torch.zeros(n, 1, device=self.device)
+            self.core.sensitivity_mean = torch.zeros(3, device=self.device)
+            self.core.sensitivity_var = torch.ones(3, device=self.device)
+        return result
 
     def train(self, mode: bool = True):
         # The official HAC++ GaussianModel overrides train()/eval() without a
@@ -315,6 +337,11 @@ class HACPlusModel(BaseGaussianModel):
         core.offset_denom = torch.zeros(n * k, 1, device=device)
         core.anchor_demon = torch.zeros(n, 1, device=device)
         core.max_radii2D = torch.zeros(n, device=device)
+        core.sensitivity_feat = torch.zeros(n, 1, device=device)
+        core.sensitivity_scaling = torch.zeros(n, 1, device=device)
+        core.sensitivity_offsets = torch.zeros(n, 1, device=device)
+        core.sensitivity_mean = torch.zeros(3, device=device)
+        core.sensitivity_var = torch.ones(3, device=device)
         core.update_anchor_bound()
         # Guard against anchor grids whose min/max sit exactly on 0, which the
         # official calc_interp_feat assertion rejects.
@@ -394,6 +421,7 @@ class HACPlusModel(BaseGaussianModel):
         is_training: bool = False,
         appearance_id: Optional[int] = None,
         step: int = 0,
+        retain_grad: bool = False,
     ) -> NeuralGaussians:
         del appearance_id
         core = self.core
@@ -425,6 +453,7 @@ class HACPlusModel(BaseGaussianModel):
         bit_per_feat_param = None
         bit_per_scaling_param = None
         bit_per_offsets_param = None
+        complexity_logits = None
 
         if is_training:
             if 3000 < step <= 10000:
@@ -481,7 +510,7 @@ class HACPlusModel(BaseGaussianModel):
                         _,
                         _,
                         _,
-                        _,
+                        complexity_logits,
                     ) = core._codec_apply_content_aware_quant_params(
                         "generate_gaussians",
                         anchor,
@@ -576,6 +605,17 @@ class HACPlusModel(BaseGaussianModel):
                 grid_offsets, Q_offsets, self._view.offset.mean()
             ).detach()
 
+        sens_active = (
+            self.cfg.sensitivity_enabled
+            and is_training
+            and retain_grad
+            and step >= self.cfg.sensitivity_start_iter
+        )
+        if sens_active:
+            feat.retain_grad()
+            grid_scaling.retain_grad()
+            grid_offsets.retain_grad()
+
         # Decode neural Gaussians in anchor chunks so peak memory does not
         # scale with the total anchor count (same math as the official renderer).
         camera_center = camera.camera_center(device)
@@ -660,6 +700,10 @@ class HACPlusModel(BaseGaussianModel):
             bit_per_feat_param=bit_per_feat_param,
             bit_per_scaling_param=bit_per_scaling_param,
             bit_per_offsets_param=bit_per_offsets_param,
+            pre_quant_feat=feat if sens_active else None,
+            pre_quant_scaling=grid_scaling if sens_active else None,
+            pre_quant_offsets=grid_offsets if sens_active else None,
+            complexity_logits=complexity_logits,
         )
 
     def render(self, camera, background, **kwargs):
@@ -710,6 +754,69 @@ class HACPlusModel(BaseGaussianModel):
         return self.optim_cfg.lambda_rate * (
             gaussians.bit_per_param + bit_hash / denom
         )
+
+    def sensitivity_supervision(self, gaussians: NeuralGaussians) -> torch.Tensor:
+        """L_sens = weight * MSE(pred multiplier, bounded sensitivity target).
+
+        ``complexity_logits`` is kept differentiable so gradients reach
+        ``mlp_complexity``; the target side (previous-step EMA z-score) is
+        detached.
+        """
+        if (
+            not self.cfg.sensitivity_enabled
+            or gaussians.complexity_logits is None
+            or self.cfg.sensitivity_weight <= 0.0
+        ):
+            return torch.zeros((), device=self.device)
+        core = self.core
+        idx = gaussians.anchor_indices
+        ema = torch.stack(
+            [
+                core.sensitivity_feat[idx].squeeze(-1),
+                core.sensitivity_scaling[idx].squeeze(-1),
+                core.sensitivity_offsets[idx].squeeze(-1),
+            ],
+            dim=-1,
+        )
+        std = torch.sqrt(core.sensitivity_var.clamp_min(1e-8))
+        z_score = (ema - core.sensitivity_mean) / std
+        strength = self.cfg.sensitivity_strength
+        pred = 1.0 + strength * torch.tanh(gaussians.complexity_logits)
+        target = (1.0 + strength * torch.tanh(-z_score)).detach()
+        return self.cfg.sensitivity_weight * torch.nn.functional.mse_loss(
+            pred, target
+        )
+
+    def accumulate_sensitivity(self, gaussians: NeuralGaussians) -> None:
+        """EMA-update per-anchor render-sensitivity gradient norms."""
+        if (
+            not self.cfg.sensitivity_enabled
+            or gaussians.pre_quant_feat is None
+            or gaussians.pre_quant_feat.grad is None
+        ):
+            return
+        core = self.core
+        alpha = self.cfg.sensitivity_ema
+        idx = gaussians.anchor_indices
+        grads = [
+            gaussians.pre_quant_feat.grad.norm(dim=-1, keepdim=True),
+            gaussians.pre_quant_scaling.grad.norm(dim=-1, keepdim=True),
+            gaussians.pre_quant_offsets.grad.norm(dim=-1, keepdim=True),
+        ]
+        for ema_tensor, g in zip(
+            (
+                core.sensitivity_feat,
+                core.sensitivity_scaling,
+                core.sensitivity_offsets,
+            ),
+            grads,
+        ):
+            ema_tensor.mul_(alpha)
+            ema_tensor.index_add_(0, idx, (1.0 - alpha) * g)
+        batch_mean = torch.stack([g.mean() for g in grads])
+        batch_var = torch.stack([g.var(unbiased=False) for g in grads])
+        core.sensitivity_mean.mul_(alpha).add_((1.0 - alpha) * batch_mean)
+        core.sensitivity_var.mul_(alpha).add_((1.0 - alpha) * batch_var)
 
     # ------------------------------------------------------------------
     # Export / codec support
@@ -878,6 +985,9 @@ class HACPlusModel(BaseGaussianModel):
         q_scale_scaling: float = 1.0,
         q_scale_offsets: float = 1.0,
         mask_keep_ratio: Optional[float] = None,
+        q_override_feat=None,
+        q_override_scaling=None,
+        q_override_offsets=None,
     ) -> Dict[str, Any]:
         """Entropy-code anchor attributes with the official arithmetic codec.
 
@@ -932,6 +1042,9 @@ class HACPlusModel(BaseGaussianModel):
         offsets = offsets[sorted_indices]
         scaling = scaling[sorted_indices]
         masks = masks[sorted_indices]
+        ov_feat = _load_override(q_override_feat, N, device)
+        ov_scaling = _load_override(q_override_scaling, N, device)
+        ov_offsets = _load_override(q_override_offsets, N, device)
         means_strings = compress_gpcc(anchor_int)
         np.savez_compressed(
             out_dir / "xyz_gpcc.npz",
@@ -1052,6 +1165,12 @@ class HACPlusModel(BaseGaussianModel):
                     mean_scaling.view(-1, 6),
                     mean_offsets.view(-1, 3 * k),
                 )
+            if ov_feat is not None:
+                Q_feat = Q_feat * ov_feat[start:end]
+            if ov_scaling is not None:
+                Q_scaling = Q_scaling * ov_scaling[start:end]
+            if ov_offsets is not None:
+                Q_offsets = Q_offsets * ov_offsets[start:end]
             Q_feat_flat = Q_feat.contiguous().view(-1)
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
@@ -1170,6 +1289,9 @@ class HACPlusModel(BaseGaussianModel):
         q_scale_feat: float = 1.0,
         q_scale_scaling: float = 1.0,
         q_scale_offsets: float = 1.0,
+        q_override_feat=None,
+        q_override_scaling=None,
+        q_override_offsets=None,
     ) -> None:
         """Restore quantized attributes from the bitstream (official decode).
 
@@ -1232,6 +1354,9 @@ class HACPlusModel(BaseGaussianModel):
         anchor_int = anchor_int[sorted_indices]
         anchor = anchor_int * voxel_size
         N = anchor.shape[0]
+        ov_feat = _load_override(q_override_feat, N, device)
+        ov_scaling = _load_override(q_override_scaling, N, device)
+        ov_offsets = _load_override(q_override_offsets, N, device)
         if _tensor_sha256(anchor_int) != codec_header.get("anchor_int_sha256"):
             raise RuntimeError("anchor_int hash mismatch after GPCC round-trip")
 
@@ -1305,6 +1430,12 @@ class HACPlusModel(BaseGaussianModel):
                     mean_scaling.view(-1, 6),
                     mean_offsets.view(-1, 3 * k),
                 )
+            if ov_feat is not None:
+                Q_feat = Q_feat * ov_feat[start:end]
+            if ov_scaling is not None:
+                Q_scaling = Q_scaling * ov_scaling[start:end]
+            if ov_offsets is not None:
+                Q_offsets = Q_offsets * ov_offsets[start:end]
             Q_feat_flat = Q_feat.contiguous().view(-1)
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)

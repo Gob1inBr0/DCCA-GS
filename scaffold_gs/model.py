@@ -49,6 +49,11 @@ class NeuralGaussians:
     bit_per_feat_param: Optional[torch.Tensor] = None
     bit_per_scaling_param: Optional[torch.Tensor] = None
     bit_per_offsets_param: Optional[torch.Tensor] = None
+    # Optional I6 fields (HAC++ only, None for Scaffold-GS).
+    pre_quant_feat: Optional[torch.Tensor] = None
+    pre_quant_scaling: Optional[torch.Tensor] = None
+    pre_quant_offsets: Optional[torch.Tensor] = None
+    complexity_logits: Optional[torch.Tensor] = None
 
 
 class AnchorParams(nn.Module):

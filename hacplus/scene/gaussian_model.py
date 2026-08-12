@@ -319,6 +319,12 @@ class GaussianModel(nn.Module):
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
+        # I6 per-anchor sensitivity EMA state (training-only).
+        self.sensitivity_feat = torch.empty(0)
+        self.sensitivity_scaling = torch.empty(0)
+        self.sensitivity_offsets = torch.empty(0)
+        self.sensitivity_mean = torch.zeros(3, device="cuda")
+        self.sensitivity_var = torch.ones(3, device="cuda")
 
         self.offset_gradient_accum = torch.empty(0)
         self.offset_denom = torch.empty(0)
@@ -1182,6 +1188,11 @@ class GaussianModel(nn.Module):
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
 
+        for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+            tensor = getattr(self, name)
+            if tensor.numel() > 0:
+                setattr(self, name, tensor[valid_points_mask])
+
 
     def anchor_growing(self, grads, threshold, offset_mask):
         init_length = self.get_anchor.shape[0]*self.n_offsets
@@ -1271,6 +1282,16 @@ class GaussianModel(nn.Module):
                 del self.opacity_accum
                 self.opacity_accum = temp_opacity_accum
 
+                for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+                    tensor = getattr(self, name)
+                    extension = torch.zeros(
+                        (new_opacities.shape[0], 1), device="cuda"
+                    )
+                    if tensor.numel() == 0:
+                        setattr(self, name, extension)
+                    else:
+                        setattr(self, name, torch.cat([tensor, extension], dim=0))
+
                 torch.cuda.empty_cache()
 
                 optimizable_tensors = self.cat_tensors_to_optimizer(d)
@@ -1332,6 +1353,11 @@ class GaussianModel(nn.Module):
         temp_anchor_demon = self.anchor_demon[~prune_mask]
         del self.anchor_demon
         self.anchor_demon = temp_anchor_demon
+
+        for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+            tensor = getattr(self, name)
+            if tensor.numel() > 0:
+                setattr(self, name, tensor[~prune_mask])
 
         if prune_mask.shape[0]>0:
             self.prune_anchor(prune_mask)

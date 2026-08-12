@@ -75,7 +75,7 @@ def test_config_defaults_and_reserved_flags():
     with pytest.raises(NotImplementedError):
         ModelConfig(vq_enabled=True)
     with pytest.raises(NotImplementedError):
-        ModelConfig(sensitivity_enabled=True)
+        ModelConfig(dither_enabled=True)
     with pytest.raises(ValueError):
         ModelConfig(content_aware_q_mode="exact")
 

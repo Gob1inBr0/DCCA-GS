@@ -181,6 +181,37 @@ class HACCoreView:
         self._core.current_iter = int(state.get("current_iter", 0))
 
     # ------------------------------------------------------------------
+    # I6 sensitivity state (training-only)
+    # ------------------------------------------------------------------
+
+    def sensitivity_state(self) -> Dict[str, Any]:
+        return {
+            "sensitivity_feat": self._core.sensitivity_feat,
+            "sensitivity_scaling": self._core.sensitivity_scaling,
+            "sensitivity_offsets": self._core.sensitivity_offsets,
+            "sensitivity_mean": self._core.sensitivity_mean,
+            "sensitivity_var": self._core.sensitivity_var,
+        }
+
+    def load_sensitivity_state(self, state: Dict[str, Any]) -> None:
+        device = next(self._core.parameters()).device
+        self._core.sensitivity_feat = state["sensitivity_feat"].to(
+            device
+        )
+        self._core.sensitivity_scaling = state["sensitivity_scaling"].to(
+            device
+        )
+        self._core.sensitivity_offsets = state["sensitivity_offsets"].to(
+            device
+        )
+        self._core.sensitivity_mean = state["sensitivity_mean"].to(
+            device
+        )
+        self._core.sensitivity_var = state["sensitivity_var"].to(
+            device
+        )
+
+    # ------------------------------------------------------------------
     # Hash-grid parameters (nested private modules live here only)
     # ------------------------------------------------------------------
 

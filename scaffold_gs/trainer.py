@@ -219,8 +219,19 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         rate_term = getattr(model, "rate_loss_term", None)
         if rate_term is not None:
             loss = loss + rate_term(out.gaussians, iteration)
+        sens_loss_fn = getattr(model, "sensitivity_supervision", None)
+        if sens_loss_fn is not None:
+            loss = loss + sens_loss_fn(out.gaussians)
 
         loss.backward()
+
+        sens_accum = getattr(model, "accumulate_sensitivity", None)
+        if (
+            sens_accum is not None
+            and retain_grad
+            and iteration >= cfg.model.sensitivity_start_iter
+        ):
+            sens_accum(out.gaussians)
 
         if optim.update_until > iteration > optim.start_stat:
             model.training_statis(
