@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import numpy as np
 import pytest
@@ -92,3 +93,39 @@ def test_hacpp_train_step_and_codec(tmp_path):
     assert model2.num_anchors == model.num_anchors
     out2 = model2.render(cam, bg, is_training=False)
     assert out2.image.shape == (1, 64, 64, 3)
+
+
+def test_hacpp_vq_codec_roundtrip(tmp_path):
+    from scaffold_gs.config import ModelConfig, OptimConfig
+    from scaffold_gs.hacpp import HACPlusCodec, HACPlusModel
+
+    cfg = ModelConfig(
+        model_name="hac_pp",
+        feat_dim=50,
+        n_offsets=10,
+        voxel_size=0.1,
+        appearance_dim=0,
+        content_aware_quant=False,
+        vq_enabled=True,
+        vq_lattice="d4",
+        vq_group_feat=4,
+        vq_group_scaling=4,
+        vq_group_offsets=4,
+        dither_enabled=True,
+        dither_seed=7,
+    )
+    model = HACPlusModel(cfg, "cuda")
+    pts = (np.random.RandomState(3).rand(250, 3).astype(np.float32) - 0.5)
+    rgb = np.random.RandomState(4).randint(0, 255, (250, 3)).astype(np.uint8)
+    model.init_from_pcd(pts, rgb, 1.0)
+
+    codec = HACPlusCodec()
+    meta = codec.encode(model, tmp_path)
+    assert meta["total_bits"] > 0
+    model2 = codec.decode(tmp_path)
+    assert model2._view.decoded_version
+    diag = json.loads(
+        (tmp_path / "codec_roundtrip_diagnostics.json").read_text()
+    )
+    assert "vq_symbols_sha256" in diag
+    assert meta["total_MB"] > 0

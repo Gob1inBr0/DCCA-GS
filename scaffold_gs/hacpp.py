@@ -53,6 +53,14 @@ except Exception as exc:  # pragma: no cover - missing HAC++ extensions
 from .codec import CompressionCodec
 from .config import ModelConfig, OptimConfig
 from .hac_core import HACCoreView
+from .lattice import (
+    lattice_ste,
+    make_dither,
+    vq_apply_guard,
+    vq_dequantize,
+    vq_q_eff,
+    vq_quantize,
+)
 from .model import BaseGaussianModel, NeuralGaussians
 from .utils import inverse_sigmoid, knn_distances, median_nn_distance, voxelize_points
 
@@ -548,13 +556,53 @@ class HACPlusModel(BaseGaussianModel):
                         _mean_scaling,
                         _mean_offsets,
                     )
-                feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
-                grid_scaling = grid_scaling + (
-                    torch.rand_like(grid_scaling) - 0.5
-                ) * Q_scaling
-                grid_offsets = grid_offsets + (
-                    torch.rand_like(grid_offsets) - 0.5
-                ) * Q_offsets
+                if self.cfg.vq_enabled:
+                    if self.cfg.vq_content_aware:
+                        step_f = Q_feat
+                        step_s = Q_scaling
+                        step_o = Q_offsets
+                    else:
+                        step_f = torch.full_like(feat, 1.0)
+                        step_s = torch.full_like(grid_scaling, 0.001)
+                        step_o = torch.full_like(grid_offsets, 0.2)
+                    feat = lattice_ste(
+                        feat,
+                        step_f,
+                        self.cfg.vq_lattice,
+                        self.cfg.vq_group_feat,
+                        self.cfg.dither_seed,
+                        anchor_indices,
+                        0,
+                        self.cfg.dither_enabled,
+                    )
+                    grid_scaling = lattice_ste(
+                        grid_scaling,
+                        step_s,
+                        self.cfg.vq_lattice,
+                        self.cfg.vq_group_scaling,
+                        self.cfg.dither_seed,
+                        anchor_indices,
+                        1,
+                        self.cfg.dither_enabled,
+                    )
+                    grid_offsets = lattice_ste(
+                        grid_offsets.reshape(n, 3 * k),
+                        step_o.reshape(n, 3 * k),
+                        self.cfg.vq_lattice,
+                        self.cfg.vq_group_offsets,
+                        self.cfg.dither_seed,
+                        anchor_indices,
+                        2,
+                        self.cfg.dither_enabled,
+                    ).view(n, k, 3)
+                else:
+                    feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
+                    grid_scaling = grid_scaling + (
+                        torch.rand_like(grid_scaling) - 0.5
+                    ) * Q_scaling
+                    grid_offsets = grid_offsets + (
+                        torch.rand_like(grid_offsets) - 0.5
+                    ) * Q_offsets
                 (
                     bit_per_param,
                     bit_per_feat_param,
@@ -1076,6 +1124,26 @@ class HACPlusModel(BaseGaussianModel):
         ov_feat = _load_override(q_override_feat, N, device)
         ov_scaling = _load_override(q_override_scaling, N, device)
         ov_offsets = _load_override(q_override_offsets, N, device)
+        vq = bool(self.cfg.vq_enabled)
+        vq_lattice = str(self.cfg.vq_lattice)
+        vq_groups = (
+            int(self.cfg.vq_group_feat),
+            int(self.cfg.vq_group_scaling),
+            int(self.cfg.vq_group_offsets),
+        )
+        vq_ca = bool(self.cfg.vq_content_aware)
+        dither = bool(self.cfg.dither_enabled)
+        dither_seed = int(self.cfg.dither_seed)
+        vq_max_abs = {}
+        if vq:
+            vq_max_abs = {
+                "feat": float(feat.abs().max().item()),
+                "scaling": float(scaling.abs().max().item()),
+                "offsets": float(offsets.abs().max().item()),
+            }
+        vq_coords_feat_list: list = []
+        vq_coords_scaling_list: list = []
+        vq_coords_offsets_list: list = []
         means_strings = compress_gpcc(anchor_int)
         np.savez_compressed(
             out_dir / "xyz_gpcc.npz",
@@ -1114,6 +1182,15 @@ class HACPlusModel(BaseGaussianModel):
                 "mlp_complexity_layers": int(core.mlp_complexity_layers),
                 "level_threshold_low": float(core.level_threshold_low),
                 "level_threshold_high": float(core.level_threshold_high),
+                "vq_enabled": bool(self.cfg.vq_enabled),
+                "vq_lattice": str(self.cfg.vq_lattice),
+                "vq_group_feat": int(self.cfg.vq_group_feat),
+                "vq_group_scaling": int(self.cfg.vq_group_scaling),
+                "vq_group_offsets": int(self.cfg.vq_group_offsets),
+                "vq_content_aware": bool(self.cfg.vq_content_aware),
+                "dither_enabled": bool(self.cfg.dither_enabled),
+                "dither_seed": int(self.cfg.dither_seed),
+                "vq_max_abs": vq_max_abs,
             },
             "formula_input_version": FORMULA_INPUT_VERSION,
             "anchor_int_sha256": _tensor_sha256(anchor_int),
@@ -1206,72 +1283,192 @@ class HACPlusModel(BaseGaussianModel):
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
-            # features (channel-context, 10 channels per step)
-            feat_slice = feat[start:end]
-            feat_q = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
-            mean_scale = torch.cat([mean, scale, prob], dim=-1)
-            scale = scale.clamp(min=1e-9)
-            bit_feat = 0
-            for cc in range(self.cfg.feat_dim // 10):
-                mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
-                    feat_q, mean_scale, to_dec=cc
+            if vq:
+                # ---- I5: lattice VQ (optionally dithered) ----
+                arange_idx = torch.arange(start, end, device=device)
+                if vq_ca:
+                    step_feat, step_scaling, step_offsets = (
+                        Q_feat,
+                        Q_scaling,
+                        Q_offsets,
+                    )
+                else:
+                    step_feat = torch.full_like(Q_feat, 1.0)
+                    step_scaling = torch.full_like(Q_scaling, 0.001)
+                    step_offsets = torch.full_like(Q_offsets, 0.2)
+                step_feat = vq_apply_guard(
+                    step_feat, vq_max_abs.get("feat", 0.0), vq_groups[0]
                 )
-                probs = torch.softmax(
-                    torch.stack([prob[:, cc * 10 : cc * 10 + 10], prob_adj], dim=-1),
-                    dim=-1,
+                step_scaling = vq_apply_guard(
+                    step_scaling, vq_max_abs.get("scaling", 0.0), vq_groups[1]
                 )
-                feat_tmp = feat_q[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
-                Q_tmp = Q_feat[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
-                bit_feat += encoder_gaussian_mixed_chunk(
-                    feat_tmp,
-                    [
-                        mean[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
-                        mean_adj.contiguous().view(-1),
-                    ],
-                    [
-                        scale[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
-                        scale_adj.contiguous().view(-1),
-                    ],
-                    [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
-                    Q_tmp,
-                    file_name=feat_b.replace(".b", f"_{cc}.b"),
-                    chunk_size=500_000,
+                step_offsets = vq_apply_guard(
+                    step_offsets, vq_max_abs.get("offsets", 0.0), vq_groups[2]
                 )
-            bit_feat_list.append(bit_feat)
 
-            # scaling
-            scaling_slice = scaling[start:end].view(-1)
-            scaling_q = STE_multistep.apply(
-                scaling_slice, Q_scaling_flat, core.get_scaling.mean()
-            )
-            bit_scaling_list.append(
-                encoder_gaussian_chunk(
-                    scaling_q,
-                    mean_scaling,
-                    scale_scaling,
-                    Q_scaling_flat,
-                    file_name=scaling_b,
-                    chunk_size=100_000,
+                feat_slice = feat[start:end]
+                values_feat, q_eff_feat, coords_feat = vq_quantize(
+                    feat_slice,
+                    step_feat,
+                    vq_lattice,
+                    vq_groups[0],
+                    dither_seed,
+                    arange_idx,
+                    0,
+                    dither,
                 )
-            )
+                scale_c = scale.clamp(min=1e-9)
+                bit_feat_list.append(
+                    encoder_gaussian_chunk(
+                        values_feat.contiguous().view(-1),
+                        mean.contiguous().view(-1),
+                        scale_c.contiguous().view(-1),
+                        q_eff_feat.contiguous().view(-1),
+                        file_name=feat_b,
+                        chunk_size=500_000,
+                    )
+                )
 
-            # offsets (masked)
-            mask_slice = masks[start:end].repeat(1, 1, 3).view(-1, 3 * k).view(-1)
-            offsets_slice = offsets[start:end].view(-1, 3 * k).view(-1)
-            offsets_q = STE_multistep.apply(
-                offsets_slice, Q_offsets_flat, self._view.offset.mean()
-            )
-            offsets_q[~mask_slice.bool()] = 0.0
-            bit_offsets_list.append(
-                encoder_gaussian_chunk(
-                    offsets_q[mask_slice.bool()],
-                    mean_offsets[mask_slice.bool()],
-                    scale_offsets[mask_slice.bool()],
-                    Q_offsets_flat[mask_slice.bool()],
-                    file_name=offsets_b,
-                    chunk_size=100_000,
+                scaling_slice = scaling[start:end]
+                values_scaling, q_eff_scaling, coords_scaling = vq_quantize(
+                    scaling_slice,
+                    step_scaling,
+                    vq_lattice,
+                    vq_groups[1],
+                    dither_seed,
+                    arange_idx,
+                    1,
+                    dither,
                 )
-            )
+                bit_scaling_list.append(
+                    encoder_gaussian_chunk(
+                        values_scaling.contiguous().view(-1),
+                        mean_scaling,
+                        scale_scaling,
+                        q_eff_scaling.contiguous().view(-1),
+                        file_name=scaling_b,
+                        chunk_size=100_000,
+                    )
+                )
+
+                offsets_slice = offsets[start:end].reshape(-1, 3 * k)
+                values_offsets, q_eff_offsets, coords_offsets = vq_quantize(
+                    offsets_slice,
+                    step_offsets,
+                    vq_lattice,
+                    vq_groups[2],
+                    dither_seed,
+                    arange_idx,
+                    2,
+                    dither,
+                )
+                mask_slice = (
+                    masks[start:end].repeat(1, 1, 3).reshape(-1, 3 * k).reshape(-1)
+                )
+                offsets_v = values_offsets.reshape(-1)
+                offsets_v[~mask_slice.bool()] = 0.0
+                q_eff_o = q_eff_offsets.reshape(-1)
+                coords_o = torch.where(
+                    mask_slice.bool(), coords_offsets.reshape(-1), torch.zeros_like(coords_offsets.reshape(-1))
+                )
+                bit_offsets_list.append(
+                    encoder_gaussian_chunk(
+                        offsets_v[mask_slice.bool()],
+                        mean_offsets[mask_slice.bool()],
+                        scale_offsets[mask_slice.bool()],
+                        q_eff_o[mask_slice.bool()],
+                        file_name=offsets_b,
+                        chunk_size=100_000,
+                    )
+                )
+                vq_coords_feat_list.append(coords_feat.reshape(-1))
+                vq_coords_scaling_list.append(coords_scaling.reshape(-1))
+                vq_coords_offsets_list.append(coords_o)
+            else:
+                # features (channel-context, 10 channels per step)
+                feat_slice = feat[start:end]
+                feat_q = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
+                mean_scale = torch.cat([mean, scale, prob], dim=-1)
+                scale = scale.clamp(min=1e-9)
+                bit_feat = 0
+                for cc in range(self.cfg.feat_dim // 10):
+                    mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
+                        feat_q, mean_scale, to_dec=cc
+                    )
+                    probs = torch.softmax(
+                        torch.stack([prob[:, cc * 10 : cc * 10 + 10], prob_adj], dim=-1),
+                        dim=-1,
+                    )
+                    feat_tmp = feat_q[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
+                    Q_tmp = Q_feat[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
+                    bit_feat += encoder_gaussian_mixed_chunk(
+                        feat_tmp,
+                        [
+                            mean[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                            mean_adj.contiguous().view(-1),
+                        ],
+                        [
+                            scale[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                            scale_adj.contiguous().view(-1),
+                        ],
+                        [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
+                        Q_tmp,
+                        file_name=feat_b.replace(".b", f"_{cc}.b"),
+                        chunk_size=500_000,
+                    )
+                bit_feat_list.append(bit_feat)
+
+                # scaling
+                scaling_slice = scaling[start:end].view(-1)
+                scaling_q = STE_multistep.apply(
+                    scaling_slice, Q_scaling_flat, core.get_scaling.mean()
+                )
+                bit_scaling_list.append(
+                    encoder_gaussian_chunk(
+                        scaling_q,
+                        mean_scaling,
+                        scale_scaling,
+                        Q_scaling_flat,
+                        file_name=scaling_b,
+                        chunk_size=100_000,
+                    )
+                )
+
+                # offsets (masked)
+                mask_slice = masks[start:end].repeat(1, 1, 3).view(-1, 3 * k).view(-1)
+                offsets_slice = offsets[start:end].view(-1, 3 * k).view(-1)
+                offsets_q = STE_multistep.apply(
+                    offsets_slice, Q_offsets_flat, self._view.offset.mean()
+                )
+                offsets_q[~mask_slice.bool()] = 0.0
+                bit_offsets_list.append(
+                    encoder_gaussian_chunk(
+                        offsets_q[mask_slice.bool()],
+                        mean_offsets[mask_slice.bool()],
+                        scale_offsets[mask_slice.bool()],
+                        Q_offsets_flat[mask_slice.bool()],
+                        file_name=offsets_b,
+                        chunk_size=100_000,
+                    )
+                )
+
+        if vq and vq_coords_feat_list:
+            # Cast to int64 before hashing: lattice coords may carry -0.0 vs
+            # 0.0 (numerically equal, different sign bits / byte patterns).
+            vq_symbols_sha = {
+                "feat": _tensor_sha256(
+                    torch.cat(vq_coords_feat_list, dim=0).round().to(torch.int64)
+                ),
+                "scaling": _tensor_sha256(
+                    torch.cat(vq_coords_scaling_list, dim=0).round().to(torch.int64)
+                ),
+                "offsets": _tensor_sha256(
+                    torch.cat(vq_coords_offsets_list, dim=0).round().to(torch.int64)
+                ),
+            }
+            codec_header["vq_symbols_sha256"] = vq_symbols_sha
+            with open(out_dir / CODEC_HEADER_FILENAME, "w") as f:
+                json.dump(codec_header, f, indent=2, sort_keys=True)
 
         hash_params = core.get_encoding_params()
         bit_hash = encoder(
@@ -1364,6 +1561,26 @@ class HACPlusModel(BaseGaussianModel):
                 "formula input version mismatch: "
                 f"{codec_header.get('formula_input_version')!r}"
             )
+        hmodel = codec_header.get("model", {})
+        vq = bool(hmodel.get("vq_enabled", False))
+        if vq != bool(self.cfg.vq_enabled):
+            raise RuntimeError(
+                "vq_enabled mismatch between bitstream and model: "
+                f"{hmodel.get('vq_enabled')} vs {self.cfg.vq_enabled}"
+            )
+        vq_lattice = str(hmodel.get("vq_lattice", self.cfg.vq_lattice))
+        vq_groups = (
+            int(hmodel.get("vq_group_feat", self.cfg.vq_group_feat)),
+            int(hmodel.get("vq_group_scaling", self.cfg.vq_group_scaling)),
+            int(hmodel.get("vq_group_offsets", self.cfg.vq_group_offsets)),
+        )
+        vq_ca = bool(hmodel.get("vq_content_aware", False))
+        dither = bool(hmodel.get("dither_enabled", False))
+        dither_seed = int(hmodel.get("dither_seed", 0))
+        vq_max_abs = hmodel.get("vq_max_abs", {}) or {}
+        vq_coords_feat_list: list = []
+        vq_coords_scaling_list: list = []
+        vq_coords_offsets_list: list = []
         core.current_step = int(codec_header.get("codec_iteration", 0))
         core.current_iter = core.current_step
         if codec_header.get("model", {}).get("content_aware_quant"):
@@ -1483,41 +1700,6 @@ class HACPlusModel(BaseGaussianModel):
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
             n_num = end - start
-            feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
-            mean_scale = torch.cat([mean, scale, prob], dim=-1)
-            scale = scale.clamp(min=1e-9)
-            for cc in range(self.cfg.feat_dim // 10):
-                mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
-                    feat_decoded, mean_scale, to_dec=cc
-                )
-                probs = torch.softmax(
-                    torch.stack([prob[:, cc * 10 : cc * 10 + 10], prob_adj], dim=-1),
-                    dim=-1,
-                )
-                Q_tmp = Q_feat[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
-                dec = decoder_gaussian_mixed_chunk(
-                    [
-                        mean[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
-                        mean_adj.contiguous().view(-1),
-                    ],
-                    [
-                        scale[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
-                        scale_adj.contiguous().view(-1),
-                    ],
-                    [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
-                    Q_tmp,
-                    file_name=feat_b.replace(".b", f"_{cc}.b"),
-                    chunk_size=500_000,
-                )
-                feat_decoded[:, cc * 10 : cc * 10 + 10] = dec.view(n_num, 10)
-
-            scaling_decoded = decoder_gaussian_chunk(
-                mean_scaling,
-                scale_scaling,
-                Q_scaling_flat,
-                file_name=scaling_b,
-                chunk_size=100_000,
-            ).view(n_num, 6)
             masks_tmp = (
                 masks_decoded[start:end]
                 .repeat(1, 1, 3)
@@ -1525,15 +1707,150 @@ class HACPlusModel(BaseGaussianModel):
                 .view(-1)
                 .bool()
             )
-            offsets_decoded = torch.zeros_like(mean_offsets)
-            offsets_decoded[masks_tmp] = decoder_gaussian_chunk(
-                mean_offsets[masks_tmp],
-                scale_offsets[masks_tmp],
-                Q_offsets_flat[masks_tmp],
-                file_name=offsets_b,
-                chunk_size=100_000,
-            )
-            offsets_decoded = offsets_decoded.view(n_num, k, 3)
+            if vq:
+                arange_idx = torch.arange(start, end, device=device)
+                if vq_ca:
+                    step_feat, step_scaling, step_offsets = (
+                        Q_feat,
+                        Q_scaling,
+                        Q_offsets,
+                    )
+                else:
+                    step_feat = torch.full_like(Q_feat, 1.0)
+                    step_scaling = torch.full_like(Q_scaling, 0.001)
+                    step_offsets = torch.full_like(Q_offsets, 0.2)
+                step_feat = vq_apply_guard(
+                    step_feat, float(vq_max_abs.get("feat", 0.0) or 0.0), vq_groups[0]
+                )
+                step_scaling = vq_apply_guard(
+                    step_scaling,
+                    float(vq_max_abs.get("scaling", 0.0) or 0.0),
+                    vq_groups[1],
+                )
+                step_offsets = vq_apply_guard(
+                    step_offsets,
+                    float(vq_max_abs.get("offsets", 0.0) or 0.0),
+                    vq_groups[2],
+                )
+
+                scale_c = scale.clamp(min=1e-9)
+                q_eff_feat = vq_q_eff(step_feat, vq_lattice, vq_groups[0])
+                values_feat = decoder_gaussian_chunk(
+                    mean.contiguous().view(-1),
+                    scale_c.contiguous().view(-1),
+                    q_eff_feat.contiguous().view(-1),
+                    file_name=feat_b,
+                    chunk_size=500_000,
+                ).view(n_num, self.cfg.feat_dim)
+                feat_decoded = vq_dequantize(
+                    values_feat,
+                    q_eff_feat,
+                    step_feat,
+                    vq_lattice,
+                    vq_groups[0],
+                    dither_seed,
+                    arange_idx,
+                    0,
+                    dither,
+                )
+                coords_feat = torch.round(values_feat / q_eff_feat)
+
+                q_eff_scaling = vq_q_eff(step_scaling, vq_lattice, vq_groups[1])
+                values_scaling = decoder_gaussian_chunk(
+                    mean_scaling,
+                    scale_scaling,
+                    q_eff_scaling.contiguous().view(-1),
+                    file_name=scaling_b,
+                    chunk_size=100_000,
+                ).view(n_num, 6)
+                scaling_decoded = vq_dequantize(
+                    values_scaling,
+                    q_eff_scaling,
+                    step_scaling,
+                    vq_lattice,
+                    vq_groups[1],
+                    dither_seed,
+                    arange_idx,
+                    1,
+                    dither,
+                )
+                coords_scaling = torch.round(values_scaling / q_eff_scaling)
+
+                q_eff_offsets = vq_q_eff(step_offsets, vq_lattice, vq_groups[2])
+                offsets_values = torch.zeros_like(mean_offsets)
+                offsets_values[masks_tmp] = decoder_gaussian_chunk(
+                    mean_offsets[masks_tmp],
+                    scale_offsets[masks_tmp],
+                    q_eff_offsets.contiguous().view(-1)[masks_tmp],
+                    file_name=offsets_b,
+                    chunk_size=100_000,
+                )
+                offsets_decoded = vq_dequantize(
+                    offsets_values.view(n_num, 3 * k),
+                    q_eff_offsets,
+                    step_offsets,
+                    vq_lattice,
+                    vq_groups[2],
+                    dither_seed,
+                    arange_idx,
+                    2,
+                    dither,
+                ).reshape(-1)
+                offsets_decoded[~masks_tmp] = 0.0
+                offsets_decoded = offsets_decoded.view(n_num, k, 3)
+                coords_offsets = torch.where(
+                    masks_tmp,
+                    torch.round(offsets_values / q_eff_offsets.reshape(-1)),
+                    torch.zeros_like(offsets_values),
+                )
+                vq_coords_feat_list.append(coords_feat.reshape(-1))
+                vq_coords_scaling_list.append(coords_scaling.reshape(-1))
+                vq_coords_offsets_list.append(coords_offsets)
+            else:
+                feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
+                mean_scale = torch.cat([mean, scale, prob], dim=-1)
+                scale = scale.clamp(min=1e-9)
+                for cc in range(self.cfg.feat_dim // 10):
+                    mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
+                        feat_decoded, mean_scale, to_dec=cc
+                    )
+                    probs = torch.softmax(
+                        torch.stack([prob[:, cc * 10 : cc * 10 + 10], prob_adj], dim=-1),
+                        dim=-1,
+                    )
+                    Q_tmp = Q_feat[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
+                    dec = decoder_gaussian_mixed_chunk(
+                        [
+                            mean[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                            mean_adj.contiguous().view(-1),
+                        ],
+                        [
+                            scale[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                            scale_adj.contiguous().view(-1),
+                        ],
+                        [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
+                        Q_tmp,
+                        file_name=feat_b.replace(".b", f"_{cc}.b"),
+                        chunk_size=500_000,
+                    )
+                    feat_decoded[:, cc * 10 : cc * 10 + 10] = dec.view(n_num, 10)
+
+                scaling_decoded = decoder_gaussian_chunk(
+                    mean_scaling,
+                    scale_scaling,
+                    Q_scaling_flat,
+                    file_name=scaling_b,
+                    chunk_size=100_000,
+                ).view(n_num, 6)
+                offsets_decoded = torch.zeros_like(mean_offsets)
+                offsets_decoded[masks_tmp] = decoder_gaussian_chunk(
+                    mean_offsets[masks_tmp],
+                    scale_offsets[masks_tmp],
+                    Q_offsets_flat[masks_tmp],
+                    file_name=offsets_b,
+                    chunk_size=100_000,
+                )
+                offsets_decoded = offsets_decoded.view(n_num, k, 3)
             feat_list.append(feat_decoded)
             scaling_list.append(scaling_decoded)
             offsets_list.append(offsets_decoded)
@@ -1541,6 +1858,22 @@ class HACPlusModel(BaseGaussianModel):
         feat = torch.cat(feat_list, dim=0)
         scaling = torch.cat(scaling_list, dim=0)
         offsets = torch.cat(offsets_list, dim=0)
+        vq_symbols_hash = None
+        if vq:
+            vq_symbols_hash = codec_header.get("vq_symbols_sha256")
+            if isinstance(vq_symbols_hash, dict):
+                for name, lst in (
+                    ("feat", vq_coords_feat_list),
+                    ("scaling", vq_coords_scaling_list),
+                    ("offsets", vq_coords_offsets_list),
+                ):
+                    got = _tensor_sha256(
+                        torch.cat(lst, dim=0).round().to(torch.int64).detach().cpu()
+                    )
+                    if vq_symbols_hash.get(name) != got:
+                        raise RuntimeError(
+                            f"VQ symbols hash mismatch after decode ({name})"
+                        )
         mask = torch.zeros(N, k + 1, 1, device=device)
         mask[:, :k] = masks_decoded
 
@@ -1567,6 +1900,8 @@ class HACPlusModel(BaseGaussianModel):
             "anchor_int_sha256": _tensor_sha256(anchor_int),
             "masks_sha256": _tensor_sha256(masks_decoded),
         }
+        if vq_symbols_hash is not None:
+            diag["vq_symbols_sha256"] = vq_symbols_hash
         last_input = getattr(core, "_last_formula_complexity_input", None)
         if last_input is not None:
             diag["formula_input_sha256"] = _tensor_sha256(last_input)

@@ -72,10 +72,11 @@ def test_config_defaults_and_reserved_flags():
     assert cfg.content_aware_quant is True
     assert cfg.content_aware_q_mode == "formula"
     assert cfg.complexity_scale == 0.35
-    with pytest.raises(NotImplementedError):
-        ModelConfig(vq_enabled=True)
-    with pytest.raises(NotImplementedError):
-        ModelConfig(dither_enabled=True)
+    assert ModelConfig(vq_enabled=True).vq_enabled is True
+    with pytest.raises(ValueError):
+        ModelConfig(dither_enabled=True)  # requires vq_enabled
+    with pytest.raises(ValueError):
+        ModelConfig(vq_enabled=True, vq_lattice="q8")
     with pytest.raises(ValueError):
         ModelConfig(content_aware_q_mode="exact")
 
