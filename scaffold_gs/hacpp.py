@@ -1279,6 +1279,13 @@ class HACPlusModel(BaseGaussianModel):
         )
         bit_masks = encoder(masks, file_name=str(out_dir / "masks.b"))
 
+        # Official HAC++ size accounting: decoder MLP weights at 32 bit/param
+        # plus the xyz bounds (2 x [3] float32), see get_mlp_size().
+        bit_mlp = (
+            sum(p.numel() for n, p in core.named_parameters() if "mlp" in n)
+            * 32
+        )
+        bit_bounds = 32 * 3 * 2
         total_bits = (
             bits_xyz
             + sum(bit_feat_list)
@@ -1286,6 +1293,8 @@ class HACPlusModel(BaseGaussianModel):
             + sum(bit_offsets_list)
             + bit_hash
             + bit_masks
+            + bit_mlp
+            + bit_bounds
         )
         aux_bytes = (out_dir / CODEC_HEADER_FILENAME).stat().st_size
         if (out_dir / CONTENT_AWARE_Q_META_FILENAME).exists():
@@ -1305,6 +1314,8 @@ class HACPlusModel(BaseGaussianModel):
             "bit_offsets": int(sum(bit_offsets_list)),
             "bit_hash": int(bit_hash),
             "bit_masks": int(bit_masks),
+            "bit_mlp": int(bit_mlp),
+            "bit_bounds": int(bit_bounds),
             "bit_header": int(aux_bytes * 8),
             "total_bits": int(total_bits),
             "total_MB": round(total_bits / bit2MB_scale, 4),
