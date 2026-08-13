@@ -101,9 +101,32 @@ class ModelConfig:
     level_threshold_high: float = 0.66
     """Spatial-distance thresholds used by I1 level ids (decoder-recomputable)."""
 
-    # Reserved future stages: enabling them must fail loudly, not half-implement.
+    # I5: lattice vector quantization (VQ) + dithered quantization.
     vq_enabled: bool = False
+    """Enable lattice vector quantization of feat/scaling/offsets."""
+
+    vq_lattice: str = "d4"
+    """Lattice type: ``z`` (scalar), ``d4`` (4D), ``e8`` (8D)."""
+
+    vq_group_feat: int = 4
+    """VQ group size for features (4 for D4, 8 for E8; leftover dims are
+    quantized element-wise)."""
+
+    vq_group_scaling: int = 4
+    """VQ group size for scaling (6 dims -> 1 D4 group + 2 scalar leftovers)."""
+
+    vq_group_offsets: int = 4
+    """VQ group size for offsets (30 dims -> 7 D4 groups + 2 scalar leftovers)."""
+
+    vq_content_aware: bool = False
+    """Use the adaptive/content-aware per-group step (geometric mean) instead
+    of the fixed base steps in the VQ path."""
+
     dither_enabled: bool = False
+    """Subtractive dithering on top of VQ (seed is stored in the codec header)."""
+
+    dither_seed: int = 0
+    """Deterministic dither seed shared by encode and decode."""
     sensitivity_enabled: bool = False
 
     # I6: render-sensitivity weighted supervision (default OFF).
@@ -132,15 +155,23 @@ class ModelConfig:
                 "level thresholds must satisfy "
                 "0 <= low < high <= 1"
             )
-        for name, enabled in (
-            ("vq_enabled", self.vq_enabled),
-            ("dither_enabled", self.dither_enabled),
+        if self.vq_lattice not in ("z", "d4", "e8"):
+            raise ValueError(
+                f"vq_lattice must be one of 'z', 'd4', 'e8'; got {self.vq_lattice!r}"
+            )
+        for name, g in (
+            ("vq_group_feat", self.vq_group_feat),
+            ("vq_group_scaling", self.vq_group_scaling),
+            ("vq_group_offsets", self.vq_group_offsets),
         ):
-            if enabled:
-                raise NotImplementedError(
-                    f"{name} is reserved for a future PHG stage and is not "
-                    "implemented in v1."
-                )
+            if g < 1:
+                raise ValueError(f"{name} must be >= 1, got {g}")
+        if self.dither_enabled and not self.vq_enabled:
+            raise ValueError("dither_enabled requires vq_enabled=True")
+        if self.vq_content_aware and not self.content_aware_quant:
+            raise ValueError(
+                "vq_content_aware requires content_aware_quant=True"
+            )
         if self.sensitivity_enabled:
             if self.sensitivity_weight <= 0.0:
                 raise ValueError("sensitivity_weight must be > 0 when enabled")
