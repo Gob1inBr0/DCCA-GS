@@ -52,3 +52,26 @@ Morton 序最后 20%。
 
 产物：`scripts/p0_offline_entropy_rawctx.py`；5090 结果
 `runs/p0_offline_rawctx_s400.json`、`p0_offline_rawctx_s1500.json`。
+
+## 补充实验（2026-08-15）：反向渐进式编码（scaling+offsets → feat）
+
+回答“用已解码的 scaling/offsets/mask 作条件能否显著降低 feat 熵”。feat 熵严格
+复刻真实 codec（混合高斯 + 通道自回归，`Channel_CTX_fea` 逐 10 通道），V1 只调整
+feat 初始熵参数（残差 `mlp_feat_ctx`，最后一层零初始化）。Adam、lr 1e-3、
+wd 1e-4、早停，验证集为 Morton 序最后 20%。
+
+基线：`H_feat_base` = 0.6038 MB（验证集 20%）；`H_so_base` = 0.3924 MB。
+正向 P0-1 绝对节省 `Δ_forward` ≈ 0.0088 MB。
+
+| 配置 | H_feat_cond (MB) | 相对增益 | Δ_reverse (MB) |
+| --- | --- | --- | --- |
+| h64 / 400 | 0.6014 | +0.406% | 0.0025 |
+| h64 / 1500 | 0.6013 | +0.421% | 0.0025 |
+| h128 / 400 | 0.6014 | +0.406% | 0.0025 |
+| h128 / 1500 | 0.6013 | +0.421% | 0.0025 |
+
+结论：反向条件增益约 0.4%（<2%），且 `Δ_reverse`（0.0025MB）远小于 `Δ_forward`
+（0.0088MB），按决策规则**反向路线关闭**，不做 Stage B。
+
+产物：`scripts/p0_offline_reverse.py`；5090 结果
+`runs/p0_offline_reverse.json`。
