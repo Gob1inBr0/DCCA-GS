@@ -33,3 +33,22 @@
 - 脚本：`scripts/p0_offline_entropy.py`
 - 5090 结果：`~/data_space/web_scan/runs/p0_offline.json`（hidden 64 / 400 步）、
   `p0_offline_big.json`（hidden 128 / 1500 步）
+
+## 补充实验（2026-08-15）：P0-2 原始邻居特征版
+
+验证上一轮 mean/max 池化是否丢失邻居信息：每个前 k 个 Morton 邻居先过共享
+`Linear(99→32)+ReLU`，再对 k 个邻居做 mean 池化得到 32 维上下文，拼到熵参数后
+进残差 `_AdjMLP`（最后一层零初始化）。Adam、lr 1e-3、wd 1e-4、早停，验证集为
+Morton 序最后 20%。
+
+| k | 400 步增益 | 1500 步增益 |
+| --- | --- | --- |
+| 8 | +0.148% | +0.257% |
+| 16 | +0.149% | +0.247% |
+| 32 | +0.135% | +0.177% |
+
+结论：原始邻居特征版与 mean/max 池化版同量级（0.06%~0.26%），池化没有丢失
+信息；按实验判定规则（<1%）**P0-2 正式关闭**。
+
+产物：`scripts/p0_offline_entropy_rawctx.py`；5090 结果
+`runs/p0_offline_rawctx_s400.json`、`p0_offline_rawctx_s1500.json`。
