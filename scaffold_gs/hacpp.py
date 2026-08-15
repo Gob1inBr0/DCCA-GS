@@ -651,7 +651,7 @@ class HACPlusModel(BaseGaussianModel):
             [],
             [],
         )
-        chunk = 8_192
+        chunk = 16_384
         for start in range(0, n, chunk):
             end = min(start + chunk, n)
             a = anchor[start:end]

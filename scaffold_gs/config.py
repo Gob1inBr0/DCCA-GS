@@ -35,6 +35,11 @@ class DataConfig:
     preload_images: bool = True
     """Load all images into GPU memory up front (default, fast for small scenes)."""
 
+    cache_images_cpu: bool = True
+    """Cache resized images as uint8 in CPU RAM on first access (used when
+    ``preload_images`` is False). 4-28: ~5.2GB RAM, saves ~150ms/step that
+    would otherwise be spent decoding the full-resolution JPEG every step."""
+
     max_width: Optional[int] = None
     """Cap image width like official HAC++ ``resolution=-1`` (e.g. 1600).
     When set and the original width exceeds it, images/K are rescaled to

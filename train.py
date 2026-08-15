@@ -44,6 +44,7 @@ def cmd_eval(cfg: EvalConfig) -> None:
         white_background=cfg.data.white_background,
         preload_images=cfg.data.preload_images,
         max_width=cfg.data.max_width,
+        cache_images_cpu=cfg.data.cache_images_cpu,
         device=cfg.device,
     )
     out_dir = cfg.out_dir or str(Path(cfg.data.result_dir) / "eval")

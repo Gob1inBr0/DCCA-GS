@@ -39,6 +39,11 @@ def main() -> None:
         help="Load images on demand instead of preloading all cameras to GPU "
         "(needed for large scenes like 4-28, where 1200 images ~ 28GB).",
     )
+    p.add_argument(
+        "--no-cache-images-cpu",
+        action="store_true",
+        help="Disable the uint8 CPU image cache (default: enabled).",
+    )
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
 
@@ -56,6 +61,7 @@ def main() -> None:
         white_background=False,
         preload_images=not args.no_preload_images,
         max_width=args.max_width,
+        cache_images_cpu=not args.no_cache_images_cpu,
         device=args.device,
     )
     evaluate(model, dataset, args.result_dir, iteration=30_000)

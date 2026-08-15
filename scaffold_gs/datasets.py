@@ -78,6 +78,15 @@ class SceneCamera:
         tensor = torch.from_numpy(arr).permute(2, 0, 1).contiguous()
         return tensor.to(device)
 
+    def load_image_cpu_uint8(self) -> torch.Tensor:
+        """Resized image as uint8 CHW on CPU (cheap to cache in RAM)."""
+        with Image.open(self.image_path) as img:
+            img = img.convert("RGB")
+            if img.size != (self.width, self.height):
+                img = img.resize((self.width, self.height), Image.BICUBIC)
+            arr = np.ascontiguousarray(np.asarray(img, dtype=np.uint8))
+        return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
+
 
 class ColmapDataset:
     """Loads a COLMAP scene and exposes train/val cameras and SfM points."""
@@ -90,6 +99,7 @@ class ColmapDataset:
         white_background: bool = False,
         preload_images: bool = True,
         max_width: Optional[int] = None,
+        cache_images_cpu: bool = True,
         device: str = "cuda",
     ) -> None:
         # Imported lazily: pycolmap must load *after* torch_scatter on the
@@ -108,6 +118,7 @@ class ColmapDataset:
         self.test_every = max(1, int(test_every))
         self.white_background = white_background
         self.max_width = max_width
+        self.cache_images_cpu = cache_images_cpu and not preload_images
         self.device = torch.device(device)
 
         colmap_dir = self.data_dir / "sparse" / "0"
@@ -216,6 +227,7 @@ class ColmapDataset:
         )
 
         self._images: Dict[int, torch.Tensor] = {}
+        self._images_cpu: Dict[int, torch.Tensor] = {}
         if preload_images:
             print("[Dataset] Preloading images ...")
             for cam in self.cameras:
@@ -224,4 +236,8 @@ class ColmapDataset:
     def get_image(self, cam: SceneCamera) -> torch.Tensor:
         if cam.uid in self._images:
             return self._images[cam.uid]
+        if self.cache_images_cpu:
+            if cam.uid not in self._images_cpu:
+                self._images_cpu[cam.uid] = cam.load_image_cpu_uint8()
+            return (self._images_cpu[cam.uid].to(self.device) / 255.0).float()
         return cam.load_image(self.device)
