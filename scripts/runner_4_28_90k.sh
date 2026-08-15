@@ -4,7 +4,7 @@
 # checkpoints. Pass an explicit eval list as $7 to override.
 #
 # usage: bash scripts/runner_4_28_90k.sh \
-#   <gpu> <tag> <feat_dim> <max_steps> <update_until> <save_list> [eval_list] [hidden]
+#   <gpu> <tag> <feat_dim> <max_steps> <update_until> <save_list> [eval_list] [hidden] [lambda]
 set -e
 GPU=$1
 TAG=$2
@@ -14,6 +14,7 @@ UPDATE_UNTIL=$5
 SAVE_LIST=$6
 EVAL_LIST=${7:-"$MAX_STEPS"}
 HIDDEN=${8:-}
+LAMBDA=${9:-0.004}
 HIDDEN_ARG=""
 if [ -n "$HIDDEN" ]; then
   HIDDEN_ARG="--cfg.model.mlp-complexity-hidden $HIDDEN"
@@ -52,7 +53,7 @@ for attempt in $(seq 1 40); do
     --cfg.model.sensitivity-weight 0.001 \
     $HIDDEN_ARG \
     --cfg.optim.max-steps "$MAX_STEPS" --cfg.optim.eval-steps $EVAL_LIST --cfg.optim.save-steps $SAVE_LIST \
-    --cfg.optim.lambda-rate 0.004 --cfg.optim.mask-lr-final 0.002 \
+    --cfg.optim.lambda-rate "$LAMBDA" --cfg.optim.mask-lr-final 0.002 \
     --cfg.optim.start-stat 500 --cfg.optim.update-from 1500 --cfg.optim.update-until "$UPDATE_UNTIL" \
     --cfg.optim.update-interval 100 > "$LOG" 2>&1
   if grep -q "Training finished" "$LOG"; then
