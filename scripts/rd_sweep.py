@@ -135,6 +135,19 @@ def main() -> None:
     p.add_argument("--result-dir", default="runs/rd_sweep")
     p.add_argument("--data-factor", type=int, default=2)
     p.add_argument("--test-every", type=int, default=8)
+    p.add_argument(
+        "--max-width",
+        type=int,
+        default=None,
+        help="Rescale images so width == max_width (official resolution=-1 "
+        "rule); needed to match the 4-28 1600-wide evaluation protocol.",
+    )
+    p.add_argument(
+        "--no-preload-images",
+        action="store_true",
+        help="Load images on demand instead of preloading all cameras to GPU "
+        "(needed for large scenes like 4-28, where 1200 images ~ 28GB).",
+    )
     p.add_argument("--device", default="cuda")
     p.add_argument("--mask-keep-ratio", type=float, nargs="+", default=[1.0])
     p.add_argument("--q-scale-feat", type=float, nargs="+", default=[1.0])
@@ -157,7 +170,8 @@ def main() -> None:
         data_factor=args.data_factor,
         test_every=args.test_every,
         white_background=False,
-        preload_images=True,
+        preload_images=not args.no_preload_images,
+        max_width=args.max_width,
         device=args.device,
     )
 
