@@ -114,57 +114,58 @@ class mix_3D2D_encoding(nn.Module):
         return out_i
 
 class Channel_CTX_fea(nn.Module):
-    def __init__(self):
+    def __init__(self, feat_dim=50, channel_group=None):
         super().__init__()
-        self.MLP_d0 = nn.Sequential(
-            nn.Linear(50*3+10*0, 20*2),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(20*2, 10*3),
+        self.feat_dim = int(feat_dim)
+        self.channel_group = (
+            pick_channel_group(self.feat_dim)
+            if channel_group is None
+            else int(channel_group)
         )
-        self.MLP_d1 = nn.Sequential(
-            nn.Linear(50*3+10*1, 20*2),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(20*2, 10*3),
-        )
-        self.MLP_d2 = nn.Sequential(
-            nn.Linear(50*3+10*2, 20*2),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(20*2, 10*3),
-        )
-        self.MLP_d3 = nn.Sequential(
-            nn.Linear(50*3+10*3, 20*2),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(20*2, 10*3),
-        )
-        self.MLP_d4 = nn.Sequential(
-            nn.Linear(50*3+10*4, 20*2),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(20*2, 10*3),
-        )
+        assert self.feat_dim % self.channel_group == 0
+        self.n_groups = self.feat_dim // self.channel_group
+        g = self.channel_group
+        for i in range(self.n_groups):
+            setattr(
+                self,
+                f"MLP_d{i}",
+                nn.Sequential(
+                    nn.Linear(self.feat_dim * 3 + g * i, g * 2),
+                    nn.LeakyReLU(inplace=True),
+                    nn.Linear(g * 2, g * 3),
+                ),
+            )
 
     def forward(self, fea_q, mean_scale, to_dec=-1):  # chctx_v3
-        # fea_q: [N, 50]
-        d0, d1, d2, d3, d4 = torch.split(fea_q, split_size_or_sections=[10, 10, 10, 10, 10], dim=-1)
-        mean_d0, scale_d0, prob_d0 = torch.chunk(self.MLP_d0(torch.cat([mean_scale], dim=-1)), chunks=3, dim=-1)
-        mean_d1, scale_d1, prob_d1 = torch.chunk(self.MLP_d1(torch.cat([d0, mean_scale], dim=-1)), chunks=3, dim=-1)
-        mean_d2, scale_d2, prob_d2 = torch.chunk(self.MLP_d2(torch.cat([d0, d1, mean_scale], dim=-1)), chunks=3, dim=-1)
-        mean_d3, scale_d3, prob_d3 = torch.chunk(self.MLP_d3(torch.cat([d0, d1, d2, mean_scale], dim=-1)), chunks=3, dim=-1)
-        mean_d4, scale_d4, prob_d4 = torch.chunk(self.MLP_d4(torch.cat([d0, d1, d2, d3, mean_scale], dim=-1)), chunks=3, dim=-1)
-        mean_adj = torch.cat([mean_d0, mean_d1, mean_d2, mean_d3, mean_d4], dim=-1)
-        scale_adj = torch.cat([scale_d0, scale_d1, scale_d2, scale_d3, scale_d4], dim=-1)
-        prob_adj = torch.cat([prob_d0, prob_d1, prob_d2, prob_d3, prob_d4], dim=-1)
-
-        if to_dec == 0:
-            return mean_d0, scale_d0, prob_d0
-        if to_dec == 1:
-            return mean_d1, scale_d1, prob_d1
-        if to_dec == 2:
-            return mean_d2, scale_d2, prob_d2
-        if to_dec == 3:
-            return mean_d3, scale_d3, prob_d3
-        if to_dec == 4:
-            return mean_d4, scale_d4, prob_d4
+        # fea_q: [N, feat_dim]
+        g = self.channel_group
+        parts = torch.split(fea_q, split_size_or_sections=[g] * self.n_groups, dim=-1)
+        outs = []
+        prev = []
+        for i in range(self.n_groups):
+            mlp = getattr(self, f"MLP_d{i}")
+            out = mlp(torch.cat(prev + [mean_scale], dim=-1))
+            mean_i, scale_i, prob_i = torch.chunk(out, chunks=3, dim=-1)
+            outs.append((mean_i, scale_i, prob_i))
+            prev.append(parts[i])
+            if to_dec == i:
+                return mean_i, scale_i, prob_i
+        mean_adj = torch.cat([o[0] for o in outs], dim=-1)
+        scale_adj = torch.cat([o[1] for o in outs], dim=-1)
+        prob_adj = torch.cat([o[2] for o in outs], dim=-1)
         return mean_adj, scale_adj, prob_adj
+
+
+def pick_channel_group(feat_dim):
+    """Largest supported channel-group size that divides ``feat_dim``.
+
+    The official code uses 10 channels per group for feat_dim=50; for other
+    dims fall back to 8, then 5, 4, 2, 1.
+    """
+    for g in (10, 8, 5, 4, 2, 1):
+        if feat_dim % g == 0:
+            return g
+    return 1
 
 class Channel_CTX_fea_tiny(nn.Module):
     def __init__(self):
@@ -273,6 +274,7 @@ class GaussianModel(nn.Module):
               ste_binary, ste_multistep, add_noise)
 
         self.feat_dim = feat_dim
+        self.feat_channel_group = pick_channel_group(feat_dim)
         self.n_offsets = n_offsets
         self.voxel_size = voxel_size
         self.update_depth = update_depth
@@ -421,7 +423,9 @@ class GaussianModel(nn.Module):
         self.mlp_complexity = nn.Sequential(*layers).cuda()
 
         if not is_synthetic_nerf:
-            self.mlp_deform = Channel_CTX_fea().cuda()
+            self.mlp_deform = Channel_CTX_fea(
+                feat_dim=self.feat_dim, channel_group=self.feat_channel_group
+            ).cuda()
         else:
             print('find synthetic nerf, use Channel_CTX_fea_tiny')
             self.mlp_deform = Channel_CTX_fea_tiny().cuda()

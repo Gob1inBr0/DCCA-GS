@@ -1044,6 +1044,7 @@ class HACPlusModel(BaseGaussianModel):
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         k = self.cfg.n_offsets
+        cg = int(core.feat_channel_group)
         device = self.device
 
         n_total = self._view.anchor.shape[0]
@@ -1206,30 +1207,30 @@ class HACPlusModel(BaseGaussianModel):
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
-            # features (channel-context, 10 channels per step)
+            # features (channel-context, cg channels per step)
             feat_slice = feat[start:end]
             feat_q = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
             mean_scale = torch.cat([mean, scale, prob], dim=-1)
             scale = scale.clamp(min=1e-9)
             bit_feat = 0
-            for cc in range(self.cfg.feat_dim // 10):
+            for cc in range(self.cfg.feat_dim // cg):
                 mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
                     feat_q, mean_scale, to_dec=cc
                 )
                 probs = torch.softmax(
-                    torch.stack([prob[:, cc * 10 : cc * 10 + 10], prob_adj], dim=-1),
+                    torch.stack([prob[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
                     dim=-1,
                 )
-                feat_tmp = feat_q[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
-                Q_tmp = Q_feat[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
+                feat_tmp = feat_q[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                Q_tmp = Q_feat[:, cc * cg : cc * cg + cg].contiguous().view(-1)
                 bit_feat += encoder_gaussian_mixed_chunk(
                     feat_tmp,
                     [
-                        mean[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                        mean[:, cc * cg : cc * cg + cg].contiguous().view(-1),
                         mean_adj.contiguous().view(-1),
                     ],
                     [
-                        scale[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                        scale[:, cc * cg : cc * cg + cg].contiguous().view(-1),
                         scale_adj.contiguous().view(-1),
                     ],
                     [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
@@ -1349,6 +1350,7 @@ class HACPlusModel(BaseGaussianModel):
         core = self.core
         artifact_dir = Path(artifact_dir)
         k = self.cfg.n_offsets
+        cg = int(core.feat_channel_group)
         device = self.device
         header_path = artifact_dir / CODEC_HEADER_FILENAME
         if not header_path.is_file():
@@ -1486,22 +1488,22 @@ class HACPlusModel(BaseGaussianModel):
             feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
             mean_scale = torch.cat([mean, scale, prob], dim=-1)
             scale = scale.clamp(min=1e-9)
-            for cc in range(self.cfg.feat_dim // 10):
+            for cc in range(self.cfg.feat_dim // cg):
                 mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
                     feat_decoded, mean_scale, to_dec=cc
                 )
                 probs = torch.softmax(
-                    torch.stack([prob[:, cc * 10 : cc * 10 + 10], prob_adj], dim=-1),
+                    torch.stack([prob[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
                     dim=-1,
                 )
-                Q_tmp = Q_feat[:, cc * 10 : cc * 10 + 10].contiguous().view(-1)
+                Q_tmp = Q_feat[:, cc * cg : cc * cg + cg].contiguous().view(-1)
                 dec = decoder_gaussian_mixed_chunk(
                     [
-                        mean[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                        mean[:, cc * cg : cc * cg + cg].contiguous().view(-1),
                         mean_adj.contiguous().view(-1),
                     ],
                     [
-                        scale[:, cc * 10 : cc * 10 + 10].contiguous().view(-1),
+                        scale[:, cc * cg : cc * cg + cg].contiguous().view(-1),
                         scale_adj.contiguous().view(-1),
                     ],
                     [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
@@ -1509,7 +1511,7 @@ class HACPlusModel(BaseGaussianModel):
                     file_name=feat_b.replace(".b", f"_{cc}.b"),
                     chunk_size=500_000,
                 )
-                feat_decoded[:, cc * 10 : cc * 10 + 10] = dec.view(n_num, 10)
+                feat_decoded[:, cc * cg : cc * cg + cg] = dec.view(n_num, cg)
 
             scaling_decoded = decoder_gaussian_chunk(
                 mean_scaling,

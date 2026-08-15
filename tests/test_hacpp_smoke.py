@@ -92,3 +92,44 @@ def test_hacpp_train_step_and_codec(tmp_path):
     assert model2.num_anchors == model.num_anchors
     out2 = model2.render(cam, bg, is_training=False)
     assert out2.image.shape == (1, 64, 64, 3)
+
+
+def test_pick_channel_group():
+    from hacplus.scene.gaussian_model import pick_channel_group
+
+    assert pick_channel_group(50) == 10
+    assert pick_channel_group(32) == 8
+    assert pick_channel_group(24) == 8
+    assert pick_channel_group(16) == 8
+    assert pick_channel_group(8) == 8
+    assert pick_channel_group(20) == 10
+    assert pick_channel_group(30) == 10
+
+
+@pytest.mark.parametrize("feat_dim", [8, 16, 24, 32, 50])
+def test_hacpp_feat_dim_codec_roundtrip(tmp_path, feat_dim):
+    from scaffold_gs.config import ModelConfig
+    from scaffold_gs.hacpp import HACPlusCodec, HACPlusModel
+
+    cfg = ModelConfig(
+        model_name="hac_pp",
+        feat_dim=feat_dim,
+        n_offsets=10,
+        voxel_size=0.1,
+        appearance_dim=0,
+        content_aware_quant=False,
+    )
+    model = HACPlusModel(cfg, "cuda")
+    pts = (np.random.RandomState(feat_dim).rand(200, 3).astype(np.float32) - 0.5)
+    rgb = np.random.RandomState(feat_dim + 1).randint(0, 255, (200, 3)).astype(np.uint8)
+    model.init_from_pcd(pts, rgb, 1.0)
+
+    codec = HACPlusCodec()
+    meta = codec.encode(model, tmp_path)
+    assert meta["total_bits"] > 0
+    model2 = codec.decode(tmp_path)
+    assert model2._view.decoded_version
+    assert model2._view.anchor_feat.shape[-1] == feat_dim
+    cam = _make_camera(0)
+    out = model2.render(cam, torch.zeros(3, device="cuda"), is_training=False)
+    assert out.image.shape == (1, 64, 64, 3)
