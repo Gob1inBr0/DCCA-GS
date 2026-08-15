@@ -279,6 +279,18 @@ class HACPlusModel(BaseGaussianModel):
                         requires_grad=key not in ("_rotation", "_opacity"),
                     ),
                 )
+        deform_state = sd.get("mlp_deform")
+        if deform_state is not None and "MLP_d0.0.weight" in deform_state:
+            ckpt_hidden = deform_state["MLP_d0.0.weight"].shape[0]
+            current = self.core.mlp_deform.MLP_d0[0].out_features
+            if ckpt_hidden != current:
+                from hacplus.scene.gaussian_model import Channel_CTX_fea
+
+                self.core.mlp_deform = Channel_CTX_fea(
+                    feat_dim=self.core.feat_dim,
+                    channel_group=self.core.feat_channel_group,
+                    hidden=ckpt_hidden,
+                ).to(self.device)
         result = self.core.load_state_dict(sd, strict=kwargs.get("strict", True))
         if self.core.sensitivity_feat.numel() == 0 and self.num_anchors > 0:
             n = self.num_anchors
