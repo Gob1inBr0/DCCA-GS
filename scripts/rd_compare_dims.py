@@ -48,7 +48,11 @@ def main() -> None:
     base = "/home/fansonglin/xieliang/chentong/PHG/runs"
     dim50 = _load(f"{base}/rd_4_28_h32/results.json")
     for dim in (16, 32):
-        rows = _load(f"{base}/rd_4_28_dim{dim}/results.json")
+        try:
+            rows = _load(f"{base}/rd_4_28_dim{dim}/results.json")
+        except FileNotFoundError:
+            print(f"=== dim{dim} vs dim50 === (results not ready)")
+            continue
         print(f"=== dim{dim} vs dim50 ===")
         print("q\ttotal_MB\tPSNR\tSSIM\tLPIPS")
         for r in rows:
