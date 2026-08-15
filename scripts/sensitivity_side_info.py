@@ -145,7 +145,7 @@ def main():
     torch.cuda.empty_cache()
 
     for strength in [float(v) for v in args.strengths.split(",")]:
-        mult = 1.0 + strength * torch.tanh(-z)
+        mult = (1.0 + strength * torch.tanh(-z)).clamp(0.1, 2.0)
         tag = f"s{strength:g}"
         true_dir = Path(args.out).parent / f"{tag}_true"
         true_dir.mkdir(parents=True, exist_ok=True)
