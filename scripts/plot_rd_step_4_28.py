@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 
 
 RD_JSON = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/results.json"
+DIM16_RD_JSON = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_dim16/results.json"
+DIM32_RD_JSON = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_dim32/results.json"
 BASE = "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_h32"
 LAMBDA_RUN = "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_h32_l0p002"
 OLD_RD_CSV = "/home/fansonglin/xieliang/chentong/PHG/old_hac_data/rd_main_curves_3scene_260708.csv"
@@ -25,6 +27,26 @@ def main() -> None:
     mb = [r["total_MB"] for r in rows]
     psnr = [r["psnr"] for r in rows]
     qs = [r["q_scale_feat"] for r in rows]
+
+    dim_curves = []
+    for path, name, color in [
+        (DIM16_RD_JSON, "PHG dim16 q_scale", "tab:green"),
+        (DIM32_RD_JSON, "PHG dim32 q_scale", "tab:purple"),
+    ]:
+        try:
+            drd = json.load(open(path))
+            drow = [r for r in drd["rows"] if not r.get("error")]
+            drow.sort(key=lambda r: r["total_MB"])
+            dim_curves.append(
+                (
+                    name,
+                    color,
+                    [r["total_MB"] for r in drow],
+                    [r["psnr"] for r in drow],
+                )
+            )
+        except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            pass
 
     # PHG lambda points: lambda=0.004 (known) and lambda=0.002 (optional).
     lam = [(0.004, 5.5604, 28.655061937967936)]
@@ -67,7 +89,7 @@ def main() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
 
     ax = axes[0]
-    ax.plot(mb, psnr, "o-", color="tab:blue")
+    ax.plot(mb, psnr, "o-", color="tab:blue", label="PHG dim50 h32 q_scale")
     for r, q in zip(rows, qs):
         ax.annotate(
             f"q={q:g}",
@@ -125,6 +147,8 @@ def main() -> None:
             fontsize=8,
             color="tab:red",
         )
+    for name, color, dm, dp in dim_curves:
+        ax.plot(dm, dp, "o-", ms=4, color=color, alpha=0.85, label=name)
     ax.set_xlabel("total size (MB)")
     ax.set_ylabel("PSNR (dB)")
     ax.set_title("4-28 RD curves (PHG h32 90k vs old HAC)")
