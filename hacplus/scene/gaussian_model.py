@@ -130,9 +130,9 @@ class Channel_CTX_fea(nn.Module):
                 self,
                 f"MLP_d{i}",
                 nn.Sequential(
-                    nn.Linear(self.feat_dim * 3 + g * i, g * 2),
+                    nn.Linear(self.feat_dim * 3 + g * i, g * 4),
                     nn.LeakyReLU(inplace=True),
-                    nn.Linear(g * 2, g * 3),
+                    nn.Linear(g * 4, g * 3),
                 ),
             )
 
