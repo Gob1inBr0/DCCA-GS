@@ -114,7 +114,7 @@ class mix_3D2D_encoding(nn.Module):
         return out_i
 
 class Channel_CTX_fea(nn.Module):
-    def __init__(self, feat_dim=50, channel_group=None):
+    def __init__(self, feat_dim=50, channel_group=None, hidden=None):
         super().__init__()
         self.feat_dim = int(feat_dim)
         self.channel_group = (
@@ -122,6 +122,7 @@ class Channel_CTX_fea(nn.Module):
             if channel_group is None
             else int(channel_group)
         )
+        self.hidden = int(hidden) if hidden is not None else self.channel_group * 4
         assert self.feat_dim % self.channel_group == 0
         self.n_groups = self.feat_dim // self.channel_group
         g = self.channel_group
@@ -130,9 +131,9 @@ class Channel_CTX_fea(nn.Module):
                 self,
                 f"MLP_d{i}",
                 nn.Sequential(
-                    nn.Linear(self.feat_dim * 3 + g * i, g * 4),
+                    nn.Linear(self.feat_dim * 3 + g * i, self.hidden),
                     nn.LeakyReLU(inplace=True),
-                    nn.Linear(g * 4, g * 3),
+                    nn.Linear(self.hidden, g * 3),
                 ),
             )
 
