@@ -150,7 +150,7 @@ def main():
         true_dir = Path(args.out).parent / f"{tag}_true"
         true_dir.mkdir(parents=True, exist_ok=True)
         ov = {
-            f: str(true_dir / f"q_override_{f}.npy")
+            f"q_override_{f}": str(true_dir / f"q_override_{f}.npy")
             for f in fields
         }
         for j, f in enumerate(fields):
@@ -193,7 +193,7 @@ def main():
             for j, f in enumerate(fields):
                 path = out_dir / f"q_override_{f}.npy"
                 np.save(path, quant[j].cpu().numpy().astype(np.float32)[:, None])
-                ov[f] = str(path)
+                ov[f"q_override_{f}"] = str(path)
             meta = codec.encode(model, out_dir, **ov)
             dec = codec.decode(out_dir, **ov)
             m = evaluate(dec, dataset, out_dir / "eval", iteration)
