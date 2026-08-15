@@ -156,6 +156,18 @@ class HACCoreView:
 
     def load_decoder_state(self, state: Dict[str, Any]) -> None:
         core = self._core
+        deform_state = state.get("mlp_deform")
+        if deform_state is not None and "MLP_d0.0.weight" in deform_state:
+            ckpt_hidden = deform_state["MLP_d0.0.weight"].shape[0]
+            current = core.mlp_deform.MLP_d0[0].out_features
+            if ckpt_hidden != current:
+                from hacplus.scene.gaussian_model import Channel_CTX_fea
+
+                core.mlp_deform = Channel_CTX_fea(
+                    feat_dim=core.feat_dim,
+                    channel_group=core.feat_channel_group,
+                    hidden=ckpt_hidden,
+                ).to(core.mlp_deform.MLP_d0[0].weight.device)
         core.mlp_opacity.load_state_dict(state["mlp_opacity"])
         core.mlp_cov.load_state_dict(state["mlp_cov"])
         core.mlp_color.load_state_dict(state["mlp_color"])
