@@ -69,6 +69,9 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 11. **5090 使用纪律**：不杀其他用户进程；长训练用带“空卡检测+自动重试”的 runner。
 12. **HAC++ 环境**：`conda activate HAC_5090_a100`；`PYTHONNOUSERSITE=1`；
     `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；PATH 要含 tmc3/GPCC。
+13. **不要修改正在运行的 runner 脚本**：bash 是按文件偏移增量读取的，运行中覆盖脚本
+    会导致训练结束后的压缩/评估阶段报 `unexpected EOF`（2026-08-16 120k 运行踩过）；
+    需要改动时先等该轮跑完，或用独立的新脚本。
 
 ## 5. 结果汇总（4-28，1600 宽，官方体积口径）
 
