@@ -110,6 +110,11 @@ def main() -> None:
     p.add_argument("--data-factor", type=int, default=1)
     p.add_argument("--max-width", type=int, default=1600)
     p.add_argument("--no-preload-images", action="store_true")
+    p.add_argument(
+        "--skip-baseline",
+        action="store_true",
+        help="Skip the 32-bit baseline row (used for per-MLP sensitivity runs).",
+    )
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
 
@@ -118,20 +123,20 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     rows = []
-    # 32-bit baseline first.
-    rows.append(
-        run_one(
-            args.ckpt,
-            32,
-            groups,
-            args.data_dir,
-            out / "b32",
-            args.max_width,
-            args.data_factor,
-            args.no_preload_images,
-            args.device,
+    if not args.skip_baseline:
+        rows.append(
+            run_one(
+                args.ckpt,
+                32,
+                groups,
+                args.data_dir,
+                out / "b32",
+                args.max_width,
+                args.data_factor,
+                args.no_preload_images,
+                args.device,
+            )
         )
-    )
     for bits in args.bits:
         rows.append(
             run_one(
