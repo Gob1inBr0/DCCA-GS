@@ -19,8 +19,12 @@ DIM_RUNS = {
     "dim32": "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_dim32",
     "dim16": "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_dim16",
 }
+BEST_RUN_JSON = (
+    "/home/fansonglin/xieliang/chentong/PHG/runs/"
+    "mlp_quant_sens_cd8_rest16_110k/results.json"
+)
 OLD_RD_CSV = "/home/fansonglin/xieliang/chentong/PHG/old_hac_data/rd_main_curves_3scene_260708.csv"
-OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28_v3.png"
+OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28_v4.png"
 
 
 def _load_metrics(run_dir: str):
@@ -41,6 +45,20 @@ def main() -> None:
         lam.append((0.002, meta["total_MB"], met["psnr"]))
     except (FileNotFoundError, KeyError, json.JSONDecodeError):
         pass
+
+    # PHG best operating point: 110k + conservative MLP quantization
+    # (complexity/deform 8-bit, rest 16-bit; dim50 h32).
+    best_point = None
+    try:
+        brd = json.load(open(BEST_RUN_JSON))
+        brow = [r for r in brd["rows"] if not r.get("error")][0]
+        best_point = (brow["total_MB"], brow["psnr"])
+        print(
+            f"[plot] best point: {brow['psnr']:.3f} dB / "
+            f"{brow['total_MB']:.4f} MB"
+        )
+    except (FileNotFoundError, IndexError, KeyError, json.JSONDecodeError):
+        print("[plot] WARNING: best point not available yet")
 
     # PHG dim16/dim32 single points (trained at lambda=0.004, 90k).
     dim_points = {}
@@ -149,6 +167,28 @@ def main() -> None:
             ha="center",
             fontsize=8,
             color=color,
+        )
+
+    if best_point is not None:
+        s, p = best_point
+        ax.plot(
+            s,
+            p,
+            "*",
+            color="gold",
+            ms=20,
+            markeredgecolor="black",
+            markeredgewidth=0.8,
+            label="PHG best (110k + MLP quant)",
+        )
+        ax.annotate(
+            f"110k + quant\n{p:.2f} dB / {s:.2f} MB",
+            (s, p),
+            textcoords="offset points",
+            xytext=(10, 10),
+            fontsize=8,
+            fontweight="bold",
+            color="black",
         )
 
     ax.set_xlabel("total size (MB)")
