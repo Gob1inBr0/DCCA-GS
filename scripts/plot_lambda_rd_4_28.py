@@ -19,7 +19,7 @@ DIM_RUNS = {
     "dim16": "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_dim16",
 }
 OLD_RD_CSV = "/home/fansonglin/xieliang/chentong/PHG/old_hac_data/rd_main_curves_3scene_260708.csv"
-OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28.png"
+OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28_v2.png"
 
 
 def main() -> None:
