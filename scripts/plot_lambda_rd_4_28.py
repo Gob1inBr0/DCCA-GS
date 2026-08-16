@@ -6,6 +6,7 @@ No q_scale points: only models trained with different lambda_rate.
 from __future__ import annotations
 
 import json
+import os
 
 import matplotlib
 
@@ -19,7 +20,16 @@ DIM_RUNS = {
     "dim16": "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_dim16",
 }
 OLD_RD_CSV = "/home/fansonglin/xieliang/chentong/PHG/old_hac_data/rd_main_curves_3scene_260708.csv"
-OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28_v2.png"
+OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28_v3.png"
+
+
+def _load_metrics(run_dir: str):
+    """Return decoded metrics JSON, trying f1 (1600-wide) then default dir."""
+    for sub in ("decoded_eval_f1", "decoded_eval"):
+        path = f"{run_dir}/{sub}/metrics.jsonl"
+        if os.path.exists(path):
+            return json.load(open(path))
+    return None
 
 
 def main() -> None:
@@ -37,10 +47,15 @@ def main() -> None:
     for name, run_dir in DIM_RUNS.items():
         try:
             meta = json.load(open(f"{run_dir}/bitstreams/hac_meta.json"))
-            met = json.load(open(f"{run_dir}/decoded_eval_f1/metrics.jsonl"))
-            dim_points[name] = (meta["total_MB"], met["psnr"])
-        except (FileNotFoundError, KeyError, json.JSONDecodeError):
-            pass
+            met = _load_metrics(run_dir)
+            if met is not None:
+                dim_points[name] = (meta["total_MB"], met["psnr"])
+                print(f"[plot] loaded dim point {name}: "
+                      f"{met['psnr']:.3f} dB / {meta['total_MB']:.4f} MB")
+        except (FileNotFoundError, KeyError, json.JSONDecodeError) as exc:
+            print(f"[plot] WARNING: could not load dim point {name}: {exc}")
+    if not dim_points:
+        print("[plot] WARNING: no dim points loaded")
 
     # Old HAC 4-28 lambda curves.
     old = {}  # method -> list of (lambda, size_mb, psnr)
