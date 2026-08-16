@@ -82,20 +82,35 @@ def _quantize_tensor(w: torch.Tensor, bits: int, per_channel: bool):
 
 def quantize_core_mlps(
     core,
-    bits: int,
+    bits: int | None = None,
     groups: Tuple[str, ...] = MLP_GROUPS,
     per_channel: bool = True,
+    bits_map: Dict[str, int] | None = None,
 ) -> Dict[str, Dict[str, object]]:
     """Quantize selected MLP groups in-place and return metadata.
+
+    ``bits`` applies to every group in ``groups``; alternatively ``bits_map``
+    maps a group name to its bit width (per-MLP mixed precision), e.g.
+    ``{"mlp_complexity": 8, "mlp_deform": 8, "mlp_opacity": 16}``. MLPs not in
+    ``groups`` / not in ``bits_map`` stay at float32.
 
     The parameter values are replaced by the dequantized approximation, so a
     subsequent ``codec.encode`` uses exactly the quantized network.
     """
     meta: Dict[str, Dict[str, object]] = {}
     for name, param in mlp_param_items(core):
-        if _group_of(name) not in groups:
+        group = _group_of(name)
+        if bits_map is not None:
+            b = bits_map.get(group)
+            if b is None:
+                continue
+        else:
+            if group not in groups:
+                continue
+            b = bits
+        if b is None:
             continue
-        q, scale = _quantize_tensor(param.data, bits, per_channel)
+        q, scale = _quantize_tensor(param.data, b, per_channel)
         if scale.numel() == 1:
             dequant = q.float() * scale[0]
         else:
@@ -104,8 +119,8 @@ def quantize_core_mlps(
         meta[name] = {
             "q": q.detach().cpu(),
             "scale": scale.detach().cpu(),
-            "bits": bits,
-            "group": _group_of(name),
+            "bits": b,
+            "group": group,
         }
     return meta
 

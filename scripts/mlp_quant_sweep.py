@@ -2,9 +2,10 @@
 
 For each bit width (and optionally a single MLP group), quantize the MLP
 weights with per-channel symmetric PTQ, re-run the attribute codec with the
-dequantized weights, compress the indices with static rANS (raw int16 for
->=16-bit), decode, and evaluate.  ``total_MB`` uses the official accounting
-but replaces ``bit_mlp = params*32`` with the real compressed MLP payload.
+dequantized weights, compress the indices with a static arithmetic coder
+(raw int16 for >=16-bit), decode, and evaluate.  ``total_MB`` uses the
+official accounting but replaces ``bit_mlp = params*32`` with the real
+compressed MLP payload.
 
 Usage (5090):
     PYTHONPATH=$PWD python scripts/mlp_quant_sweep.py \
@@ -16,6 +17,10 @@ Usage (5090):
 
     # per-MLP sensitivity at 8-bit (repeat --groups mlp_grid, ...)
     --bits 8 --groups mlp_grid
+
+    # mixed precision: complexity+deform 8-bit, rest 16-bit
+    --group-bits mlp_complexity:8 mlp_deform:8 mlp_opacity:16 mlp_cov:16 \
+                 mlp_color:16 mlp_grid:16
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ def run_one(
     ckpt: str,
     bits: int,
     groups: Tuple[str, ...],
+    bits_map: dict | None,
     data_dir: str,
     out_dir: Path,
     max_width: int,
@@ -47,7 +53,9 @@ def run_one(
     device: str,
 ) -> dict:
     model, _, iteration, _ = load_checkpoint(ckpt, device)
-    if bits < 32:
+    if bits_map:
+        quant_meta = quantize_core_mlps(model.core, bits_map=bits_map)
+    elif bits < 32:
         quant_meta = quantize_core_mlps(model.core, bits, groups=groups)
     else:
         quant_meta = {}
@@ -81,7 +89,8 @@ def run_one(
     )
     metrics = evaluate(decoded, dataset, out_dir / "eval", iteration)
     row = {
-        "bits": bits,
+        "bits": "mixed" if bits_map else bits,
+        "bits_map": bits_map,
         "groups": list(groups),
         "mlp_payload_MB": round(mlp_bits / bit2MB_scale, 4),
         "attr_MB": round(attr_bits / bit2MB_scale, 4),
@@ -102,6 +111,13 @@ def main() -> None:
     p.add_argument("--result-dir", default="runs/mlp_quant_sweep")
     p.add_argument("--bits", type=int, nargs="+", default=[16, 8, 6, 4])
     p.add_argument(
+        "--group-bits",
+        nargs="+",
+        default=None,
+        help="Per-group bit widths, e.g. mlp_complexity:8 mlp_deform:8 "
+        "mlp_opacity:16 ... (mixed precision; overrides --bits).",
+    )
+    p.add_argument(
         "--groups",
         nargs="+",
         default=None,
@@ -119,6 +135,12 @@ def main() -> None:
     args = p.parse_args()
 
     groups = tuple(args.groups) if args.groups else MLP_GROUPS
+    bits_map = None
+    if args.group_bits:
+        bits_map = {}
+        for item in args.group_bits:
+            g, b = item.split(":")
+            bits_map[g] = int(b)
     out = Path(args.result_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -129,6 +151,7 @@ def main() -> None:
                 args.ckpt,
                 32,
                 groups,
+                None,
                 args.data_dir,
                 out / "b32",
                 args.max_width,
@@ -137,12 +160,13 @@ def main() -> None:
                 args.device,
             )
         )
-    for bits in args.bits:
+    for bits in (args.bits if not bits_map else [min(bits_map.values())]):
         rows.append(
             run_one(
                 args.ckpt,
                 bits,
                 groups,
+                bits_map,
                 args.data_dir,
                 out / f"b{bits}",
                 args.max_width,
