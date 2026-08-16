@@ -14,6 +14,10 @@ import matplotlib.pyplot as plt
 
 
 LAMBDA_RUN = "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_h32_l0p002"
+DIM_RUNS = {
+    "dim32": "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_dim32",
+    "dim16": "/home/fansonglin/data_space/web_scan/runs/4-28_i6_90k_dim16",
+}
 OLD_RD_CSV = "/home/fansonglin/xieliang/chentong/PHG/old_hac_data/rd_main_curves_3scene_260708.csv"
 OUT = "/home/fansonglin/xieliang/chentong/PHG/runs/rd_4_28_h32/lambda_rd_4_28.png"
 
@@ -27,6 +31,16 @@ def main() -> None:
         lam.append((0.002, meta["total_MB"], met["psnr"]))
     except (FileNotFoundError, KeyError, json.JSONDecodeError):
         pass
+
+    # PHG dim16/dim32 single points (trained at lambda=0.004, 90k).
+    dim_points = {}
+    for name, run_dir in DIM_RUNS.items():
+        try:
+            meta = json.load(open(f"{run_dir}/bitstreams/hac_meta.json"))
+            met = json.load(open(f"{run_dir}/decoded_eval_f1/metrics.jsonl"))
+            dim_points[name] = (meta["total_MB"], met["psnr"])
+        except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            pass
 
     # Old HAC 4-28 lambda curves.
     old = {}  # method -> list of (lambda, size_mb, psnr)
@@ -100,6 +114,26 @@ def main() -> None:
             fontsize=9,
             color="tab:red",
             fontweight="bold",
+        )
+
+    # dim16 / dim32 markers (same lambda=0.004).
+    dim_markers = {
+        "dim32": ("D", "tab:green", "PHG dim32 (λ=0.004)"),
+        "dim16": ("P", "tab:cyan", "PHG dim16 (λ=0.004)"),
+    }
+    for name, (marker, color, label) in dim_markers.items():
+        if name not in dim_points:
+            continue
+        s, p = dim_points[name]
+        ax.plot(s, p, marker, color=color, ms=9, label=label)
+        ax.annotate(
+            f"{name}\nλ=0.004",
+            (s, p),
+            textcoords="offset points",
+            xytext=(0, -18),
+            ha="center",
+            fontsize=8,
+            color=color,
         )
 
     ax.set_xlabel("total size (MB)")
