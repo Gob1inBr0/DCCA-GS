@@ -1,0 +1,49 @@
+# PHG 运行环境（5090，环境名 HAC_5090_a100）
+#
+# 生成说明：
+#   - 版本来自 5090 `pip list`（2026-08-17），torch 请按目标机器 CUDA 版本调整；
+#   - CUDA 扩展 gridencoder / arithmetic / simple_knn 是本地源码构建（pip 版本
+#     显示 0.0.0），来自官方 HAC-plus 仓库，不能用 pip 直接安装；
+#   - GPCC 几何编码用的 `tmc3` 二进制放在 conda 环境 bin/ 下，PATH 必须包含
+#     $CONDA_PREFIX/bin；
+#   - gsplat 开发时用 `pip install -e <gsplat-main>`（5090 上是 1.5.3）。
+#
+# 使用：
+#   conda env create -f environment.yml
+#   conda activate HAC_5090_a100
+#   source scripts/env_5090.sh
+
+name: HAC_5090_a100
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # core（5090 实测版本：必须用 PYTHONNOUSERSITE=1 验证，
+      # ~/.local 里另有一个 torch 2.12.1 会造成 torchvision 崩溃）
+      - torch==2.7.1+cu128
+      - torchvision==0.22.1+cu128
+      - numpy==1.23.5
+      - scipy==1.15.3
+      - opencv-python==4.13.0.92
+      - pillow==12.2.0
+      - imageio
+      - tqdm==4.68.1
+      - tyro==1.0.15
+      - pycolmap==4.1.1
+      - plyfile
+      - torchmetrics==1.9.0
+      - tensorboard==2.20.0
+      - lpips==0.1.4
+      - scikit-image==0.25.2
+      - pytest==9.1.1
+      # 光栅化：开发时用本地 gsplat-main；5090 上为 1.5.3
+      - gsplat==1.5.3
+
+# 需要手动安装的 CUDA 扩展（见 docs/ENVIRONMENT.md）：
+#   gridencoder, arithmetic, simple_knn（HAC-plus 官方源码本地构建）
+#   torch_scatter（可选，PHG 已用 torch.scatter_reduce 替代，环境里保留）

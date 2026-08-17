@@ -71,10 +71,12 @@ pip install -r requirements.txt
 
 # 5090（HAC++ CUDA 扩展环境）
 conda activate HAC_5090_a100
-export PYTHONNOUSERSITE=1
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export PATH=$HOME/miniconda3/envs/HAC_5090_a100/bin:$PATH   # tmc3/GPCC
+source scripts/env_5090.sh   # 设置 PYTHONPATH / PYTHONNOUSERSITE / PATH(tmc3) / expandable_segments
 ```
+
+完整环境说明（驱动/CUDA、包版本、CUDA 扩展、GPCC、数据路径、常见坑）见
+[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)；conda 依赖清单见
+[environment.yml](environment.yml)。
 
 ## 使用
 
