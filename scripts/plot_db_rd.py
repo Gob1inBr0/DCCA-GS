@@ -123,6 +123,7 @@ def main() -> None:
 
     for ax in axes:
         ax.set_xlabel("Size (MiB)")
+        ax.set_xscale("log")
         ax.grid(alpha=0.3, linestyle="--")
 
     plotted = set()
