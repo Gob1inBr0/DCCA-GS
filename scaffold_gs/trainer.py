@@ -224,6 +224,9 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         sens_loss_fn = getattr(model, "sensitivity_supervision", None)
         if sens_loss_fn is not None:
             loss = loss + sens_loss_fn(out.gaussians)
+        spa_loss_fn = getattr(model, "spa_loss_term", None)
+        if spa_loss_fn is not None:
+            loss = loss + spa_loss_fn()
 
         loss.backward()
 

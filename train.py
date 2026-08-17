@@ -92,7 +92,12 @@ def cmd_compress(cfg: CompressConfig) -> None:
                 "Available: none, hac_pp."
             )
     codec = CODECS[cfg.codec]()
-    metadata = codec.encode(model, out_dir)
+    metadata = codec.encode(
+        model,
+        out_dir,
+        attr_ctx=cfg.attr_ctx,
+        mask_keep_ratio=cfg.mask_keep_ratio,
+    )
     metadata["iteration"] = iteration
     print(f"[Compress] {metadata}")
 

@@ -124,6 +124,16 @@ class ModelConfig:
     sensitivity_start_iter: int = 20_000
     """First iteration at which sensitivity supervision/accumulation runs."""
 
+    # S (GaussianSpa-style): training-side ADMM anchor sparsity (default OFF).
+    spa_enabled: bool = False
+    """Enforce an explicit anchor budget with ADMM hard projection."""
+    spa_ratio: float = 0.5
+    """Target fraction of surviving anchors (kappa = ratio * N)."""
+    spa_rho: float = 1e-3
+    """ADMM augmented-Lagrange weight for ||a - z + u||^2."""
+    spa_u_clamp: float = 1.0
+    """Clamp bound for the ADMM multiplier u."""
+
     def __post_init__(self) -> None:
         if self.content_aware_q_mode != "formula":
             raise ValueError(
@@ -288,3 +298,10 @@ class CompressConfig:
     device: str = "cuda"
     codec: str = "none"
     """Codec name; ``none`` writes the uncompressed attribute baseline."""
+    attr_ctx: Optional[str] = None
+    """Optional R4 predictor file (fitted by ``scripts/fit_attr_ctx.py``).
+    When set, ``hac_pp`` codes scaling/offsets with conditional entropy
+    parameters adjusted by the predictor and charges its payload to total_MB."""
+    mask_keep_ratio: Optional[float] = None
+    """Post-hoc encode-time anchor topk ratio (0,1]; None keeps all anchors.
+    Used as the MaskTopk-only control group for SPA experiments."""

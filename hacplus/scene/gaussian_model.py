@@ -329,6 +329,18 @@ class GaussianModel(nn.Module):
         self.sensitivity_mean = torch.zeros(3, device="cuda")
         self.sensitivity_var = torch.ones(3, device="cuda")
 
+        # SPA (GaussianSpa-style) training-side ADMM state (never coded).
+        self.spa_enabled = False
+        self.spa_ratio = 0.5
+        self.spa_rho = 1e-3
+        self.spa_u_clamp = 1.0
+        self.spa_start_iter = 1500
+        self.spa_update_until = 15000
+        self.spa_z = torch.empty(0)
+        self.spa_u = torch.empty(0)
+        self.spa_final_n = 0
+        self.spa_ref_n = 0
+
         self.offset_gradient_accum = torch.empty(0)
         self.offset_denom = torch.empty(0)
 
@@ -1183,7 +1195,10 @@ class GaussianModel(nn.Module):
     def prune_anchor(self,mask):
         valid_points_mask = ~mask
         n_target = int(valid_points_mask.shape[0])
-        for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+        for name in (
+            "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+            "spa_z", "spa_u",
+        ):
             tensor = getattr(self, name)
             if tensor.numel() == 0:
                 continue
@@ -1205,7 +1220,10 @@ class GaussianModel(nn.Module):
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
 
-        for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+        for name in (
+            "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+            "spa_z", "spa_u",
+        ):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
                 setattr(self, name, tensor[valid_points_mask])
@@ -1299,7 +1317,12 @@ class GaussianModel(nn.Module):
                 del self.opacity_accum
                 self.opacity_accum = temp_opacity_accum
 
-                for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+                for name in (
+                    "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+                    "spa_z", "spa_u",
+                ):
+                    if name.startswith("spa_") and not self.spa_enabled:
+                        continue
                     tensor = getattr(self, name)
                     extension = torch.zeros(
                         (new_opacities.shape[0], 1), device="cuda"
@@ -1343,9 +1366,49 @@ class GaussianModel(nn.Module):
         self.offset_gradient_accum = torch.cat([self.offset_gradient_accum, padding_offset_gradient_accum], dim=0)
 
         # # prune anchors
-        prune_mask = (self.opacity_accum < min_opacity*self.anchor_demon).squeeze(dim=1)
         anchors_mask = (self.anchor_demon > check_interval*success_threshold).squeeze(dim=1) # [N, 1]
-        prune_mask = torch.logical_and(prune_mask, anchors_mask)  # [N]
+        if getattr(self, "spa_enabled", False):
+            # SPA-anchor: ADMM hard-sparsity projection with budget kappa.
+            n = self.get_anchor.shape[0]
+            if self.spa_z.numel() == 0 or self.spa_z.shape[0] != n:
+                self.spa_z = torch.zeros(n, 1, device="cuda")
+                self.spa_u = torch.zeros(n, 1, device="cuda")
+            if self.current_step >= self.spa_update_until:
+                if self.spa_final_n == 0:
+                    self.spa_final_n = n
+                kappa = max(1, int(round(self.spa_final_n * self.spa_ratio)))
+            else:
+                # Budget anchored to the maximum anchor count seen so far:
+                # kappa = max(N_ref) * ratio_t with ratio_t ramping 1.0 ->
+                # spa_ratio between spa_start_iter and spa_update_until.
+                # Anchoring to max(N_ref) (not the current N) prevents the
+                # geometric collapse that ratio * N_t feedback causes.
+                self.spa_ref_n = max(self.spa_ref_n, n)
+                span = max(1, self.spa_update_until - self.spa_start_iter)
+                progress = min(
+                    1.0,
+                    max(
+                        0.0,
+                        (self.current_step - self.spa_start_iter) / float(span),
+                    ),
+                )
+                ratio_t = 1.0 - (1.0 - self.spa_ratio) * progress
+                kappa = max(1, int(round(self.spa_ref_n * ratio_t)))
+            a = self.get_mask.mean(dim=1).detach()  # [N, 1] soft anchor score
+            scores = (a + self.spa_u).squeeze(-1)
+            kappa = min(kappa, scores.shape[0])
+            z = torch.zeros_like(scores, dtype=torch.bool)
+            if kappa > 0:
+                keep = torch.topk(scores, kappa).indices
+                z[keep] = True
+            self.spa_z = z.float().unsqueeze(-1)
+            self.spa_u = (self.spa_u + a - self.spa_z).clamp(
+                -self.spa_u_clamp, self.spa_u_clamp
+            )
+            prune_mask = ~z
+        else:
+            prune_mask = (self.opacity_accum < min_opacity*self.anchor_demon).squeeze(dim=1)
+            prune_mask = torch.logical_and(prune_mask, anchors_mask)  # [N]
 
         # update offset_denom
         offset_denom = self.offset_denom.view([-1, self.n_offsets])[~prune_mask]
@@ -1371,7 +1434,10 @@ class GaussianModel(nn.Module):
         del self.anchor_demon
         self.anchor_demon = temp_anchor_demon
 
-        for name in ("sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets"):
+        for name in (
+            "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+            "spa_z", "spa_u",
+        ):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
                 setattr(self, name, tensor[~prune_mask])

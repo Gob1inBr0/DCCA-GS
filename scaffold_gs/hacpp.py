@@ -184,6 +184,10 @@ class HACPlusModel(BaseGaussianModel):
             level_threshold_high=cfg.level_threshold_high,
         )
         self.core.to(self.device)
+        self.core.spa_enabled = bool(cfg.spa_enabled)
+        self.core.spa_ratio = float(cfg.spa_ratio)
+        self.core.spa_rho = float(cfg.spa_rho)
+        self.core.spa_u_clamp = float(cfg.spa_u_clamp)
         self._view = HACCoreView(self.core)
         self.anchor_params = _ParamsView(self)
         self.optim_cfg: Optional[OptimConfig] = None
@@ -244,6 +248,12 @@ class HACPlusModel(BaseGaussianModel):
         sd["_decoded_version"] = torch.tensor(int(self._view.decoded_version))
         sd["_phg_state"] = self._view.state_tensors()
         sd["_sensitivity_state"] = self._view.sensitivity_state()
+        sd["_spa_state"] = {
+            "spa_z": self.core.spa_z,
+            "spa_u": self.core.spa_u,
+            "spa_final_n": self.core.spa_final_n,
+            "spa_ref_n": self.core.spa_ref_n,
+        }
         return sd
 
     def load_state_dict(self, *args, **kwargs):
@@ -261,6 +271,19 @@ class HACPlusModel(BaseGaussianModel):
             self._view.load_state_tensors(sd.pop("_phg_state"))
         if "_sensitivity_state" in sd:
             self._view.load_sensitivity_state(sd.pop("_sensitivity_state"))
+        if "_spa_state" in sd:
+            spa_state = sd.pop("_spa_state")
+            self.core.spa_z = spa_state["spa_z"].to(self.device)
+            self.core.spa_u = spa_state["spa_u"].to(self.device)
+            self.core.spa_final_n = int(spa_state.get("spa_final_n", 0))
+            self.core.spa_ref_n = int(spa_state.get("spa_ref_n", 0))
+        elif self.core.spa_enabled and self.num_anchors > 0:
+            self.core.spa_z = torch.zeros(
+                self.num_anchors, 1, device=self.device
+            )
+            self.core.spa_u = torch.zeros(
+                self.num_anchors, 1, device=self.device
+            )
         for key in (
             "_anchor",
             "_offset",
@@ -388,6 +411,8 @@ class HACPlusModel(BaseGaussianModel):
 
     def create_optimizer(self, optim_cfg: OptimConfig) -> None:
         self.optim_cfg = optim_cfg
+        self.core.spa_start_iter = int(optim_cfg.update_from)
+        self.core.spa_update_until = int(optim_cfg.update_until)
         args = SimpleNamespace(
             percent_dense=0.01,
             position_lr_init=optim_cfg.position_lr_init,
@@ -828,6 +853,15 @@ class HACPlusModel(BaseGaussianModel):
             pred, target
         )
 
+    def spa_loss_term(self) -> torch.Tensor:
+        """SPA ADMM augmented term: rho/2 * ||a - z + u||^2."""
+        if not self.core.spa_enabled or self.core.spa_z.numel() == 0:
+            return torch.zeros((), device=self.device)
+        a = self.core.get_mask.mean(dim=1)  # [N,1], STE-differentiable
+        z = self.core.spa_z
+        u = self.core.spa_u
+        return self.core.spa_rho * 0.5 * ((a - z + u) ** 2).mean()
+
     def accumulate_sensitivity(self, gaussians: NeuralGaussians) -> None:
         """EMA-update per-anchor render-sensitivity gradient norms."""
         if (
@@ -1031,6 +1065,7 @@ class HACPlusModel(BaseGaussianModel):
         q_override_feat=None,
         q_override_scaling=None,
         q_override_offsets=None,
+        attr_ctx: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Entropy-code anchor attributes with the official arithmetic codec.
 
@@ -1044,6 +1079,12 @@ class HACPlusModel(BaseGaussianModel):
                 keep only the top fraction of anchors ranked by the learned
                 anchor-mask rate instead of the official ``mask_anchor`` rule.
                 ``None`` or 1.0 preserves official behavior.
+            attr_ctx: optional path to an R4 predictor fitted by
+                ``scripts/fit_attr_ctx.py``. When provided, scaling/offsets are
+                coded with adjusted Gaussian entropy parameters conditioned on
+                the decoded feat (and decoded scaling for offsets); the
+                predictor payload is written into ``out_dir`` and charged to
+                ``total_MB``.
         """
         from hacplus.scene.gaussian_model import bit2MB_scale
         from hacplus.utils.codec_consistency import (
@@ -1058,6 +1099,13 @@ class HACPlusModel(BaseGaussianModel):
         k = self.cfg.n_offsets
         cg = int(core.feat_channel_group)
         device = self.device
+        attr_pred = None
+        if attr_ctx:
+            from .attr_ctx import load_attr_ctx, quantize_attr_ctx_inplace
+
+            attr_pred = load_attr_ctx(attr_ctx, device)
+            attr_pred = quantize_attr_ctx_inplace(attr_pred)
+            print(f"[encode_attributes] R4 attr_ctx enabled: {attr_ctx}")
 
         n_total = self._view.anchor.shape[0]
         if mask_keep_ratio is not None and mask_keep_ratio < 1.0:
@@ -1104,6 +1152,7 @@ class HACPlusModel(BaseGaussianModel):
             "format": "phg_v1",
             "codec": "hac_pp",
             "codec_iteration": int(core.current_step),
+            "attr_ctx_enabled": bool(attr_pred is not None),
             "num_anchors": int(N),
             "num_anchors_total": int(n_total),
             "model": {
@@ -1160,6 +1209,7 @@ class HACPlusModel(BaseGaussianModel):
 
             anchor_slice = anchor[start:end]
             ctx = core.calc_context_feat(anchor_slice, caller="encode_attributes")
+            masks_slice = masks[start:end]
             mean, scale, prob, mean_scaling, scale_scaling, mean_offsets, scale_offsets, qa, qs, qo = torch.split(
                 core.get_grid_mlp(ctx),
                 [
@@ -1187,7 +1237,6 @@ class HACPlusModel(BaseGaussianModel):
             Q_scaling = q_scale_scaling * 0.001 * (1 + torch.tanh(qs))
             Q_offsets = q_scale_offsets * 0.2 * (1 + torch.tanh(qo))
             if core.is_content_aware_quant_active():
-                masks_slice = masks[start:end]
                 (
                     Q_feat,
                     Q_scaling,
@@ -1257,6 +1306,18 @@ class HACPlusModel(BaseGaussianModel):
             scaling_q = STE_multistep.apply(
                 scaling_slice, Q_scaling_flat, core.get_scaling.mean()
             )
+            if attr_pred is not None:
+                from .attr_ctx import adjust_scaling
+
+                m_adj, s_adj = adjust_scaling(
+                    attr_pred,
+                    mean_scaling.view(-1, 6).detach(),
+                    scale_scaling.view(-1, 6).detach(),
+                    feat_q.detach(),
+                    ctx.detach(),
+                )
+                mean_scaling = m_adj.reshape(-1)
+                scale_scaling = s_adj.reshape(-1).clamp(min=1e-9)
             bit_scaling_list.append(
                 encoder_gaussian_chunk(
                     scaling_q,
@@ -1275,6 +1336,20 @@ class HACPlusModel(BaseGaussianModel):
                 offsets_slice, Q_offsets_flat, self._view.offset.mean()
             )
             offsets_q[~mask_slice.bool()] = 0.0
+            if attr_pred is not None and attr_pred.net_o is not None:
+                from .attr_ctx import adjust_offsets
+
+                m_adj, s_adj = adjust_offsets(
+                    attr_pred,
+                    mean_offsets.view(-1, 3 * k).detach(),
+                    scale_offsets.view(-1, 3 * k).detach(),
+                    feat_q.detach(),
+                    scaling_q.detach(),
+                    masks_slice.reshape(-1, k).detach(),
+                    ctx.detach(),
+                )
+                mean_offsets = m_adj.reshape(-1)
+                scale_offsets = s_adj.reshape(-1).clamp(min=1e-9)
             bit_offsets_list.append(
                 encoder_gaussian_chunk(
                     offsets_q[mask_slice.bool()],
@@ -1292,6 +1367,14 @@ class HACPlusModel(BaseGaussianModel):
         )
         bit_masks = encoder(masks, file_name=str(out_dir / "masks.b"))
 
+        attr_ctx_bits = 0
+        if attr_pred is not None:
+            from .attr_ctx import save_attr_ctx_payload
+
+            attr_ctx_bytes = save_attr_ctx_payload(attr_pred, out_dir)
+            attr_ctx_bits = int(attr_ctx_bytes) * 8
+            print(f"[encode_attributes] attr_ctx payload {attr_ctx_bytes} bytes")
+
         # Official HAC++ size accounting: decoder MLP weights at 32 bit/param
         # plus the xyz bounds (2 x [3] float32), see get_mlp_size().
         bit_mlp = (
@@ -1306,6 +1389,7 @@ class HACPlusModel(BaseGaussianModel):
             + sum(bit_offsets_list)
             + bit_hash
             + bit_masks
+            + attr_ctx_bits
             + bit_mlp
             + bit_bounds
         )
@@ -1321,6 +1405,8 @@ class HACPlusModel(BaseGaussianModel):
             "q_scale_scaling": float(q_scale_scaling),
             "q_scale_offsets": float(q_scale_offsets),
             "mask_keep_ratio": mask_keep_ratio,
+            "attr_ctx_enabled": bool(attr_pred is not None),
+            "bit_attr_ctx": int(attr_ctx_bits),
             "bit_anchor": int(bits_xyz),
             "bit_feat": int(sum(bit_feat_list)),
             "bit_scaling": int(sum(bit_scaling_list)),
@@ -1380,6 +1466,12 @@ class HACPlusModel(BaseGaussianModel):
             )
         core.current_step = int(codec_header.get("codec_iteration", 0))
         core.current_iter = core.current_step
+        attr_pred = None
+        if codec_header.get("attr_ctx_enabled"):
+            from .attr_ctx import load_attr_ctx_payload
+
+            attr_pred = load_attr_ctx_payload(artifact_dir, device)
+            print(f"[decode_attributes] R4 attr_ctx payload loaded")
         if codec_header.get("model", {}).get("content_aware_quant"):
             q_meta_path = artifact_dir / CONTENT_AWARE_Q_META_FILENAME
             if not q_meta_path.is_file():
@@ -1525,6 +1617,18 @@ class HACPlusModel(BaseGaussianModel):
                 )
                 feat_decoded[:, cc * cg : cc * cg + cg] = dec.view(n_num, cg)
 
+            if attr_pred is not None:
+                from .attr_ctx import adjust_scaling
+
+                m_adj, s_adj = adjust_scaling(
+                    attr_pred,
+                    mean_scaling.view(-1, 6).detach(),
+                    scale_scaling.view(-1, 6).detach(),
+                    feat_decoded.detach(),
+                    ctx.detach(),
+                )
+                mean_scaling = m_adj.reshape(-1)
+                scale_scaling = s_adj.reshape(-1).clamp(min=1e-9)
             scaling_decoded = decoder_gaussian_chunk(
                 mean_scaling,
                 scale_scaling,
@@ -1539,6 +1643,20 @@ class HACPlusModel(BaseGaussianModel):
                 .view(-1)
                 .bool()
             )
+            if attr_pred is not None and attr_pred.net_o is not None:
+                from .attr_ctx import adjust_offsets
+
+                m_adj, s_adj = adjust_offsets(
+                    attr_pred,
+                    mean_offsets.view(-1, 3 * k).detach(),
+                    scale_offsets.view(-1, 3 * k).detach(),
+                    feat_decoded.detach(),
+                    scaling_decoded.detach(),
+                    masks_decoded[start:end].reshape(-1, k).detach(),
+                    ctx.detach(),
+                )
+                mean_offsets = m_adj.reshape(-1)
+                scale_offsets = s_adj.reshape(-1).clamp(min=1e-9)
             offsets_decoded = torch.zeros_like(mean_offsets)
             offsets_decoded[masks_tmp] = decoder_gaussian_chunk(
                 mean_offsets[masks_tmp],
