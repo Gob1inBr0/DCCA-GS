@@ -1,0 +1,81 @@
+group,scene,run_id,variant,iteration,lambda,feat_dim,mlp_quant,psnr,ssim,lpips,total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source
+phg_main,4-28,4-28_i6_90k_h32,PHG h32 90k (I2+I6),90000,0.004,50,float32,28.655,0.8921,0.2767,5.5604,259061,,render_metrics,,eval 1600 宽; 主对照行,PHG docs
+phg_main,4-28,4-28_i6_90k_h25,PHG h25 90k (I2+I6),90000,0.004,50,float32,28.637,0.8922,0.2767,5.5240,,,,,mlp_complexity hidden=25,PHG docs
+phg_main,4-28,4-28_i6_90k_h32_30k,PHG h32 30k (I2+I6),30000,0.004,50,float32,27.879,0.8867,0.2758,6.0130,,,,,30k 短训,PHG docs
+phg_main,4-28,4-28_i6_90k_dim16,PHG dim16 90k,90000,0.004,16,float32,28.273,0.8877,0.2815,4.0279,,,,,feat_dim=16,PHG docs
+phg_main,4-28,4-28_i6_90k_dim32,PHG dim32 90k,90000,0.004,32,float32,28.455,0.8901,0.2796,4.5630,,,,,feat_dim=32,PHG docs
+phg_main,4-28,4-28_i6_90k_h32_l0p002,PHG h32 90k λ0.002,90000,0.002,50,float32,28.988,0.8974,0.2708,8.3069,338130,,render_metrics,,高 PSNR 分支,annotation
+phg_main,4-28,4-28_lxdim_110k_dim50_l0p004,PHG 110k dim50 λ0.004 baseline,110000,0.004,50,float32,28.825,0.8926,,5.6471,254921,,render_metrics,,eval 标签显示 30000 为 bug 实际 110k,5090 results
+phg_main,4-28,4-28_lxdim_110k_dim50_l0p004,PHG 110k dim50 λ0.004 + MLP 量化,110000,0.004,50,cd8_rest16,28.8235,0.8926,0.2771,5.4852,254921,,render_metrics,,attr_MB=5.3202 mlp_payload=0.165; 最优操作点,mlp_quant results.json
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=60000,60000,0.004,50,float32,28.545,0.8938,,6.9627,,,,,120k 训练中途 checkpoint 评估,5090 eval_step
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=70000,70000,0.004,50,float32,28.609,0.8939,,6.3974,,,,,,5090 eval_step
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=80000,80000,0.004,50,float32,28.681,0.8937,,6.1106,,,,,,5090 eval_step
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=90000,90000,0.004,50,float32,28.682,0.8933,,5.9427,,,,,,5090 eval_step
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=100000,100000,0.004,50,float32,28.771,0.8929,,5.7769,,,,,,5090 eval_step
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=110000,110000,0.004,50,float32,28.825,0.8926,,5.6471,,,,,PSNR 极大值点 → 选 110k,5090 eval_step
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=120000,120000,0.004,50,float32,,,,,,,,,120k 评估缺失（用户确认 110k 为最佳轮数）,5090
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=0.75,90000,0.004,50,float32,28.707,0.8928,0.2761,6.0881,,,,,RD 曲线,PHG docs
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=0.875,90000,0.004,50,float32,28.685,0.8925,0.2764,5.7970,,,,,,PHG docs
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.0,90000,0.004,50,float32,28.655,0.8921,0.2767,5.5604,,,,,,PHG docs
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.125,90000,0.004,50,float32,28.626,0.8917,0.2771,5.3637,,,,,,PHG docs
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.25,90000,0.004,50,float32,28.587,0.8913,0.2775,5.1977,,,,,,PHG docs
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.5,90000,0.004,50,float32,28.502,0.8902,0.2785,4.9329,,,,,,PHG docs
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=2.0,90000,0.004,50,float32,28.286,0.8874,0.2810,4.5751,,,,,,PHG docs
+phg_attr_ctx,4-28,4-28_i6_90k_h32_l0p002,R4 attr_ctx scaling-only 8bit,90000,0.002,50,cd8_rest16,28.988,0.8974,0.2708,8.2730,338130,,render_metrics,0.0339,净省 0.0339 MB(0.41%); payload 13381B; 质量不变; 默认关,R4 report
+phg_mlp_quant,DB-playroom,db_playroom_i6_110k_h32_l0p002,playroom 110k baseline,110000,0.002,50,float32,30.7310,0.9130,0.2575,4.3819,148569,,render_metrics,,eval 标签 30000 为 bug 实际 110k,5090 results
+phg_mlp_quant,DB-playroom,db_playroom_i6_110k_h32_l0p002,playroom 110k + MLP 量化,110000,0.002,50,cd8_rest16,30.7288,0.9130,0.2575,4.2231,148569,,render_metrics,,attr_MB=4.0578 mlp_payload=0.1653,mlp_quant results.json
+phg_mlp_quant,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p002,drjohnson 110k baseline,110000,0.002,50,float32,30.0376,0.9112,0.2459,7.0156,252965,,render_metrics,,eval 标签 30000 为 bug 实际 110k,5090 results
+phg_mlp_quant,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p002,drjohnson 110k + MLP 量化,110000,0.002,50,cd8_rest16,30.0376,0.9112,0.2459,6.8549,252965,,render_metrics,,attr_MB=6.6902 mlp_payload=0.1647,mlp_quant results.json
+phg_spa,DB-playroom,spa_db_playroom_30k_base,SPA 基线(无 SPA),30000,0.002,50,float32,30.872,0.9134,0.2594,4.1831,338560,168626,render_metrics,,编码端 mask_anchor 已滤掉一半,SPA report
+phg_spa,DB-playroom,spa_db_playroom_30k_topk05,MaskTopk-only 0.5,30000,0.002,50,float32,30.872,0.9134,0.2594,4.1958,338560,169280,render_metrics,,与基线几乎相同,SPA report
+phg_spa,DB-playroom,spa_db_playroom_30k_topk010,MaskTopk-only 0.1026,30000,0.002,50,float32,24.120,0.8399,0.3714,1.4740,338560,34736,render_metrics,,对齐 SPA 编码锚点数,SPA report
+phg_spa,DB-playroom,spa_db_playroom_30k_spa,SPA-anchor ratio=0.5,30000,0.002,50,float32,29.639,0.8948,0.3106,1.0835,50741,34722,render_metrics,,同锚点数比 topk 高 5.52dB 且更小; 阶段A通过,SPA report
+phg_p0,4-28,4-28_i6_90k_h32,P0 H_base(scaling+offsets 熵),90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3826,,P0 report
+phg_p0,4-28,4-28_i6_90k_h32,P0-1 feat 条件化 h64/400,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3755,gain +1.86% 关闭,P0 report
+phg_p0,4-28,4-28_i6_90k_h32,P0-1 feat 条件化 h128/1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3738,gain +2.30% 关闭,p0_offline_big.json
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 邻居均值池化 k8,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3821,gain +0.13% 关闭,P0 report
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 邻居均值池化 k16,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3822,gain +0.09% 关闭,P0 report
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 邻居均值池化 k32,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3824,gain +0.06% 关闭,P0 report
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 原始邻居特征 k8/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3816,gain +0.257% 关闭,p0_offline_rawctx_s1500.json
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 原始邻居特征 k16/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3817,gain +0.247% 关闭,p0_offline_rawctx_s1500.json
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 原始邻居特征 k32/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3819,gain +0.177% 关闭,p0_offline_rawctx_s1500.json
+phg_p0,4-28,4-28_i6_90k_h32,P0-reverse H_feat_base,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.6038,,p0_offline_reverse.json
+phg_p0,4-28,4-28_i6_90k_h32,P0-reverse H_so_base,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3924,,p0_offline_reverse.json
+phg_p0,4-28,4-28_i6_90k_h32,P0-reverse 条件熵最佳 h64/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.6013,gain +0.421% 关闭; delta_rev=0.0025MB,p0_offline_reverse.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R H_base(feat+scaling+offsets 熵),90000,0.002,50,float32,,,,,338130,,entropy_MB,1.5328,feat=0.9589 scaling=0.3333 offsets=0.2406,residual_feasibility.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R0 拉普拉斯残差,90000,0.002,50,float32,,,,,338130,,so_gain_pct,0.112,净省 0.00064MB 无增益,residual_feasibility.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R1 ctx MLP 拉普拉斯 h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,-9.661,关闭,residual_feasibility.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R2 跨字段拉普拉斯 h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,-9.457,净省 -0.10024MB 关闭,residual_feasibility.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R2 跨字段高斯 h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,-32.202,关闭,residual_feasibility.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R3 feat 通道 delta,90000,0.002,50,float32,,,,,338130,,total_gain_pct,-45.634,关闭,residual_feasibility.json
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R4 条件均值+log-scale h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,11.931,净省 0.00925MB; 阶段A整体 close 但 R4 可作可选路径,residual_feasibility.json
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,feat,90000,0.004,50,float32,,,,,259061,,efficiency,1.0042,actual=23065952 est=22970156.88 bits,codec_efficiency.py
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,scaling,90000,0.004,50,float32,,,,,259061,,efficiency,0.9634,actual=9409976 est=9767245.48 bits,codec_efficiency.py
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,offsets,90000,0.004,50,float32,,,,,259061,,efficiency,1.0018,actual=5871984 est=5861708.90 bits,codec_efficiency.py
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,masks,90000,0.004,50,float32,,,,,259061,,efficiency,1.0066,actual=1458712 est=1449125.83 bits,codec_efficiency.py
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,hash,90000,0.004,50,float32,,,,,259061,,efficiency,1.0314,actual=214864 est=208325.03 bits,codec_efficiency.py
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,total,90000,0.004,50,float32,,,,,259061,,efficiency,0.9942,actual=40021488 est=40256562.13 bits,codec_efficiency.py
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed formula,6000,0.004,50,float32,20.43,0.789,0.3865,10.7662,,,,,6k probe; 替换方案相关,i6_sweep_fixed.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed strength=0.5,6000,0.004,50,float32,21.1876,0.7864,0.3885,9.9341,,,,,delta -0.8321MB,i6_sweep_fixed.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed strength=1.0,6000,0.004,50,float32,20.6775,0.7732,0.4,9.6084,,,,,delta -1.1578MB,i6_sweep_fixed.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed strength=2.0,6000,0.004,50,float32,19.6419,0.7552,0.4164,9.3324,,,,,delta -1.4338MB,i6_sweep_fixed.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6 相关性 gate(feat/scaling/offsets),90000,0.004,50,float32,,,,,259061,,correlation,0.0042,feat=-0.0003 scaling=0.0042 offsets=0.0006; 关闭,i6_sweep_fixed.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,I6 替换方案相关性 gate 最佳,90000,0.004,50,float32,,,,,259061,,correlation,0.0086,输入集 A/B/C 最大 0.0086 < 0.3 关闭,sens_replace_gate.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,sensitivity_side_info baseline_formula,90000,0.004,50,float32,28.6551,0.8921,0.2767,5.5604,,,,,真值侧信息 s0.5_true 28.6846/5.7143 更大; 关闭,sensitivity_side_info.json
+phg_i6_sweep,4-28,4-28_i6_90k_h32,sensitivity_side_info s0.5_N8,90000,0.004,50,float32,28.6806,0.8923,0.2765,5.9867,,,,,raw; ctx 版本 6.0017MB,sensitivity_side_info.json
+phg_i5,4-28,4-28_i6_90k_h32,I5 scalar(VQ 基线),90000,0.004,50,float32,28.6371,0.8922,0.2767,5.5242,257702,,,,关闭,i5_rd.json
+phg_i5,4-28,4-28_i6_90k_h32,I5 d4_4_4_4_ca,90000,0.004,50,float32,23.5921,0.7892,0.3593,16.6199,257702,,,,关闭,i5_rd.json
+phg_i5,4-28,4-28_i6_90k_h32,I5 d4_4_4_4_ca_dither,90000,0.004,50,float32,22.8295,0.7744,0.3732,16.7285,257702,,,,关闭,i5_rd.json
+phg_i5,4-28,4-28_i6_90k_h32,I5 e8_8_4_4_ca,90000,0.004,50,float32,23.9996,0.8016,0.3476,18.5074,257702,,,,关闭,i5_rd.json
+baseline,4-28,old_ours_90k,旧 ours 90k(CT_HAC 前版本),90000,,,,28.563,0.8882,0.2982,6.3547,,,,,对比基线,PHG docs
+baseline,4-28,hacpp_paper,HAC++ 论文,90000,,,,28.311,0.89,0.2932,6.9462,,,,,论文对照,PHG docs
+baseline,DB-playroom,haC_plus_highrate,HAC++ highrate,110000,,,,30.9313,0.91297,0.25488,4.5635,522152,,,,survey 单场景,survey repo
+baseline,DB-playroom,haC_plus_lowrate,HAC++ lowrate,110000,,,,30.6874,0.90887,0.26791,2.5358,266328,,,,survey 单场景,survey repo
+baseline,DB-playroom,hac_highrate,HAC highrate,110000,,,,30.8384,0.90567,0.26161,5.2775,448521,,,,survey 单场景,survey repo
+baseline,DB-playroom,hac_lowrate,HAC lowrate,110000,,,,30.4394,0.90232,0.27239,3.3065,380598,,,,survey 单场景,survey repo
+baseline,DB-playroom,contextgs_high,ContextGS highrate,110000,,,,30.933,0.90974,0.2682,5.6716,,,,,survey 单场景,survey repo
+baseline,DB-playroom,contextgs_low,ContextGS lowrate,110000,,,,30.512,0.90811,0.26873,3.1256,,,,,survey 单场景,survey repo
+baseline,DB-playroom,smolgs_large,Smol-GS large,110000,,,,30.6682,0.90852,0.25668,2.9548,266668,,,,survey 单场景,survey repo
+baseline,DB-playroom,smolgs_base,Smol-GS base,110000,,,,30.6173,0.90668,0.26082,2.3899,211473,,,,survey 单场景,survey repo
+baseline,DB-playroom,compgs_3points,CompGS 3 档,110000,,,,30.044/29.593/29.614,0.900/0.895/0.894,0.287/0.305/0.305,7.496/5.695/5.303,177280/181368/219789,,,,survey 单场景 3 个码率点,survey repo
+baseline,DB-playroom,scaffold_gs,HAC++/Scaffold 未压缩基线,110000,,,,30.21,0.906,0.254,66,,,,,survey 聚合(两场景均值),survey aggregate
