@@ -78,6 +78,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--survey", default="docs/data/DeepBlending_survey.csv")
     p.add_argument("--phg", default="runs/db_rd_110k.json")
+    p.add_argument("--phg-spa", default="runs/db_spa_rd_110k.json")
     p.add_argument("--out", default="runs/db_rd_curve.png")
     args = p.parse_args()
 
@@ -125,6 +126,28 @@ def main() -> None:
                 sum(scenes[s][i][key]["total_MB"] for s in scenes) / 2.0
             )
 
+    # --- PHG + SPA aggregate (playroom + drjohnson average) ---------------
+    spa = {}
+    try:
+        spa_json = json.load(open(args.phg_spa))
+        spa_scenes = spa_json["scenes"]
+        spa = {"quant": {"psnr": [], "ssim": [], "lpips": [], "size": []}}
+        for i, _ in enumerate(lams):
+            vals = []
+            for s in spa_scenes:
+                rows = spa_scenes[s]
+                if i < len(rows):
+                    q = rows[i]["quant_cd8_rest16"]
+                    if q.get("psnr") is not None:
+                        vals.append(q)
+            if len(vals) == 2:
+                spa["quant"]["psnr"].append(sum(v["psnr"] for v in vals) / 2.0)
+                spa["quant"]["ssim"].append(sum(v["ssim"] for v in vals) / 2.0)
+                spa["quant"]["lpips"].append(sum(v["lpips"] for v in vals) / 2.0)
+                spa["quant"]["size"].append(sum(v["total_MB"] for v in vals) / 2.0)
+    except (FileNotFoundError, KeyError, json.JSONDecodeError):
+        pass
+
     # --- figure -----------------------------------------------------------
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.4))
     metrics = [
@@ -152,22 +175,25 @@ def main() -> None:
             ax.annotate(label, (r["size_mib"], y), textcoords="offset points",
                         xytext=off, fontsize=6.5, color="tab:gray")
 
-    # PHG ours: thicker lines + lambda annotations
+    # PHG ours: two lines — with / without SPA (quantized final payload)
     for variant, style, color in (
-        ("baseline", "o-", "tab:red"),
-        ("quant", "s--", "tab:blue"),
+        ("quant", "o-", "tab:red"),
+        ("spa", "s-", "tab:green"),
     ):
-        lbl = "PHG (ours, 110k)" if variant == "baseline" else "PHG (ours) + MLP quant"
+        data = spa if variant == "spa" else ours["quant"]
+        if not data["size"]:
+            continue
+        lbl = "PHG + SPA (ratio 0.5, 110k)" if variant == "spa" else "PHG (no SPA, 110k)"
         for ax, (key, ylab, ylim) in zip(axes, metrics):
             ax.set_ylim(*ylim)
-            ax.plot(ours[variant]["size"], ours[variant][key], style, lw=2.2,
-                    ms=8, color=color, label=lbl, zorder=5)
-            for x, y, lam in zip(ours[variant]["size"], ours[variant][key], lams):
+            ax.plot(data["size"], data[key], style, lw=2.2, ms=8, color=color,
+                    label=lbl, zorder=5)
+            for x, y, lam in zip(data["size"], data[key], lams[: len(data["size"])]):
                 ax.annotate(
                     f"λ{lam:.3f}".rstrip("0"),
                     (x, y),
                     textcoords="offset points",
-                    xytext=(0, 10) if variant == "baseline" else (0, -14),
+                    xytext=(0, 10) if variant == "quant" else (0, -14),
                     fontsize=7,
                     color=color,
                     fontweight="bold",

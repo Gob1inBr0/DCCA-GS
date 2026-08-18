@@ -20,26 +20,21 @@ RUNS = Path("/home/fansonglin/data_space/web_scan/runs")
 PHG = Path("/home/fansonglin/xieliang/chentong/PHG")
 CSV = PHG / "docs" / "PHG_experiments.csv"
 
-PATTERNS = {
-    "phg_db_ablation": ("db_playroom_i6_110k_h32_l0p002_ablation_", "DB-playroom"),
-    "phg_db_ablation_30k": ("db_playroom_i6_30k_h32_l0p002_ablation_", "DB-playroom"),
-    "phg_spa_110k": ("db_playroom_i6_110k_h32_l0p002_spa", "DB-playroom"),
-    "phg_spa_i6off": ("db_playroom_i6_110k_h32_l0p002_spa_i6off", "DB-playroom"),
-    "phg_spa_i2off": ("db_playroom_i6_110k_h32_l0p002_spa_i2off", "DB-playroom"),
-    "phg_mip360_rd": ("mip360_", "Mip360"),
-    "phg_tandt_rd": ("tandt_", "TNT"),
-}
-
-
-def scene_label(group: str, tag: str) -> str:
-    if group in ("phg_db_ablation", "phg_db_ablation_30k", "phg_spa_110k",
-                 "phg_spa_i6off", "phg_spa_i2off"):
-        return "DB-playroom"
-    if group == "phg_mip360_rd":
-        return "Mip360-" + tag.split("_", 2)[1]
-    if group == "phg_tandt_rd":
-        return "TNT-" + tag.split("_", 2)[1]
-    return tag
+PATTERNS = [
+    ("phg_db_ablation", "db_playroom_i6_110k_h32_l0p002_ablation_", "DB-playroom"),
+    ("phg_db_ablation_30k", "db_playroom_i6_30k_h32_l0p002_ablation_", "DB-playroom"),
+    ("phg_spa_110k", "db_playroom_i6_110k_h32_l0p002_spa0p5", "DB-playroom"),
+    ("phg_spa_i6off", "db_playroom_i6_110k_h32_l0p002_spa_i6off", "DB-playroom"),
+    ("phg_spa_i2off", "db_playroom_i6_110k_h32_l0p002_spa_i2off", "DB-playroom"),
+    ("phg_spa_rd", "db_playroom_i6_110k_h32_l0p001_spa0p5", "DB-playroom"),
+    ("phg_spa_rd", "db_playroom_i6_110k_h32_l0p002_spa0p5", "DB-playroom"),
+    ("phg_spa_rd", "db_playroom_i6_110k_h32_l0p004_spa0p5", "DB-playroom"),
+    ("phg_spa_rd", "db_drjohnson_i6_110k_h32_l0p001_spa0p5", "DB-drjohnson"),
+    ("phg_spa_rd", "db_drjohnson_i6_110k_h32_l0p002_spa0p5", "DB-drjohnson"),
+    ("phg_spa_rd", "db_drjohnson_i6_110k_h32_l0p004_spa0p5", "DB-drjohnson"),
+    ("phg_mip360_rd", "mip360_", "Mip360"),
+    ("phg_tandt_rd", "tandt_", "TNT"),
+]
 
 
 def existing_keys() -> set:
@@ -59,7 +54,7 @@ def main() -> None:
     keys = existing_keys()
     summary = {"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "cells": {}}
     new_rows = []
-    for group, (prefix, label_prefix) in PATTERNS.items():
+    for group, prefix, label in PATTERNS:
         for d in sorted(RUNS.iterdir()):
             if not d.is_dir() or not d.name.startswith(prefix):
                 continue
@@ -82,6 +77,8 @@ def main() -> None:
                 variant_note = "SPA + I2 (w/o I6)"
             elif tag.endswith("_spa_i2off"):
                 variant_note = "SPA only (w/o I2/I6)"
+            elif "_spa0p5" in tag:
+                variant_note = "SPA RD (I2+I6+SPA)"
             elif "spa" in tag:
                 variant_note = "SPA ratio=0.5 (110k)"
             else:
@@ -103,7 +100,7 @@ def main() -> None:
                     continue
                 new_rows.append([
                     group,
-                    scene_label(group, tag),
+                    label,
                     tag,
                     f"lambda={lam} {variant_note} {variant}",
                     110000 if "110k" in tag else 30000,
@@ -141,6 +138,42 @@ def main() -> None:
     out = RUNS / "queue_results.json"
     out.write_text(json.dumps(summary, indent=2, sort_keys=True))
     print(f"[collect_queue] wrote {out}", flush=True)
+
+    # --- SPA RD aggregate (same schema as db_rd_110k.json) ----------------
+    lam_order = [0.001, 0.002, 0.004]
+    spa_scenes = {"playroom": [], "drjohnson": []}
+    for scene in spa_scenes:
+        for lam in lam_order:
+            tag = f"db_{scene}_i6_110k_h32_l{format(lam, '.3f').replace('.', 'p')}_spa0p5"
+            d = RUNS / tag
+            meta_p = d / "bitstreams" / "hac_meta.json"
+            metrics_p = d / "decoded_eval" / "metrics.jsonl"
+            quant_p = d / "mlp_quant_cd8_rest16" / "results.json"
+            if not (meta_p.is_file() and metrics_p.is_file() and quant_p.is_file()):
+                continue
+            meta = json.loads(meta_p.read_text())
+            met = json.loads(metrics_p.read_text())
+            quant = json.loads(quant_p.read_text())["rows"][0]
+            spa_scenes[scene].append({
+                "lambda": lam,
+                "baseline": {
+                    "psnr": met.get("psnr"), "ssim": met.get("ssim"),
+                    "lpips": met.get("lpips"), "total_MB": meta.get("total_MB"),
+                    "num_anchors": meta.get("num_anchors"),
+                },
+                "quant_cd8_rest16": {
+                    "psnr": quant.get("psnr"), "ssim": quant.get("ssim"),
+                    "lpips": quant.get("lpips"), "total_MB": quant.get("total_MB"),
+                    "num_anchors": quant.get("num_anchors"),
+                },
+            })
+    if any(spa_scenes.values()):
+        (RUNS / "db_spa_rd_110k.json").write_text(
+            json.dumps({"scenes": spa_scenes,
+                        "generated": time.strftime("%Y-%m-%d %H:%M:%S")},
+                       indent=2, sort_keys=True)
+        )
+        print("[collect_queue] wrote runs/db_spa_rd_110k.json", flush=True)
 
     if new_rows:
         with open(CSV, "a", encoding="utf-8", newline="") as f:
