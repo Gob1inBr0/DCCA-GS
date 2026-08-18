@@ -133,8 +133,7 @@ def main() -> None:
         ("lpips", "LPIPS (lower is better)", LPIPS_LIM),
     ]
     for ax in axes:
-        ax.set_xlabel("Size (MiB, log)")
-        ax.set_xscale("log")
+        ax.set_xlabel("Size (MiB)")
         ax.set_xlim(*X_LIM)
         ax.grid(alpha=0.3, linestyle="--")
 
