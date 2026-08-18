@@ -50,4 +50,10 @@ echo "QUEUE_SPA_RD_GPU${GPU}_ALL_DONE $(date)"
 if [ "$GPU" = 0 ]; then
   python scripts/collect_queue_results.py
   echo "SPA_RD_COLLECT_DONE $(date)"
+  python scripts/plot_db_rd.py \
+    --survey docs/data/DeepBlending_survey.csv \
+    --phg /home/fansonglin/data_space/web_scan/runs/db_rd_110k.json \
+    --phg-spa /home/fansonglin/data_space/web_scan/runs/db_spa_rd_110k.json \
+    --out /home/fansonglin/data_space/web_scan/runs/db_rd_curve.png
+  echo "SPA_RD_PLOT_DONE $(date)"
 fi
