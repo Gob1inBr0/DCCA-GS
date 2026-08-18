@@ -32,6 +32,8 @@ PATTERNS = [
     ("phg_spa_rd", "db_drjohnson_i6_110k_h32_l0p001_spa0p5", "DB-drjohnson"),
     ("phg_spa_rd", "db_drjohnson_i6_110k_h32_l0p002_spa0p5", "DB-drjohnson"),
     ("phg_spa_rd", "db_drjohnson_i6_110k_h32_l0p004_spa0p5", "DB-drjohnson"),
+    ("phg_spa_rd_4_28", "4-28_i6_90k_h32_l0p004_spa0p5", "4-28"),
+    ("phg_spa_rd_4_28", "4-28_i6_110k_h32_l0p004_spa0p5", "4-28"),
     ("phg_mip360_rd", "mip360_", "Mip360"),
     ("phg_tandt_rd", "tandt_", "TNT"),
 ]
