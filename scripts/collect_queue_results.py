@@ -22,13 +22,14 @@ CSV = PHG / "docs" / "PHG_experiments.csv"
 
 PATTERNS = {
     "phg_db_ablation": ("db_playroom_i6_110k_h32_l0p002_ablation_", "DB-playroom"),
+    "phg_db_ablation_30k": ("db_playroom_i6_30k_h32_l0p002_ablation_", "DB-playroom"),
     "phg_mip360_rd": ("mip360_", "Mip360"),
     "phg_tandt_rd": ("tandt_", "TNT"),
 }
 
 
 def scene_label(group: str, tag: str) -> str:
-    if group == "phg_db_ablation":
+    if group in ("phg_db_ablation", "phg_db_ablation_30k"):
         return "DB-playroom"
     if group == "phg_mip360_rd":
         return "Mip360-" + tag.split("_", 2)[1]
