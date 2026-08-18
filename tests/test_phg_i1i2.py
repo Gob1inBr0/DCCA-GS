@@ -96,7 +96,7 @@ def test_i1_context_dimension_and_level_determinism():
 def test_mlp_complexity_shape_is_configurable():
     model = _make_model(hidden=16, layers=2)
     mlp = model.core.mlp_complexity
-    assert mlp[0].in_features == 8
+    assert mlp[0].in_features == 4
     assert mlp[0].out_features == 16
     assert mlp[-1].in_features == 16
     assert mlp[-1].out_features == 3

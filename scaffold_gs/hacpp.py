@@ -314,6 +314,17 @@ class HACPlusModel(BaseGaussianModel):
                     channel_group=self.core.feat_channel_group,
                     hidden=ckpt_hidden,
                 ).to(self.device)
+        # PHG v2: mlp_complexity input dropped the four constant-zero photo
+        # statistics (8 -> 4 dims). Old checkpoints carry [hidden, 8] weights;
+        # taking the first four columns is exact because the last four inputs
+        # were always zero (dead weights).
+        comp_key = "mlp_complexity.0.weight"
+        if comp_key in sd:
+            w = sd[comp_key]
+            if w.dim() == 2 and w.shape[1] == 8 and (
+                self.core.mlp_complexity[0].in_features == 4
+            ):
+                sd[comp_key] = w[:, :4].contiguous()
         result = self.core.load_state_dict(sd, strict=kwargs.get("strict", True))
         if self.core.sensitivity_feat.numel() == 0 and self.num_anchors > 0:
             n = self.num_anchors

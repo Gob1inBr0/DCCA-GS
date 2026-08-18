@@ -429,7 +429,7 @@ class GaussianModel(nn.Module):
             if self.mlp_complexity_hidden is None
             else int(self.mlp_complexity_hidden)
         )
-        layers = [nn.Linear(8, hidden), nn.ReLU(True)]
+        layers = [nn.Linear(4, hidden), nn.ReLU(True)]
         for _ in range(self.mlp_complexity_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.ReLU(True)]
         layers.append(nn.Linear(hidden, 3))

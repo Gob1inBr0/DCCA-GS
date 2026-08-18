@@ -13,7 +13,7 @@ from typing import Tuple
 import numpy as np
 
 
-FORMULA_INPUT_VERSION = "formula_decoder_available_v1"
+FORMULA_INPUT_VERSION = "formula_decoder_available_v2_4d"
 CODEC_HEADER_FILENAME = "codec_header.json"
 CONTENT_AWARE_Q_META_FILENAME = "content_aware_q_meta.json"
 
@@ -101,11 +101,8 @@ def build_formula_complexity_features(
             active_mask_ratio = masks.to(dtype=local_density.dtype).reshape(
                 n_anchor, int(n_offsets), -1
             ).mean(dim=(1, 2), keepdim=False).reshape(n_anchor, 1)
-        zeros_photo = torch.zeros(
-            (n_anchor, 4), device=local_density.device, dtype=local_density.dtype
-        )
         result = torch.cat(
-            [local_density, scale_anisotropy, offset_energy, active_mask_ratio, zeros_photo],
+            [local_density, scale_anisotropy, offset_energy, active_mask_ratio],
             dim=-1,
         )
     else:
@@ -122,13 +119,12 @@ def build_formula_complexity_features(
             active_mask_ratio = np.asarray(masks).reshape(
                 n_anchor, int(n_offsets), -1
             ).mean(axis=(1, 2)).reshape(n_anchor, 1)
-        zeros_photo = np.zeros((n_anchor, 4), dtype=local_density.dtype)
         result = np.concatenate(
-            [local_density, scale_anisotropy, offset_energy, active_mask_ratio, zeros_photo],
+            [local_density, scale_anisotropy, offset_energy, active_mask_ratio],
             axis=-1,
         )
-    if result.shape != (n_anchor, 8):
-        raise RuntimeError(f"formula complexity input must be [N, 8], got {tuple(result.shape)}")
+    if result.shape != (n_anchor, 4):
+        raise RuntimeError(f"formula complexity input must be [N, 4], got {tuple(result.shape)}")
     return result
 
 
