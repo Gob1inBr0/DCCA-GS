@@ -79,3 +79,17 @@ baseline,DB-playroom,smolgs_large,Smol-GS large,110000,,,,30.6682,0.90852,0.2566
 baseline,DB-playroom,smolgs_base,Smol-GS base,110000,,,,30.6173,0.90668,0.26082,2.3899,211473,,,,survey 单场景,survey repo
 baseline,DB-playroom,compgs_3points,CompGS 3 档,110000,,,,30.044/29.593/29.614,0.900/0.895/0.894,0.287/0.305/0.305,7.496/5.695/5.303,177280/181368/219789,,,,survey 单场景 3 个码率点,survey repo
 baseline,DB-playroom,scaffold_gs,HAC++/Scaffold 未压缩基线,110000,,,,30.21,0.906,0.254,66,,,,,survey 聚合(两场景均值),survey aggregate
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b32,all 32-bit,90000,0.004,50,32,28.6551,0.8921,0.2767,5.5604,,259061,render_metrics,,mlp_payload=0.3320 attr=5.2284,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b16,all 16-bit,90000,0.004,50,16,28.6551,0.8921,0.2767,5.4210,,259061,render_metrics,,mlp_payload=0.1926 attr=5.2284,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b8,all 8-bit,90000,0.004,50,8,28.5765,0.8917,0.2771,5.6181,,259061,render_metrics,,mlp_payload=0.1273 attr=5.4908,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b6,all 6-bit,90000,0.004,50,6,27.2459,0.8830,0.2856,6.5003,,259061,render_metrics,,mlp_payload=0.0882 attr=6.4120,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b4,all 4-bit,90000,0.004,50,4,20.3864,0.7898,0.3837,9.1215,,259061,render_metrics,,mlp_payload=0.0591 attr=9.0623,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_opacity,8-bit only mlp_opacity,90000,0.004,50,8bit_group,28.6011,0.8919,0.2769,5.2350,,259061,render_metrics,,mlp_payload=0.0066 attr=5.2284,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_cov,8-bit only mlp_cov,90000,0.004,50,8bit_group,28.6376,0.8920,0.2769,5.2390,,259061,render_metrics,,mlp_payload=0.0106 attr=5.2284,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_color,8-bit only mlp_color,90000,0.004,50,8bit_group,28.6458,0.8921,0.2769,5.2368,,259061,render_metrics,,mlp_payload=0.0084 attr=5.2284,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_grid,8-bit only mlp_grid,90000,0.004,50,8bit_group,28.6584,0.8922,0.2767,5.5180,,259061,render_metrics,,mlp_payload=0.0398 attr=5.4782,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_deform,8-bit only mlp_deform,90000,0.004,50,8bit_group,28.6551,0.8921,0.2767,5.2963,,259061,render_metrics,,mlp_payload=0.0592 attr=5.2371,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_complexity,8-bit only mlp_complexity,90000,0.004,50,8bit_group,28.6553,0.8921,0.2767,5.2341,,259061,render_metrics,,mlp_payload=0.0027 attr=5.2314,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_8bit_nogrid,8-bit except mlp_grid,90000,0.004,50,8bit_nogrid,28.5722,0.8917,0.2772,5.3276,,259061,render_metrics,,mlp_payload=0.0875 attr=5.2401,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_cd8_rest16,mixed cd8/rest16 (90k),90000,0.004,50,cd8_rest16,28.6559,0.8921,0.2767,5.4052,,259061,render_metrics,,mlp_payload=0.165 attr=5.2401,5090 mlp_quant results
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_cd8_rest16_110k,mixed cd8/rest16 (110k),110000,0.004,50,cd8_rest16,28.8235,0.8926,0.2771,5.4852,,254921,render_metrics,,mlp_payload=0.165 attr=5.3202,5090 mlp_quant results
