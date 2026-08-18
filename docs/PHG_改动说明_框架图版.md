@@ -1,4 +1,4 @@
-# PHG 改动说明文档（框架图版）
+# DCCA-GS 改动说明文档（框架图版）（原 PHG）
 
 > 更新日期：2026-08-16
 > 适用代码：本地 `mlp-quant`（HEAD `4833b98`）；主线 `main`（HEAD `61e60d5`）
@@ -978,4 +978,3 @@ GaussianSpa 训练侧实验（阶段 A）完成，用 DB playroom 30k（I2+I6、
 - 额外发现：基线编码端 `mask_anchor` 本来就会滤掉约一半 anchors，所以 MaskTopk-0.5 与基线几乎无差别；SPA 低码率点的最大体积项变成 MLP 权重（32bit 口径 2.78MB 中的 2.57MB），下一步可叠加 MLP 量化。
 
 - 
-

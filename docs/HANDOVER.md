@@ -1,4 +1,4 @@
-# PHG 项目交接文档（另一个 Agent 打开即用版）
+# DCCA-GS 项目交接文档（另一个 Agent 打开即用版）
 
 更新：2026-08-19；分支：`main`；HEAD：`08ab7ac`
 （`mlp_complexity input 8->4 (drop zero photo stats) + checkpoint migration + codec v2_4d`）
@@ -39,7 +39,7 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 
 | 位置 | 路径/地址 | 说明 |
 | --- | --- | --- |
-| GitHub | `git@github.com:goblinIBigBro/PHG.git`（仓库已迁移到 `Gob1inBr0/PHG`，旧地址仍可推） | 唯一权威远端 |
+| GitHub | `git@github.com:Gob1inBr0/DCCA-GS.git`（迁移前为 `goblinIBigBro/PHG`，旧地址仍可推） | 唯一权威远端 |
 | 本地 | `/Users/chen/Documents/PHG` | 开发/文档/画图 |
 | 5090 | `/home/fansonglin/xieliang/chentong/PHG` | 训练/压缩/评估 |
 
@@ -354,4 +354,29 @@ cat /home/fansonglin/data_space/web_scan/runs/db_spa_rd_110k.json   # SPA RD 汇
 - `docs/P0_stageA_report.md`、`docs/R_stageA_report.md`、`docs/R4_attr_ctx_report.md`、
   `docs/SPA_stageA_report.md`：各方向报告
 - `docs/PHG_experiments.csv`：统一实验数据
-- `HAC-plus-main-v1/陈曈提案_PHG论文版.docx`（及中文版）：IEEE 提案（论文级内容）
+- `HAC-plus-main-v1/陈曈提案_DCCA-GS论文版.docx`（及中文版）：IEEE 提案（论文级内容；
+  旧 `陈曈提案_PHG论文版.docx` 保留归档）
+
+## 12. 改名说明（重要）
+
+项目显示名已统一为 **DCCA-GS（Decoder-Reproducible Content-Adaptive Compression
+for Anchor-Based 3D Gaussian Splatting）**，原名为 PHG（PKUGS-HAC-Gsplat）。
+
+当前已改名：
+
+- 仓库显示名、README、HANDOVER、环境说明、提案标题；
+- 对外文案统一用 DCCA-GS。
+
+**为兼容性暂时保留、后续统一改名的清单**（不要在本版本改动，否则会破坏运行中任务
+与旧码流）：
+
+| 保留项 | 原因 | 后续目标名 |
+| --- | --- | --- |
+| 码流 `format = "phg_v1"` 与 `FORMULA_INPUT_VERSION` 中的 phg 前缀 | 旧码流/运行中任务的版本校验 | `dcca_v1`（需版本迁移） |
+| 编解码器名 `hac_pp` | `MODELS`/`CODECS` 注册键、CLI `--cfg.model.model-name hac_pp` | `dcca_gs`（需改配置与 runner） |
+| 文件名 `test_phg_*.py`、`runner_phg_cell.sh`、`finish_*_phg*` | 运行中队列/日志引用 | `test_dcca_*`、`runner_dcca_cell.sh` 等 |
+| CSV `group` 名（`phg_*`） | 收集器去重与历史数据 | `dcca_*`（需迁移 CSV） |
+| 提案/文档文件名中的 PHG | 链接与归档稳定性 | 随版本发布统一迁移 |
+
+改名原则：显示名与对外文案立即生效；内部标识只在“不影响运行中任务、不破坏旧码流
+bit-exact 校验”时改动，否则留到一次显式的版本迁移提交。

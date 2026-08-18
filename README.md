@@ -1,8 +1,14 @@
-# PHG (PKUGS-HAC-Gsplat)
+# DCCA-GS：Decoder-Reproducible Content-Adaptive Compression for Anchor-Based 3D Gaussian Splatting
 
 基于 [gsplat](https://github.com/nerfstudio-project/gsplat) 的
 Scaffold-GS / HAC++ 神经高斯压缩框架。当前主线为 **V2**：
 I1（层级上下文）可选、I2（内容感知量化）默认开、I6（渲染敏感度监督）可选。
+
+项目原名 PHG（PKUGS-HAC-Gsplat），现已统一更名为 **DCCA-GS**；代码中的兼容性
+标识（`phg_v1`、`hac_pp` 等）与历史文件名暂保留，后续改名计划见
+[docs/HANDOVER.md](docs/HANDOVER.md) §改名说明。
+
+仓库：<https://github.com/Gob1inBr0/DCCA-GS>
 
 ## 特性
 

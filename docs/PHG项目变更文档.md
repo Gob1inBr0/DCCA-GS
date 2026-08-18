@@ -1,4 +1,4 @@
-# PHG 项目变更与状态文档
+# DCCA-GS 项目变更与状态文档（原 PHG）
 
 更新日期：2026-08-16
 
@@ -7,7 +7,7 @@
 
 ## 1. 项目是什么
 
-PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架。
+DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架。
 目标是：以 HAC++ 压缩管线为基线，叠加创新点（I1/I2/I6 等），同时保持
 “模型可替换 + 稳定属性导出 + 编解码器接口化”的低耦合架构，方便后续灵活改动。
 
