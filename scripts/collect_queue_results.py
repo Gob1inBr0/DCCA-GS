@@ -24,13 +24,16 @@ PATTERNS = {
     "phg_db_ablation": ("db_playroom_i6_110k_h32_l0p002_ablation_", "DB-playroom"),
     "phg_db_ablation_30k": ("db_playroom_i6_30k_h32_l0p002_ablation_", "DB-playroom"),
     "phg_spa_110k": ("db_playroom_i6_110k_h32_l0p002_spa", "DB-playroom"),
+    "phg_spa_i6off": ("db_playroom_i6_110k_h32_l0p002_spa_i6off", "DB-playroom"),
+    "phg_spa_i2off": ("db_playroom_i6_110k_h32_l0p002_spa_i2off", "DB-playroom"),
     "phg_mip360_rd": ("mip360_", "Mip360"),
     "phg_tandt_rd": ("tandt_", "TNT"),
 }
 
 
 def scene_label(group: str, tag: str) -> str:
-    if group in ("phg_db_ablation", "phg_db_ablation_30k", "phg_spa_110k"):
+    if group in ("phg_db_ablation", "phg_db_ablation_30k", "phg_spa_110k",
+                 "phg_spa_i6off", "phg_spa_i2off"):
         return "DB-playroom"
     if group == "phg_mip360_rd":
         return "Mip360-" + tag.split("_", 2)[1]
@@ -75,6 +78,10 @@ def main() -> None:
                 variant_note = "ablation I6-off"
             elif tag.endswith("_ablation_i2off"):
                 variant_note = "ablation I2-off (I6 off too)"
+            elif tag.endswith("_spa_i6off"):
+                variant_note = "SPA + I2 (w/o I6)"
+            elif tag.endswith("_spa_i2off"):
+                variant_note = "SPA only (w/o I2/I6)"
             elif "spa" in tag:
                 variant_note = "SPA ratio=0.5 (110k)"
             else:
