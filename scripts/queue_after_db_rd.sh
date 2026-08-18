@@ -33,7 +33,7 @@ if [ "$GPU" = 0 ]; then
   # Phase B: I6 off (I2 on)
   run_cell 0 playroom "$DB/playroom" 0.002 \
     db_playroom_i6_110k_h32_l0p002_ablation_i6off 110000 45000 \
-    --cfg.model.sensitivity-enabled False
+    --cfg.model.no-sensitivity-enabled
   # Phase C + D: lambda 0.002
   for S in garden flowers stump; do
     run_cell 0 "mip360_${S}" "$MIP/$S" 0.002 \
@@ -47,7 +47,7 @@ else
   # Phase B: I2 off (I6 off as well)
   run_cell 1 playroom "$DB/playroom" 0.002 \
     db_playroom_i6_110k_h32_l0p002_ablation_i2off 110000 45000 \
-    --cfg.model.content-aware-quant False --cfg.model.sensitivity-enabled False
+    --cfg.model.no-content-aware-quant --cfg.model.no-sensitivity-enabled
   # Phase C + D: lambda 0.004
   for S in garden flowers stump; do
     run_cell 1 "mip360_${S}" "$MIP/$S" 0.004 \
