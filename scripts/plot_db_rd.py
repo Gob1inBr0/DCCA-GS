@@ -1,8 +1,8 @@
-"""Plot Deep Blending RD curves: curated survey methods vs PHG lambda points.
+"""Plot Deep Blending RD curves: curated survey methods vs DCCA-GS lambda points.
 
 Survey data: docs/data/DeepBlending_survey.csv (aggregate from
 https://w-m.github.io/3dgs-compression-survey/, average of playroom+drjohnson).
-PHG data: runs/db_rd_110k.json (per-scene lambda-RD; this script averages the
+DCCA-GS data: runs/db_rd_110k.json (per-scene lambda-RD; this script averages the
 two scenes to match the survey aggregate basis).
 
 Only high-quality compression methods are kept; low-quality / uncompressed
@@ -22,11 +22,36 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.serif": [
+        "Times New Roman",
+        "Liberation Serif",
+        "Nimbus Roman",
+        "DejaVu Serif",
+    ],
+    "mathtext.fontset": "stix",
+})
+
+
+def font_sizes(scale: float):
+    """Return all font sizes for a given scale (1.0 = current baseline)."""
+    return {
+        "body": 14 * scale,
+        "tick": 13 * scale,
+        "label": 16 * scale,
+        "title": 20 * scale,
+        "legend": 16 * scale,
+        "anno": 12 * scale,
+        "lam": 13 * scale,
+    }
 
 
 def _mb_from_bytes(b: float) -> float:
@@ -67,11 +92,11 @@ ANNO_OFFSETS = {
     ("wang2026smolgs", "-large"): (7, -7),
 }
 
-# zoom to the top-left region (MiB)
-X_LIM = (2.0, 10.0)
-PSNR_LIM = (29.0, 30.7)
-SSIM_LIM = (0.885, 0.915)
-LPIPS_LIM = (0.23, 0.34)
+# RD range covers both the no-SPA cluster and the low-size SPA curve (MiB).
+X_LIM = (0.5, 10.0)
+PSNR_LIM = (28.0, 30.8)
+SSIM_LIM = (0.87, 0.915)
+LPIPS_LIM = (0.22, 0.35)
 
 
 def main() -> None:
@@ -80,7 +105,25 @@ def main() -> None:
     p.add_argument("--phg", default="runs/db_rd_110k.json")
     p.add_argument("--phg-spa", default="runs/db_spa_rd_110k.json")
     p.add_argument("--out", default="runs/db_rd_curve.png")
+    p.add_argument("--font-scale", type=float, default=1.0,
+                   help="multiply every font size by this factor")
+    p.add_argument("--xlabel-size", type=int, default=0,
+                   help="absolute font size for the Size axis label "
+                        "(0 = label*2, extra large)")
+    p.add_argument("--dpi", type=int, default=300)
     args = p.parse_args()
+
+    fs = font_sizes(args.font_scale)
+    xlabel_size = args.xlabel_size or int(round(fs["label"] * 2.0))
+    plt.rcParams.update({
+        "font.size": fs["body"],
+        "axes.titlesize": fs["title"],
+        "axes.labelsize": fs["label"],
+        "xtick.labelsize": fs["tick"],
+        "ytick.labelsize": fs["tick"],
+        "legend.fontsize": fs["legend"],
+        "figure.titlesize": fs["title"],
+    })
 
     # --- survey rows ------------------------------------------------------
     survey = []
@@ -105,7 +148,7 @@ def main() -> None:
             )
     survey.sort(key=lambda r: (r["method"], r["size_mib"]))
 
-    # --- PHG aggregate (playroom + drjohnson average) ---------------------
+    # --- DCCA-GS aggregate (playroom + drjohnson average) ---------------------
     phg = json.load(open(args.phg))
     scenes = phg["scenes"]
     lams = [0.001, 0.002, 0.004]
@@ -126,12 +169,11 @@ def main() -> None:
                 sum(scenes[s][i][key]["total_MB"] for s in scenes) / 2.0
             )
 
-    # --- PHG + SPA aggregate (playroom + drjohnson average) ---------------
-    spa = {}
+    # --- DCCA-GS + SPA aggregate (playroom + drjohnson average) ---------------
+    spa = {"quant": {"psnr": [], "ssim": [], "lpips": [], "size": []}}
     try:
         spa_json = json.load(open(args.phg_spa))
         spa_scenes = spa_json["scenes"]
-        spa = {"quant": {"psnr": [], "ssim": [], "lpips": [], "size": []}}
         for i, _ in enumerate(lams):
             vals = []
             for s in spa_scenes:
@@ -145,18 +187,19 @@ def main() -> None:
                 spa["quant"]["ssim"].append(sum(v["ssim"] for v in vals) / 2.0)
                 spa["quant"]["lpips"].append(sum(v["lpips"] for v in vals) / 2.0)
                 spa["quant"]["size"].append(sum(v["total_MB"] for v in vals) / 2.0)
-    except (FileNotFoundError, KeyError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
+        print(f"[plot_db_rd] warning: cannot load SPA RD data: {e}", file=sys.stderr)
 
     # --- figure -----------------------------------------------------------
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.4))
+    fscale = max(1.0, args.font_scale)
+    fig, axes = plt.subplots(1, 3, figsize=(24 * fscale ** 0.5, 7.2 * fscale ** 0.5))
     metrics = [
         ("psnr", "PSNR (dB)", PSNR_LIM),
         ("ssim", "SSIM", SSIM_LIM),
         ("lpips", "LPIPS (lower is better)", LPIPS_LIM),
     ]
     for ax in axes:
-        ax.set_xlabel("Size (MiB)")
+        ax.set_xlabel("Size (MiB)", fontsize=xlabel_size, fontweight="bold")
         ax.set_xlim(*X_LIM)
         ax.grid(alpha=0.3, linestyle="--")
 
@@ -170,31 +213,31 @@ def main() -> None:
             if y is None:
                 continue
             ax.set_ylim(*ylim)
-            ax.scatter(r["size_mib"], y, s=55, marker="o", alpha=0.9,
-                       color="tab:gray", edgecolors="black", linewidths=0.4)
+            ax.scatter(r["size_mib"], y, s=160, marker="o", alpha=0.9,
+                       color="tab:gray", edgecolors="black", linewidths=0.8)
             ax.annotate(label, (r["size_mib"], y), textcoords="offset points",
-                        xytext=off, fontsize=6.5, color="tab:gray")
+                        xytext=off, fontsize=fs["anno"], color="tab:gray")
 
-    # PHG ours: two lines — with / without SPA (quantized final payload)
+    # DCCA-GS ours: two lines — with / without SPA (quantized final payload)
     for variant, style, color in (
         ("quant", "o-", "tab:red"),
         ("spa", "s-", "tab:green"),
     ):
-        data = spa if variant == "spa" else ours["quant"]
+        data = spa["quant"] if variant == "spa" else ours["quant"]
         if not data["size"]:
             continue
-        lbl = "PHG + SPA (ratio 0.5, 110k)" if variant == "spa" else "PHG (no SPA, 110k)"
+        lbl = "DCCA-GS (low rate)" if variant == "spa" else "DCCA-GS (high rate)"
         for ax, (key, ylab, ylim) in zip(axes, metrics):
             ax.set_ylim(*ylim)
-            ax.plot(data["size"], data[key], style, lw=2.2, ms=8, color=color,
+            ax.plot(data["size"], data[key], style, lw=4.0, ms=16, color=color,
                     label=lbl, zorder=5)
             for x, y, lam in zip(data["size"], data[key], lams[: len(data["size"])]):
                 ax.annotate(
                     f"λ{lam:.3f}".rstrip("0"),
                     (x, y),
                     textcoords="offset points",
-                    xytext=(0, 10) if variant == "quant" else (0, -14),
-                    fontsize=7,
+                    xytext=(0, 14) if variant == "quant" else (0, -18),
+                    fontsize=fs["lam"],
                     color=color,
                     fontweight="bold",
                 )
@@ -203,16 +246,20 @@ def main() -> None:
     axes[1].set_title("DB RD: SSIM vs Size")
     axes[2].set_title("DB RD: LPIPS vs Size")
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=10,
+    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=fs["legend"],
                bbox_to_anchor=(0.5, -0.03))
-    fig.suptitle(
-        "Deep Blending (playroom + drjohnson average) — survey: "
-        "w-m.github.io/3dgs-compression-survey (curated top-left methods)",
-        fontsize=12,
-    )
     fig.tight_layout(rect=(0, 0.06, 1, 1))
-    fig.savefig(args.out, dpi=150, bbox_inches="tight")
-    print(f"[plot_db_rd] wrote {args.out}")
+    fig.savefig(args.out, dpi=args.dpi, bbox_inches="tight")
+    print(f"[plot_db_rd] wrote {args.out} "
+          f"(dpi={args.dpi}, font_scale={args.font_scale}, "
+          f"xlabel_size={xlabel_size})")
+
+    # Vector copies: infinitely scalable for the paper.
+    if args.out.lower().endswith(".png"):
+        for ext in (".pdf", ".svg"):
+            vec_out = args.out[:-4] + ext
+            fig.savefig(vec_out, bbox_inches="tight")
+            print(f"[plot_db_rd] wrote {vec_out} (vector)")
 
 
 if __name__ == "__main__":
