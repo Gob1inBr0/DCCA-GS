@@ -107,6 +107,8 @@ def main() -> None:
     p.add_argument("--out", default="runs/db_rd_curve.png")
     p.add_argument("--font-scale", type=float, default=1.0,
                    help="multiply every font size by this factor")
+    p.add_argument("--fig-scale", type=float, default=1.0,
+                   help="multiply the figure canvas size by this factor")
     p.add_argument("--xlabel-size", type=int, default=0,
                    help="absolute font size for the Size axis label "
                         "(0 = label*2, extra large)")
@@ -191,8 +193,8 @@ def main() -> None:
         print(f"[plot_db_rd] warning: cannot load SPA RD data: {e}", file=sys.stderr)
 
     # --- figure -----------------------------------------------------------
-    fscale = max(1.0, args.font_scale)
-    fig, axes = plt.subplots(1, 3, figsize=(24 * fscale ** 0.5, 7.2 * fscale ** 0.5))
+    fscale = max(1.0, args.fig_scale)
+    fig, axes = plt.subplots(1, 3, figsize=(24 * fscale, 7.2 * fscale))
     metrics = [
         ("psnr", "PSNR (dB)", PSNR_LIM),
         ("ssim", "SSIM", SSIM_LIM),
