@@ -947,7 +947,7 @@ class HACPlusModel(BaseGaussianModel):
             return torch.zeros((), device=self.device)
         idx = gaussians.anchor_indices
         tgt = core.semantic_target[idx]  # [n, 8]
-        cov = core.semantic_cov[idx].bool()
+        cov = core.semantic_cov[idx].bool().squeeze(-1)
         if cov.sum() == 0:
             return torch.zeros((), device=self.device)
         if self.cfg.semantic_proj_head:
