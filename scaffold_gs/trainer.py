@@ -281,6 +281,17 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 device=str(model.device),
             )
 
+        if (
+            getattr(cfg.model, "mini_splat_enabled", False)
+            and iteration == int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            and not getattr(model.core, "mini_splat_done", False)
+        ):
+            reinit_fn = getattr(model, "mini_splat_reinit", None)
+            if reinit_fn is not None:
+                print(f"[MiniSplat] reinit at iteration {iteration}", flush=True)
+                reinit_fn(dataset, background)
+                model.core.mini_splat_done = True
+
         model.optimizer.step()
         model.optimizer.zero_grad(set_to_none=True)
 

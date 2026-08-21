@@ -1440,6 +1440,92 @@ class GaussianModel(nn.Module):
                 self._mask = optimizable_tensors["mask"]
                 self._opacity = optimizable_tensors["opacity"]
 
+    @torch.no_grad()
+    def append_depth_anchors(self, candidates, voxel_size, device="cuda"):
+        """Append Mini-Splatting depth-reinit anchors to the official core.
+
+        ``candidates`` is [M,3] world-space anchor centers collected from
+        back-projected depth. Callers MUST pin ``self.spa_final_n`` to the
+        pre-densification anchor count *before* calling so the added anchors
+        re-allocate the SPA budget rather than inflating it.
+        """
+        n = candidates.shape[0]
+        if n == 0:
+            return 0
+        voxel_size = float(voxel_size)
+        new_scaling = torch.ones_like(candidates).repeat([1, 2]).float().cuda() * voxel_size
+        new_scaling = torch.log(new_scaling)
+        new_rotation = torch.zeros([n, 4], device=candidates.device).float()
+        new_rotation[:, 0] = 1.0
+        new_opacities = inverse_sigmoid(
+            0.1 * torch.ones((n, 1), dtype=torch.float, device="cuda")
+        )
+        parent_feat_ext = torch.zeros(
+            (n, self._anchor_feat.shape[1]), device="cuda"
+        )
+        new_offsets = (
+            torch.zeros_like(candidates)
+            .unsqueeze(dim=1)
+            .repeat([1, self.n_offsets, 1])
+            .float()
+            .cuda()
+        )
+        new_masks = (
+            torch.ones_like(candidates[:, 0:1])
+            .unsqueeze(dim=1)
+            .repeat([1, self.n_offsets + 1, 1])
+            .float()
+            .cuda()
+        )
+        d = {
+            "anchor": candidates,
+            "scaling": new_scaling,
+            "rotation": new_rotation,
+            "anchor_feat": parent_feat_ext,
+            "offset": new_offsets,
+            "mask": new_masks,
+            "opacity": new_opacities,
+        }
+        ext = torch.zeros((n, 1), device="cuda").float()
+        self.anchor_demon = torch.cat([self.anchor_demon, ext], dim=0)
+        self.opacity_accum = torch.cat([self.opacity_accum, ext], dim=0)
+        for name in (
+            "sensitivity_feat",
+            "sensitivity_scaling",
+            "sensitivity_offsets",
+            "spa_z",
+            "spa_u",
+        ):
+            tensor = getattr(self, name, None)
+            if tensor is None or tensor.numel() == 0:
+                if name.startswith("spa_") and not self.spa_enabled:
+                    continue
+                setattr(self, name, ext.clone())
+            else:
+                setattr(self, name, torch.cat([tensor, ext], dim=0))
+        if self.semantic_target.numel() == 0:
+            self.semantic_target = torch.zeros((n, 8), device="cuda")
+            self.semantic_cov = torch.zeros((n, 1), device="cuda")
+        else:
+            self.semantic_target = torch.cat(
+                [self.semantic_target, torch.zeros((n, 8), device="cuda")], dim=0
+            )
+            self.semantic_cov = torch.cat(
+                [self.semantic_cov, torch.zeros((n, 1), device="cuda")], dim=0
+            )
+        self._sync_semantic_state()
+        torch.cuda.empty_cache()
+        optimizable = self.cat_tensors_to_optimizer(d)
+        self._anchor = optimizable["anchor"]
+        self._scaling = optimizable["scaling"]
+        self._rotation = optimizable["rotation"]
+        self._anchor_feat = optimizable["anchor_feat"]
+        self._offset = optimizable["offset"]
+        self._mask = optimizable["mask"]
+        self._opacity = optimizable["opacity"]
+        print(f"[MiniSplat] depth-reinit densified {n} anchors", flush=True)
+        return n
+
     def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005):
         # # adding anchors
         grads = self.offset_gradient_accum / self.offset_denom

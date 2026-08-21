@@ -164,12 +164,28 @@ class ModelConfig:
     spa_u_clamp: float = 1.0
     """Clamp bound for the ADMM multiplier u."""
 
+    # Mini-Splatting anchor spatial re-organization (depth reinitialization).
+    mini_splat_enabled: bool = False
+    """Densify anchors from back-projected depth at the growth-stop point."""
+    mini_splat_reinit_iter: int = 15_000
+    """Iteration at which depth reinitialization densification runs."""
+    mini_splat_max_new: int = 4_000
+    """Max new depth-reinit anchors added per reinit pass."""
+    mini_splat_views: int = 8
+    """Number of training cameras used to sample the scene surface."""
+    mini_splat_voxel: float = 0.0
+    """Voxel size for depth-surface anchor sampling; <=0 uses model voxel_size."""
+
     def __post_init__(self) -> None:
         if self.content_aware_q_mode != "formula":
             raise ValueError(
                 "content_aware_q_mode must be 'formula' in PHG v1; "
                 f"got {self.content_aware_q_mode!r}"
             )
+        if self.mini_splat_enabled and self.mini_splat_reinit_iter < 1:
+            raise ValueError("mini_splat_reinit_iter must be >= 1")
+        if self.mini_splat_max_new < 0:
+            raise ValueError("mini_splat_max_new must be >= 0")
         if self.mlp_complexity_layers < 1:
             raise ValueError("mlp_complexity_layers must be >= 1")
         if not (0.0 <= self.level_threshold_low < self.level_threshold_high <= 1.0):

@@ -820,6 +820,58 @@ class HACPlusModel(BaseGaussianModel):
             min_opacity=min_opacity,
         )
 
+    @torch.no_grad()
+    def mini_splat_reinit(
+        self,
+        dataset,
+        background: torch.Tensor,
+    ) -> int:
+        """Mini-Splatting depth-reinit densification at the growth-stop point.
+
+        Back-projects depth from a sample of training cameras to world-surface
+        points, voxelises them into candidate anchors, and appends them *while
+        pinning the SPA budget to the pre-densification anchor count*.  SPA's
+        top-k projection then only re-allocates *which* anchors survive, so the
+        added surface anchors compete on merit without inflating the budget --
+        this isolates "placement" from "count" (the Mini-Splatting hypothesis).
+        """
+        if not self.cfg.mini_splat_enabled:
+            return 0
+        from .mini_splat import collect_depth_surface_anchors
+
+        cores = self.core
+        n_before = int(cores.get_anchor.shape[0])
+        # Pin the SPA budget baseline so densification does not scale it.
+        cores.spa_final_n = n_before
+        if cores.spa_ref_n < n_before:
+            cores.spa_ref_n = n_before
+        voxel = (
+            float(self.cfg.mini_splat_voxel)
+            if self.cfg.mini_splat_voxel > 0
+            else float(self.voxel_size)
+        )
+        views = int(self.cfg.mini_splat_views)
+        cams = list(dataset.train_cameras)
+        # Deterministic, spread subsample of training cameras.
+        if len(cams) > views:
+            stride = len(cams) / float(views)
+            idx = [int(i * stride) for i in range(views)]
+            idx = sorted(set(i for i in idx if i < len(cams)))
+            cams = [cams[i] for i in idx]
+        candidates = collect_depth_surface_anchors(
+            self,
+            cams,
+            background,
+            voxel,
+            int(self.cfg.mini_splat_max_new),
+            self.device,
+        )
+        if candidates.shape[0] == 0:
+            print("[MiniSplat] no depth-reinit anchors collected", flush=True)
+            return 0
+        added = cores.append_depth_anchors(candidates, voxel, str(self.device))
+        return added
+
     def rate_loss_term(self, gaussians: NeuralGaussians, iteration: int) -> torch.Tensor:
         del iteration
         if gaussians.bit_per_param is None or self.optim_cfg is None:
