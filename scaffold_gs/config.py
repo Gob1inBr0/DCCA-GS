@@ -124,6 +124,32 @@ class ModelConfig:
     sensitivity_start_iter: int = 20_000
     """First iteration at which sensitivity supervision/accumulation runs."""
 
+    # Semantic-prior supervision (design: docs/语义先验实验设计.md v0.2).
+    semantic_enabled: bool = False
+    """Enable DINOv2 semantic supervision of mlp_complexity (training only)."""
+    semantic_signal: str = "dino"
+    """Which semantic prior is used; Stage A keeps only 'dino'."""
+    semantic_weight: float = 1e-3
+    """Weight of the semantic MSE term."""
+    semantic_start_iter: int = 20_000
+    """First iteration at which semantic supervision runs."""
+    semantic_ramp_iters: int = 10_000
+    """Ramp length for semantic supervision (informational; MSE applied as-is)."""
+    semantic_min_visible_views: int = 3
+    """Minimum visible views for a semantic target to be trusted."""
+    semantic_proj_head: bool = False
+    """T-A2: train an 8-dim projection head on mlp_complexity hidden and
+    regress the DINO PCA target; head is dropped at inference (zero side
+    info). False = T-A: supervise the 3 output logits directly."""
+    semantic_target_path: Optional[str] = None
+    """Path to the exported per-anchor DINO target npz (see
+    semantic_gate.py --export-targets)."""
+    semantic_target_dims: List[int] = field(
+        default_factory=lambda: [0, 3, 4]
+    )
+    """T-A only: which DINO PCA dims are used as the 3-dim supervision target
+    (Stage A gate: dims 0/3/4 had the highest Pearson r)."""
+
     # S (GaussianSpa-style): training-side ADMM anchor sparsity (default OFF).
     spa_enabled: bool = False
     """Enforce an explicit anchor budget with ADMM hard projection."""
@@ -163,6 +189,23 @@ class ModelConfig:
                 raise ValueError(
                     "sensitivity_enabled requires content_aware_quant=True "
                     "(supervision targets mlp_complexity used by I2)"
+                )
+        if self.semantic_enabled:
+            if self.semantic_weight <= 0.0:
+                raise ValueError("semantic_weight must be > 0 when enabled")
+            if not self.content_aware_quant:
+                raise ValueError(
+                    "semantic_enabled requires content_aware_quant=True "
+                    "(supervision targets mlp_complexity used by I2)"
+                )
+            if self.semantic_signal != "dino":
+                raise ValueError(
+                    f"semantic_signal {self.semantic_signal!r} is closed; "
+                    "only 'dino' passed the Stage-A gate"
+                )
+            if len(self.semantic_target_dims) != 3:
+                raise ValueError(
+                    "semantic_target_dims must have exactly 3 dims for T-A"
                 )
 
 

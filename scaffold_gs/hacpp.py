@@ -188,6 +188,14 @@ class HACPlusModel(BaseGaussianModel):
         self.core.spa_ratio = float(cfg.spa_ratio)
         self.core.spa_rho = float(cfg.spa_rho)
         self.core.spa_u_clamp = float(cfg.spa_u_clamp)
+        if cfg.semantic_enabled:
+            if cfg.semantic_proj_head:
+                hidden = self.core.mlp_complexity[0].out_features
+                self.core.semantic_proj_head = nn.Linear(
+                    hidden, 8
+                ).to(self.device)
+            if cfg.semantic_target_path:
+                self._load_semantic_targets(cfg.semantic_target_path)
         self._view = HACCoreView(self.core)
         self.anchor_params = _ParamsView(self)
         self.optim_cfg: Optional[OptimConfig] = None
@@ -863,6 +871,100 @@ class HACPlusModel(BaseGaussianModel):
         return self.cfg.sensitivity_weight * torch.nn.functional.mse_loss(
             pred, target
         )
+
+    def _load_semantic_targets(self, path: str) -> None:
+        """Load exported per-anchor DINO targets (full anchor space)."""
+        import numpy as np
+
+        data = np.load(path)
+        t = torch.from_numpy(data["target"]).float().to(self.device)
+        c = torch.from_numpy(data["cov"]).reshape(-1, 1).to(self.device)
+        n = self.core.get_anchor.shape[0]
+        if t.shape[0] < n:
+            pad = torch.zeros(
+                (n - t.shape[0], t.shape[1]), device=self.device
+            )
+            t = torch.cat([t, pad], dim=0)
+            c = torch.cat(
+                [c, torch.zeros((n - c.shape[0], 1), device=self.device)],
+                dim=0,
+            )
+        elif t.shape[0] > n:
+            t = t[:n]
+            c = c[:n]
+        self.core.semantic_target = t.contiguous()
+        self.core.semantic_cov = c.contiguous()
+        print(
+            f"[semantic] loaded target {tuple(t.shape)} "
+            f"cov={int(c.sum())}/{n}"
+        )
+
+    def _complexity_hidden(self, anchor_idx: torch.Tensor) -> torch.Tensor:
+        """Recompute mlp_complexity hidden activations for T-A2."""
+        core = self.core
+        k = self.cfg.n_offsets
+        anchor = core.get_anchor[anchor_idx]
+        masks = core.get_mask[anchor_idx]
+        ctx = core.calc_context_feat(anchor, caller="semantic_supervision")
+        out = core.get_grid_mlp(ctx)
+        (
+            _mean, _scale, _prob, mean_scaling, _scale_scaling,
+            mean_offsets, _scale_offsets, _qa, _qs, _qo,
+        ) = torch.split(
+            out,
+            [
+                self.cfg.feat_dim, self.cfg.feat_dim, self.cfg.feat_dim,
+                6, 6, 3 * k, 3 * k, 1, 1, 1,
+            ],
+            dim=-1,
+        )
+        formula = core.build_formula_complexity_input(
+            anchor,
+            mean_scaling.view(-1, 6),
+            mean_offsets.view(-1, 3 * k),
+            masks,
+        )
+        h = formula
+        for layer in core.mlp_complexity[:-1]:
+            h = layer(h)
+        return h
+
+    def semantic_supervision(self, gaussians: NeuralGaussians) -> torch.Tensor:
+        """Semantic-prior MSE on mlp_complexity (training only, zero side info).
+
+        T-A: supervise the 3 output logits with DINO PCA dims
+        ``semantic_target_dims`` (default [0, 3, 4], the Stage-A top-r dims).
+        T-A2: train an 8-dim projection head on the hidden activations and
+        regress the full DINO PCA target; head is dropped at inference.
+        """
+        core = self.core
+        if (
+            not self.cfg.semantic_enabled
+            or self.cfg.semantic_weight <= 0.0
+            or core.semantic_target.numel() == 0
+            or core.current_step < self.cfg.semantic_start_iter
+        ):
+            return torch.zeros((), device=self.device)
+        idx = gaussians.anchor_indices
+        tgt = core.semantic_target[idx]  # [n, 8]
+        cov = core.semantic_cov[idx].bool()
+        if cov.sum() == 0:
+            return torch.zeros((), device=self.device)
+        if self.cfg.semantic_proj_head:
+            hidden = self._complexity_hidden(idx)
+            pred = core.semantic_proj_head(hidden)
+            loss = torch.nn.functional.mse_loss(
+                pred[cov], tgt[cov].detach()
+            )
+        else:
+            if gaussians.complexity_logits is None:
+                return torch.zeros((), device=self.device)
+            dims = list(self.cfg.semantic_target_dims)
+            pred = gaussians.complexity_logits
+            loss = torch.nn.functional.mse_loss(
+                pred[cov], tgt[cov][:, dims].detach()
+            )
+        return self.cfg.semantic_weight * loss
 
     def spa_loss_term(self) -> torch.Tensor:
         """SPA ADMM augmented term: rho/2 * ||a - z + u||^2."""
