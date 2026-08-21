@@ -1,0 +1,129 @@
+{
+  "generated": "2026-08-17 19:32:18",
+  "scenes": {
+    "drjohnson": [
+      {
+        "baseline": {
+          "lpips": 0.24092548408291556,
+          "num_anchors": 298874,
+          "psnr": 30.090280821829133,
+          "ssim": 0.9123776428627245,
+          "total_MB": 9.7574
+        },
+        "lambda": 0.001,
+        "quant_cd8_rest16": {
+          "attr_MB": 9.4662,
+          "lpips": 0.2409,
+          "mlp_payload_MB": 0.1632,
+          "num_anchors": 298874,
+          "psnr": 30.0934,
+          "ssim": 0.9124,
+          "total_MB": 9.6294
+        },
+        "tag": "db_drjohnson_i6_110k_h32_l0p001"
+      },
+      {
+        "baseline": {
+          "lpips": 0.24586812113270615,
+          "num_anchors": 252965,
+          "psnr": 30.037642507842094,
+          "ssim": 0.9112217173431859,
+          "total_MB": 7.0156
+        },
+        "lambda": 0.002,
+        "quant_cd8_rest16": {
+          "attr_MB": 6.6902,
+          "lpips": 0.2459,
+          "mlp_payload_MB": 0.1647,
+          "num_anchors": 252965,
+          "psnr": 30.0376,
+          "ssim": 0.9112,
+          "total_MB": 6.8549
+        },
+        "tag": "db_drjohnson_i6_110k_h32_l0p002"
+      },
+      {
+        "baseline": {
+          "lpips": 0.25213884991226776,
+          "num_anchors": 196381,
+          "psnr": 30.047706315011688,
+          "ssim": 0.9100221214872418,
+          "total_MB": 4.9209
+        },
+        "lambda": 0.004,
+        "quant_cd8_rest16": {
+          "attr_MB": 4.5978,
+          "lpips": 0.2521,
+          "mlp_payload_MB": 0.1646,
+          "num_anchors": 196381,
+          "psnr": 30.0443,
+          "ssim": 0.91,
+          "total_MB": 4.7625
+        },
+        "tag": "db_drjohnson_i6_110k_h32_l0p004"
+      }
+    ],
+    "playroom": [
+      {
+        "baseline": {
+          "lpips": 0.25314246888818415,
+          "num_anchors": 176751,
+          "psnr": 30.66511634300495,
+          "ssim": 0.9137590589194462,
+          "total_MB": 5.9653
+        },
+        "lambda": 0.001,
+        "quant_cd8_rest16": {
+          "attr_MB": 5.6378,
+          "lpips": 0.2531,
+          "mlp_payload_MB": 0.1646,
+          "num_anchors": 176751,
+          "psnr": 30.6624,
+          "ssim": 0.9137,
+          "total_MB": 5.8024
+        },
+        "tag": "db_playroom_i6_110k_h32_l0p001"
+      },
+      {
+        "baseline": {
+          "lpips": 0.2575173311192414,
+          "num_anchors": 148569,
+          "psnr": 30.730976565130824,
+          "ssim": 0.912972341323721,
+          "total_MB": 4.3819
+        },
+        "lambda": 0.002,
+        "quant_cd8_rest16": {
+          "attr_MB": 4.0578,
+          "lpips": 0.2575,
+          "mlp_payload_MB": 0.1653,
+          "num_anchors": 148569,
+          "psnr": 30.7288,
+          "ssim": 0.913,
+          "total_MB": 4.2231
+        },
+        "tag": "db_playroom_i6_110k_h32_l0p002"
+      },
+      {
+        "baseline": {
+          "lpips": 0.26315799561040154,
+          "num_anchors": 120541,
+          "psnr": 30.621164650752625,
+          "ssim": 0.9103096579683239,
+          "total_MB": 3.171
+        },
+        "lambda": 0.004,
+        "quant_cd8_rest16": {
+          "attr_MB": 2.8424,
+          "lpips": 0.2632,
+          "mlp_payload_MB": 0.1648,
+          "num_anchors": 120541,
+          "psnr": 30.619,
+          "ssim": 0.9103,
+          "total_MB": 3.0072
+        },
+        "tag": "db_playroom_i6_110k_h32_l0p004"
+      }
+    ]
+  }
+}

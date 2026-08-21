@@ -1,0 +1,111 @@
+{
+  "generated": "2026-08-19 02:59:56",
+  "scenes": {
+    "drjohnson": [
+      {
+        "baseline": {
+          "lpips": 0.2878223165418162,
+          "num_anchors": 71319,
+          "psnr": 29.273654186364375,
+          "ssim": 0.8953557971752051,
+          "total_MB": 2.376
+        },
+        "lambda": 0.001,
+        "quant_cd8_rest16": {
+          "lpips": 0.2878,
+          "num_anchors": 71319,
+          "psnr": 29.2733,
+          "ssim": 0.8953,
+          "total_MB": 2.2122
+        }
+      },
+      {
+        "baseline": {
+          "lpips": 0.3021522737813718,
+          "num_anchors": 54727,
+          "psnr": 28.766134204286516,
+          "ssim": 0.8890183568000793,
+          "total_MB": 1.716
+        },
+        "lambda": 0.002,
+        "quant_cd8_rest16": {
+          "lpips": 0.3021,
+          "num_anchors": 54727,
+          "psnr": 28.7635,
+          "ssim": 0.889,
+          "total_MB": 1.5495
+        }
+      },
+      {
+        "baseline": {
+          "lpips": 0.32422524013302545,
+          "num_anchors": 45595,
+          "psnr": 28.04984138951157,
+          "ssim": 0.876842094190193,
+          "total_MB": 1.2343
+        },
+        "lambda": 0.004,
+        "quant_cd8_rest16": {
+          "lpips": 0.3243,
+          "num_anchors": 45595,
+          "psnr": 28.0458,
+          "ssim": 0.8768,
+          "total_MB": 1.0683
+        }
+      }
+    ],
+    "playroom": [
+      {
+        "baseline": {
+          "lpips": 0.2931223193119312,
+          "num_anchors": 43481,
+          "psnr": 30.29028478162042,
+          "ssim": 0.9021747872747224,
+          "total_MB": 1.5665
+        },
+        "lambda": 0.001,
+        "quant_cd8_rest16": {
+          "lpips": 0.2931,
+          "num_anchors": 43481,
+          "psnr": 30.2829,
+          "ssim": 0.9022,
+          "total_MB": 1.4033
+        }
+      },
+      {
+        "baseline": {
+          "lpips": 0.30719929214181574,
+          "num_anchors": 32848,
+          "psnr": 29.890774167817213,
+          "ssim": 0.896295257683458,
+          "total_MB": 1.1292
+        },
+        "lambda": 0.002,
+        "quant_cd8_rest16": {
+          "lpips": 0.3072,
+          "num_anchors": 32848,
+          "psnr": 29.9003,
+          "ssim": 0.8964,
+          "total_MB": 0.9639
+        }
+      },
+      {
+        "baseline": {
+          "lpips": 0.3348338018203604,
+          "num_anchors": 51307,
+          "psnr": 28.80457615030223,
+          "ssim": 0.883561187777026,
+          "total_MB": 0.9914
+        },
+        "lambda": 0.004,
+        "quant_cd8_rest16": {
+          "lpips": 0.3349,
+          "num_anchors": 51307,
+          "psnr": 28.8015,
+          "ssim": 0.8835,
+          "total_MB": 0.8254
+        }
+      }
+    ]
+  }
+}

@@ -26,7 +26,7 @@ tail -f /home/fansonglin/data_space/web_scan/runs/spa_rd_gpu0.log
 tail -f /home/fansonglin/data_space/web_scan/runs/queue_4_28_gpu0.log
 ```
 
-所有实验数字在 `docs/PHG_experiments.csv`（约 158 行），结果目录在
+所有实验数字在 `docs/PHG_experiments.csv`（202 行，2026-08-19 与 5090 同步），结果目录在
 `/home/fansonglin/data_space/web_scan/runs/`。
 
 ## 1. 项目是什么
