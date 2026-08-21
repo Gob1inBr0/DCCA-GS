@@ -144,6 +144,10 @@ class ModelConfig:
     semantic_target_path: Optional[str] = None
     """Path to the exported per-anchor DINO target npz (see
     semantic_gate.py --export-targets)."""
+    semantic_cache_dir: Optional[str] = None
+    """Path to the per-view DINO cache dir; when set, the trainer refreshes
+    the per-anchor targets on the training model's own anchors once growth
+    stops (iteration == update_until) -- the correct Stage-B protocol."""
     semantic_target_dims: List[int] = field(
         default_factory=lambda: [0, 3, 4]
     )

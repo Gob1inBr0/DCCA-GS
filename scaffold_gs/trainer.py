@@ -262,6 +262,25 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        if (
+            getattr(cfg.model, "semantic_enabled", False)
+            and getattr(cfg.model, "semantic_cache_dir", None)
+            and iteration == int(optim.update_until)
+            and not getattr(model.core, "semantic_refreshed", False)
+        ):
+            from scaffold_gs.semantic_targets import refresh_semantic_targets
+
+            print(f"[semantic] refreshing targets at iteration {iteration}",
+                  flush=True)
+            refresh_semantic_targets(
+                model,
+                dataset,
+                cfg.model.semantic_cache_dir,
+                pca_dims=8,
+                min_views=cfg.model.semantic_min_visible_views,
+                device=str(model.device),
+            )
+
         model.optimizer.step()
         model.optimizer.zero_grad(set_to_none=True)
 
