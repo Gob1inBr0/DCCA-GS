@@ -68,7 +68,7 @@ If you want to contribute to the doc, here is the way to build it locally. The s
 
 ```bash
 pip install -e .[dev]
-pip install -r docs/requirements.txt
+pip install -r ../../requirements.txt
 sphinx-build docs/source _build 
 ```
 

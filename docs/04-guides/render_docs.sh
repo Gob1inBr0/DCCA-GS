@@ -2,7 +2,7 @@
 # Render the gsplat Sphinx documentation.
 #
 # Usage:
-#   docs/render_docs.sh [OUTPUT_DIR]
+#   docs/04-guides/render_docs.sh [OUTPUT_DIR]
 #
 # OUTPUT_DIR defaults to build/html (relative to the repo root).
 set -euo pipefail
