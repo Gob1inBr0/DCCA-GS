@@ -4,12 +4,12 @@
 # runs/run_428_launch.sh (4-28), extended with SPA + MiniSplat toggles.
 #
 # usage: run_p0_pipeline.sh <gpu> <tag> <scene:playroom|4-28> <spa:0|1> <mini:0|1> <ratio>
-#                            [max_steps=30000] [update_until=15000] [extra args...]
+#                            [max_steps=30000] [update_until=15000] [lambda=0.004] [extra args...]
 set -euo pipefail
 
 GPU=$1; TAG=$2; SCENE=$3; SPA=$4; MINI=$5; RATIO=$6
-MAX_STEPS=${7:-30000}; UPDATE_UNTIL=${8:-15000}
-if [ $# -gt 8 ]; then shift 8; else shift $#; fi
+MAX_STEPS=${7:-30000}; UPDATE_UNTIL=${8:-15000}; LAMBDA=${9:-0.004}
+if [ $# -ge 9 ]; then shift 9; else shift $#; fi
 EXTRA="$*"
 
 BASE=/home/fansonglin/data_space/DCCA-GS
@@ -33,10 +33,10 @@ SPA_ARGS=""
 [ "$SPA" = "1" ] && SPA_ARGS="--cfg.model.spa-enabled --cfg.model.spa-ratio $RATIO"
 MINI_ARGS=""
 [ "$MINI" = "1" ] && MINI_ARGS="--cfg.model.mini-splat-enabled \
-  --cfg.model.mini-splat-reinit-iter 15000 --cfg.model.mini-splat-max-new 4000 \
+  --cfg.model.mini-splat-reinit-iter $UPDATE_UNTIL --cfg.model.mini-splat-max-new 4000 \
   --cfg.model.mini-splat-views 8 --cfg.model.mini-splat-voxel 0.0"
 
-echo "[$(date '+%F %T')] START tag=$TAG gpu=$GPU scene=$SCENE spa=$SPA mini=$MINI ratio=$RATIO steps=$MAX_STEPS update_until=$UPDATE_UNTIL"
+echo "[$(date '+%F %T')] START tag=$TAG gpu=$GPU scene=$SCENE spa=$SPA mini=$MINI ratio=$RATIO steps=$MAX_STEPS update_until=$UPDATE_UNTIL lambda=$LAMBDA"
 
 python train.py train \
   --cfg.model.model-name hac_pp \
@@ -49,6 +49,7 @@ python train.py train \
   $SPA_ARGS $MINI_ARGS $EXTRA \
   --cfg.optim.max-steps "$MAX_STEPS" --cfg.optim.update-until "$UPDATE_UNTIL" \
   --cfg.optim.save-steps "$MAX_STEPS" --cfg.optim.eval-steps "$MAX_STEPS" \
+  --cfg.optim.lambda-rate "$LAMBDA" \
   > "$OUT/train.log" 2>&1
 grep -q "Training finished" "$OUT/train.log" || { echo "TRAIN_FAILED tag=$TAG"; tail -40 "$OUT/train.log"; exit 1; }
 echo "[$(date '+%F %T')] TRAIN_DONE tag=$TAG"
