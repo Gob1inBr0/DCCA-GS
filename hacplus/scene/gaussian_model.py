@@ -329,6 +329,13 @@ class GaussianModel(nn.Module):
         self.sensitivity_mean = torch.zeros(3, device="cuda")
         self.sensitivity_var = torch.ones(3, device="cuda")
 
+        # Semantic-prior (DINOv2) per-anchor target state (training-only,
+        # never coded): target [N, 8] PCA dims, cov [N, 1] visibility mask,
+        # and the T-A2 projection head (created by HACPlusModel when enabled).
+        self.semantic_target = torch.empty(0)
+        self.semantic_cov = torch.empty(0)
+        self.semantic_proj_head = None
+
         # SPA (GaussianSpa-style) training-side ADMM state (never coded).
         self.spa_enabled = False
         self.spa_ratio = 0.5
@@ -889,6 +896,14 @@ class GaussianModel(nn.Module):
                 {'params': self.mlp_deform.parameters(), 'lr': training_args.mlp_deform_lr_init, "name": "mlp_deform"},
                 {'params': self.mlp_complexity.parameters(), 'lr': training_args.mlp_complexity_lr_init, "name": "mlp_complexity"},
             ]
+            if self.semantic_proj_head is not None:
+                l.append(
+                    {
+                        "params": self.semantic_proj_head.parameters(),
+                        "lr": training_args.mlp_complexity_lr_init,
+                        "name": "semantic_proj_head",
+                    }
+                )
         else:
             l = [
                 {'params': [self._anchor], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "anchor"},
@@ -908,6 +923,14 @@ class GaussianModel(nn.Module):
                 {'params': self.mlp_deform.parameters(), 'lr': training_args.mlp_deform_lr_init, "name": "mlp_deform"},
                 {'params': self.mlp_complexity.parameters(), 'lr': training_args.mlp_complexity_lr_init, "name": "mlp_complexity"},
             ]
+            if self.semantic_proj_head is not None:
+                l.append(
+                    {
+                        "params": self.semantic_proj_head.parameters(),
+                        "lr": training_args.mlp_complexity_lr_init,
+                        "name": "semantic_proj_head",
+                    }
+                )
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15, foreach=True)
         self.anchor_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
@@ -1113,7 +1136,13 @@ class GaussianModel(nn.Module):
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if 'mlp' in group['name'] or 'conv' in group['name'] or 'feat_base' in group['name'] or 'encoding' in group['name']:
+            if (
+                'mlp' in group['name']
+                or 'conv' in group['name']
+                or 'feat_base' in group['name']
+                or 'encoding' in group['name']
+                or 'semantic' in group['name']
+            ):
                 continue
             assert len(group["params"]) == 1
             extension_tensor = tensors_dict[group["name"]]
@@ -1161,7 +1190,13 @@ class GaussianModel(nn.Module):
     def _prune_anchor_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if 'mlp' in group['name'] or 'conv' in group['name'] or 'feat_base' in group['name'] or 'encoding' in group['name']:
+            if (
+                'mlp' in group['name']
+                or 'conv' in group['name']
+                or 'feat_base' in group['name']
+                or 'encoding' in group['name']
+                or 'semantic' in group['name']
+            ):
                 continue
 
             stored_state = self.optimizer.state.get(group['params'][0], None)
@@ -1192,9 +1227,33 @@ class GaussianModel(nn.Module):
 
         return optimizable_tensors
 
-    def prune_anchor(self,mask):
+    def _sync_semantic_state(self):
+        """Resize semantic target/cov to the current anchor count.
+
+        Growth/prune paths occasionally change anchor count without the
+        semantic tensors (e.g. anchor_growing's direct-cat branch); this
+        safety net pads (cov=0) or truncates before supervision/prune.
+        """
+        n = int(self.get_anchor.shape[0])
+        if self.semantic_target.numel() == 0 or self.semantic_target.shape[0] == n:
+            return
+        t = self.semantic_target
+        c = self.semantic_cov
+        if t.shape[0] < n:
+            pad_t = torch.zeros((n - t.shape[0], t.shape[1]), device=t.device)
+            pad_c = torch.zeros((n - c.shape[0], 1), device=t.device)
+            t = torch.cat([t, pad_t], dim=0)
+            c = torch.cat([c, pad_c], dim=0)
+        else:
+            t = t[:n]
+            c = c[:n]
+        self.semantic_target = t.contiguous()
+        self.semantic_cov = c.contiguous()
+
+    def prune_anchor(self, mask):
         valid_points_mask = ~mask
         n_target = int(valid_points_mask.shape[0])
+        self._sync_semantic_state()
         for name in (
             "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
             "spa_z", "spa_u",
@@ -1205,6 +1264,19 @@ class GaussianModel(nn.Module):
             if tensor.shape[0] < n_target:
                 pad = torch.zeros(
                     (n_target - tensor.shape[0], 1), device=tensor.device
+                )
+                setattr(self, name, torch.cat([tensor, pad], dim=0))
+            elif tensor.shape[0] > n_target:
+                setattr(self, name, tensor[:n_target])
+
+        for name in ("semantic_target", "semantic_cov"):
+            tensor = getattr(self, name)
+            if tensor.numel() == 0:
+                continue
+            width = tensor.shape[1] if tensor.dim() > 1 else 1
+            if tensor.shape[0] < n_target:
+                pad = torch.zeros(
+                    (n_target - tensor.shape[0], width), device=tensor.device
                 )
                 setattr(self, name, torch.cat([tensor, pad], dim=0))
             elif tensor.shape[0] > n_target:
@@ -1227,6 +1299,9 @@ class GaussianModel(nn.Module):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
                 setattr(self, name, tensor[valid_points_mask])
+        if self.semantic_target.numel() > 0:
+            self.semantic_target = self.semantic_target[valid_points_mask]
+            self.semantic_cov = self.semantic_cov[valid_points_mask]
 
 
     def anchor_growing(self, grads, threshold, offset_mask):
@@ -1332,6 +1407,28 @@ class GaussianModel(nn.Module):
                     else:
                         setattr(self, name, torch.cat([tensor, extension], dim=0))
 
+                if self.semantic_target.numel() == 0:
+                    self.semantic_target = torch.zeros(
+                        (new_opacities.shape[0], 8), device="cuda"
+                    )
+                    self.semantic_cov = torch.zeros(
+                        (new_opacities.shape[0], 1), device="cuda"
+                    )
+                else:
+                    ext_t = torch.zeros(
+                        (new_opacities.shape[0], self.semantic_target.shape[1]),
+                        device="cuda",
+                    )
+                    ext_c = torch.zeros(
+                        (new_opacities.shape[0], 1), device="cuda"
+                    )
+                    self.semantic_target = torch.cat(
+                        [self.semantic_target, ext_t], dim=0
+                    )
+                    self.semantic_cov = torch.cat(
+                        [self.semantic_cov, ext_c], dim=0
+                    )
+
                 torch.cuda.empty_cache()
 
                 optimizable_tensors = self.cat_tensors_to_optimizer(d)
@@ -1342,6 +1439,95 @@ class GaussianModel(nn.Module):
                 self._offset = optimizable_tensors["offset"]
                 self._mask = optimizable_tensors["mask"]
                 self._opacity = optimizable_tensors["opacity"]
+
+    @torch.no_grad()
+    def append_depth_anchors(self, candidates, voxel_size, device="cuda"):
+        """Append Mini-Splatting depth-reinit anchors to the official core.
+
+        ``candidates`` is [M,3] world-space anchor centers collected from
+        back-projected depth. Callers MUST pin ``self.spa_final_n`` to the
+        pre-densification anchor count *before* calling so the added anchors
+        re-allocate the SPA budget rather than inflating it.
+        """
+        n = candidates.shape[0]
+        if n == 0:
+            return 0
+        voxel_size = float(voxel_size)
+        new_scaling = torch.ones_like(candidates).repeat([1, 2]).float().cuda() * voxel_size
+        new_scaling = torch.log(new_scaling)
+        new_rotation = torch.zeros([n, 4], device=candidates.device).float()
+        new_rotation[:, 0] = 1.0
+        new_opacities = inverse_sigmoid(
+            0.1 * torch.ones((n, 1), dtype=torch.float, device="cuda")
+        )
+        parent_feat_ext = torch.zeros(
+            (n, self._anchor_feat.shape[1]), device="cuda"
+        )
+        new_offsets = (
+            torch.zeros_like(candidates)
+            .unsqueeze(dim=1)
+            .repeat([1, self.n_offsets, 1])
+            .float()
+            .cuda()
+        )
+        new_masks = (
+            torch.ones_like(candidates[:, 0:1])
+            .unsqueeze(dim=1)
+            .repeat([1, self.n_offsets + 1, 1])
+            .float()
+            .cuda()
+        )
+        d = {
+            "anchor": candidates,
+            "scaling": new_scaling,
+            "rotation": new_rotation,
+            "anchor_feat": parent_feat_ext,
+            "offset": new_offsets,
+            "mask": new_masks,
+            "opacity": new_opacities,
+        }
+        ext = torch.zeros((n, 1), device="cuda").float()
+        self.anchor_demon = torch.cat([self.anchor_demon, ext], dim=0)
+        self.opacity_accum = torch.cat([self.opacity_accum, ext], dim=0)
+        for name in (
+            "sensitivity_feat",
+            "sensitivity_scaling",
+            "sensitivity_offsets",
+            "spa_z",
+            "spa_u",
+        ):
+            tensor = getattr(self, name, None)
+            if tensor is None or tensor.numel() == 0:
+                if name.startswith("spa_") and not self.spa_enabled:
+                    continue
+                setattr(self, name, ext.clone())
+            else:
+                setattr(self, name, torch.cat([tensor, ext], dim=0))
+        if self.semantic_target.numel() == 0:
+            self.semantic_target = torch.zeros((n, 8), device="cuda")
+            self.semantic_cov = torch.zeros((n, 1), device="cuda")
+        else:
+            self.semantic_target = torch.cat(
+                [self.semantic_target, torch.zeros((n, 8), device="cuda")], dim=0
+            )
+            self.semantic_cov = torch.cat(
+                [self.semantic_cov, torch.zeros((n, 1), device="cuda")], dim=0
+            )
+        torch.cuda.empty_cache()
+        optimizable = self.cat_tensors_to_optimizer(d)
+        self._anchor = optimizable["anchor"]
+        self._scaling = optimizable["scaling"]
+        self._rotation = optimizable["rotation"]
+        self._anchor_feat = optimizable["anchor_feat"]
+        self._offset = optimizable["offset"]
+        self._mask = optimizable["mask"]
+        self._opacity = optimizable["opacity"]
+        # Align semantic target/cov with the post-append anchor count. We
+        # manually padded them above; this is a no-op here but protects against
+        # future growth/prune paths that skip the pad.
+        self._sync_semantic_state()
+        print(f"[MiniSplat] depth-reinit densified {n} anchors", flush=True)
+        return n
 
     def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005):
         # # adding anchors
@@ -1441,6 +1627,10 @@ class GaussianModel(nn.Module):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
                 setattr(self, name, tensor[~prune_mask])
+        self._sync_semantic_state()
+        if self.semantic_target.numel() > 0:
+            self.semantic_target = self.semantic_target[~prune_mask]
+            self.semantic_cov = self.semantic_cov[~prune_mask]
 
         if prune_mask.shape[0]>0:
             self.prune_anchor(prune_mask)

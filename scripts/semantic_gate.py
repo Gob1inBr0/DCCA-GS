@@ -167,6 +167,22 @@ def _sample_nearest(feat_map: torch.Tensor, xy: torch.Tensor, scale: float):
     return feat_map[y, x]
 
 
+def _project_anchors(cam, anchor: torch.Tensor, device):
+    """Project anchor centers to pixel coords (x, y) with the gsplat camera."""
+    viewmats, Ks = cam.to_gsplat(device)
+    view = viewmats[0]
+    hom = torch.cat(
+        [anchor, torch.ones(anchor.shape[0], 1, device=device)], dim=1
+    )
+    pv = hom @ view.T  # world -> camera (OpenGL convention, z < 0 in front)
+    z = -pv[:, 2].clamp_min(1e-6)
+    fx, fy = float(Ks[0, 0, 0]), float(Ks[0, 1, 1])
+    cx, cy = float(Ks[0, 0, 2]), float(Ks[0, 1, 2])
+    u = fx * pv[:, 0] / z + cx
+    v = fy * pv[:, 1] / z + cy
+    return torch.stack([u, v], dim=1)
+
+
 def _aggregate_semantics(model, dataset, cache_dir, signals, device, N):
     """Per-anchor mean semantic target from per-view caches via renderer."""
     cache_dir = Path(cache_dir)
@@ -183,25 +199,23 @@ def _aggregate_semantics(model, dataset, cache_dir, signals, device, N):
     for vi, cam in enumerate(cam_order):
         with torch.no_grad():
             out = model.render(cam, dataset.background)
-        meta = out.meta
-        gids = meta["gaussian_ids"]
-        means2d = meta["means2d"]
-        if means2d.ndim == 3:
-            means2d = means2d[0]  # [nnz, 2] pixel coords (x, y)
-        aidx = out.gaussians.anchor_indices[gids]
+        aidx = torch.nonzero(out.visible_mask).squeeze(-1)  # global anchor idx
+        if aidx.numel() == 0:
+            continue
         counts.index_add_(0, aidx, torch.ones_like(aidx, dtype=torch.float32))
+        px = _project_anchors(cam, model.core.get_anchor[aidx], device)
 
         if "dino" in signals:
             p = cache_dir / "dino" / f"{vi:05d}.npz"
             fm = torch.from_numpy(np.load(p)["feat"]).to(device).float()  # [Hp,Wp,768]
-            v = _sample_nearest(fm, means2d, 14.0)
+            v = _sample_nearest(fm, px, 14.0)
             if dino_sum is None:
                 dino_sum = torch.zeros(n_total, v.shape[1], device=device)
             dino_sum.index_add_(0, aidx, v)
         if "depth" in signals:
             p = cache_dir / "depth" / f"{vi:05d}.npz"
             fm = torch.from_numpy(np.load(p)["depth"]).to(device).float()
-            v = _sample_nearest(fm.unsqueeze(-1), means2d, 4.0).squeeze(-1)
+            v = _sample_nearest(fm.unsqueeze(-1), px, 4.0).squeeze(-1)
             sums["depth"].index_add_(0, aidx, v.unsqueeze(-1))
         if "sam2" in signals:
             p = cache_dir / "sam2" / f"{vi:05d}.npz"
@@ -210,7 +224,7 @@ def _aggregate_semantics(model, dataset, cache_dir, signals, device, N):
             sam2_counts.index_add_(0, aidx, torch.ones_like(aidx, dtype=torch.float32))
             aj = json.loads((cache_dir / "sam2" / f"{vi:05d}_area.json").read_text())
             rm = torch.from_numpy(np.load(p)["region"]).to(device).long()
-            ids = _sample_nearest(rm.unsqueeze(-1), means2d, 4.0).squeeze(-1)
+            ids = _sample_nearest(rm.unsqueeze(-1), px, 4.0).squeeze(-1)
             vals = torch.tensor(
                 [aj.get(str(int(i)), 0.0) for i in ids.cpu().tolist()],
                 device=device,
@@ -234,7 +248,20 @@ def _aggregate_semantics(model, dataset, cache_dir, signals, device, N):
                 (sums[sig] / cnt.clamp_min(1).unsqueeze(-1))[order],
                 cov_sig[order],
             )
-    return out
+    full_out = {}
+    if dino_sum is not None:
+        full_out["dino"] = (
+            dino_sum / counts.clamp_min(1).unsqueeze(-1),
+            cov_full,
+        )
+    for sig in ("depth", "sam2"):
+        if sig in sums and sums[sig].sum() != 0:
+            cnt = sam2_counts if sig == "sam2" else counts
+            full_out[sig] = (
+                sums[sig] / cnt.clamp_min(1).unsqueeze(-1),
+                cnt >= 3,
+            )
+    return out, full_out
 
 
 def _pca_reduce(x: torch.Tensor, q: int) -> torch.Tensor:
@@ -308,6 +335,18 @@ def main() -> None:
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--val-fraction", type=float, default=0.2)
     p.add_argument("--pca-dims", type=int, default=8)
+    p.add_argument(
+        "--shuffle-split",
+        action="store_true",
+        help="Stage A.5: random 80/20 anchor split instead of contiguous "
+        "Morton split (guards against spatial-autocorrelation inflation).",
+    )
+    p.add_argument(
+        "--export-targets",
+        default=None,
+        help="Also export the full-anchor-space DINO PCA target to an npz "
+        "for Stage-B training (T-A/T-A2).",
+    )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--out",
@@ -332,9 +371,24 @@ def main() -> None:
         device="cuda",
     )
     g, N = _collect_inputs(model, device)
-    targets = _aggregate_semantics(
+    targets, full_targets = _aggregate_semantics(
         model, dataset, args.cache_dir, signals, device, N
     )
+
+    if args.export_targets and "dino" in full_targets:
+        vals, covf = full_targets["dino"]
+        cv = vals[covf]
+        z = (cv - cv.mean(0)) / cv.std(0).clamp_min(1e-6)
+        _, _, v = torch.pca_lowrank(z, q=args.pca_dims, center=False)
+        red = z @ v[:, : args.pca_dims]
+        tgt = torch.zeros(vals.shape[0], args.pca_dims, device=device)
+        tgt[covf] = red
+        np.savez(
+            args.export_targets,
+            target=tgt.cpu().numpy(),
+            cov=covf.cpu().numpy(),
+        )
+        print(f"[semantic_gate] exported targets -> {args.export_targets}")
 
     covered = None
     target_meta = {}
@@ -388,12 +442,18 @@ def main() -> None:
     rows = {}
     for sig, y in prepared.items():
         n_tr = int(y.shape[0] * (1.0 - args.val_fraction))
-        tr = slice(0, n_tr)
-        va = slice(n_tr, y.shape[0])
+        if args.shuffle_split:
+            gen = torch.Generator(device=device).manual_seed(args.seed)
+            perm = torch.randperm(y.shape[0], generator=gen, device=device)
+            tr_idx = perm[:n_tr]
+            va_idx = perm[n_tr:]
+        else:
+            tr_idx = slice(0, n_tr)
+            va_idx = slice(n_tr, y.shape[0])
         for name, x in inputs.items():
             xc = x[covered]
             rs, loss = _fit_corr(
-                xc[tr], y[tr], xc[va], y[va],
+                xc[tr_idx], y[tr_idx], xc[va_idx], y[va_idx],
                 args.hidden, args.fit_steps, args.weight_decay, device,
             )
             rows[f"{sig}|{name}"] = {
@@ -415,7 +475,7 @@ def main() -> None:
             mean_acc /= float(k)
             xc = torch.cat([inputs["B"], mean_acc], dim=-1)[covered]
             rs, loss = _fit_corr(
-                xc[tr], y[tr], xc[va], y[va],
+                xc[tr_idx], y[tr_idx], xc[va_idx], y[va_idx],
                 args.hidden, args.fit_steps, args.weight_decay, device,
             )
             rows[f"{sig}|C_k{k}"] = {

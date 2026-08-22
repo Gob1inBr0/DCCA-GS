@@ -224,6 +224,9 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         sens_loss_fn = getattr(model, "sensitivity_supervision", None)
         if sens_loss_fn is not None:
             loss = loss + sens_loss_fn(out.gaussians)
+        sem_loss_fn = getattr(model, "semantic_supervision", None)
+        if sem_loss_fn is not None:
+            loss = loss + sem_loss_fn(out.gaussians)
         spa_loss_fn = getattr(model, "spa_loss_term", None)
         if spa_loss_fn is not None:
             loss = loss + spa_loss_fn()
@@ -258,6 +261,36 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             )
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        if (
+            getattr(cfg.model, "semantic_enabled", False)
+            and getattr(cfg.model, "semantic_cache_dir", None)
+            and iteration == int(optim.update_until)
+            and not getattr(model.core, "semantic_refreshed", False)
+        ):
+            from scaffold_gs.semantic_targets import refresh_semantic_targets
+
+            print(f"[semantic] refreshing targets at iteration {iteration}",
+                  flush=True)
+            refresh_semantic_targets(
+                model,
+                dataset,
+                cfg.model.semantic_cache_dir,
+                pca_dims=8,
+                min_views=cfg.model.semantic_min_visible_views,
+                device=str(model.device),
+            )
+
+        if (
+            getattr(cfg.model, "mini_splat_enabled", False)
+            and iteration == int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            and not getattr(model.core, "mini_splat_done", False)
+        ):
+            reinit_fn = getattr(model, "mini_splat_reinit", None)
+            if reinit_fn is not None:
+                print(f"[MiniSplat] reinit at iteration {iteration}", flush=True)
+                reinit_fn(dataset, background)
+                model.core.mini_splat_done = True
 
         model.optimizer.step()
         model.optimizer.zero_grad(set_to_none=True)
