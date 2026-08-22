@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 RUNS = Path("/home/fansonglin/data_space/DCCA-GS/runs")
+WEB = Path("/home/fansonglin/data_space/web_scan/runs")
 
 # tag -> dict(ratio, mini, spa, scene, semantic)
 EXPECTED = {
@@ -32,17 +33,20 @@ EXPECTED = {
     "p0_e1_playroom_r097_mini": dict(ratio=0.97, mini=1, spa=1, scene="playroom"),
     # E4: 4-28 2x2 (non-SPA baseline exists; three runs are P0)
     "run428_baseline": dict(ratio=None, mini=0, spa=0, scene="4-28"),
+    # reused 110k baselines (old base, authoritative decoded results)
+    "4-28_lxdim_110k_dim50_l0p004": dict(ratio=None, mini=0, spa=0, scene="4-28", path=WEB),
+    "4-28_i6_110k_h32_l0p004_spa0p5": dict(ratio=0.5, mini=0, spa=1, scene="4-28", path=WEB),
     "p0_e4_428_nospa_mini": dict(ratio=None, mini=1, spa=0, scene="4-28"),
     "p0_e4_428_spa_base": dict(ratio=0.85, mini=0, spa=1, scene="4-28"),
     "p0_e4_428_spa_mini": dict(ratio=0.85, mini=1, spa=1, scene="4-28"),
 }
 
 
-def load_metrics(tag: str) -> dict | None:
-    p = RUNS / tag / "decoded_eval" / "metrics.jsonl"
+def load_metrics(tag: str, base: Path = RUNS) -> dict | None:
+    p = base / tag / "decoded_eval" / "metrics.jsonl"
     if not p.exists():
         # 4-28 non-SPA runs have no bitstream; fall back to training eval.
-        p = RUNS / tag / "metrics.jsonl"
+        p = base / tag / "metrics.jsonl"
         if not p.exists():
             return None
         src = "train_eval"
@@ -54,15 +58,15 @@ def load_metrics(tag: str) -> dict | None:
     return m
 
 
-def load_meta(tag: str) -> dict | None:
-    p = RUNS / tag / "bitstreams" / "hac_meta.json"
+def load_meta(tag: str, base: Path = RUNS) -> dict | None:
+    p = base / tag / "bitstreams" / "hac_meta.json"
     if not p.exists():
         return None
     return json.loads(p.read_text())
 
 
-def final_anchors(tag: str) -> int | None:
-    p = RUNS / tag / "train.log"
+def final_anchors(tag: str, base: Path = RUNS) -> int | None:
+    p = base / tag / "train.log"
     if not p.exists():
         return None
     txt = p.read_text(errors="replace")
@@ -114,9 +118,10 @@ def bd(points_a, points_b) -> tuple[float, float] | None:
 def main() -> None:
     rows = []
     for tag, cfg in EXPECTED.items():
-        m = load_metrics(tag)
-        meta = load_meta(tag)
-        tr = final_anchors(tag)
+        base = cfg.pop("path", RUNS)
+        m = load_metrics(tag, base)
+        meta = load_meta(tag, base)
+        tr = final_anchors(tag, base)
         rows.append(dict(
             tag=tag, **cfg,
             psnr=m["psnr"] if m else None,
