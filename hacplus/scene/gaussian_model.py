@@ -1513,7 +1513,6 @@ class GaussianModel(nn.Module):
             self.semantic_cov = torch.cat(
                 [self.semantic_cov, torch.zeros((n, 1), device="cuda")], dim=0
             )
-        self._sync_semantic_state()
         torch.cuda.empty_cache()
         optimizable = self.cat_tensors_to_optimizer(d)
         self._anchor = optimizable["anchor"]
@@ -1523,6 +1522,10 @@ class GaussianModel(nn.Module):
         self._offset = optimizable["offset"]
         self._mask = optimizable["mask"]
         self._opacity = optimizable["opacity"]
+        # Align semantic target/cov with the post-append anchor count. We
+        # manually padded them above; this is a no-op here but protects against
+        # future growth/prune paths that skip the pad.
+        self._sync_semantic_state()
         print(f"[MiniSplat] depth-reinit densified {n} anchors", flush=True)
         return n
 
