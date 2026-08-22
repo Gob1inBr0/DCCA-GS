@@ -37,6 +37,7 @@ MINI_ARGS=""
   --cfg.model.mini-splat-views 8 --cfg.model.mini-splat-voxel 0.0"
 
 echo "[$(date '+%F %T')] START tag=$TAG gpu=$GPU scene=$SCENE spa=$SPA mini=$MINI ratio=$RATIO steps=$MAX_STEPS update_until=$UPDATE_UNTIL lambda=$LAMBDA"
+echo "RUNNING" > "$OUT/STATUS"
 
 python train.py train \
   --cfg.model.model-name hac_pp \
@@ -51,7 +52,7 @@ python train.py train \
   --cfg.optim.save-steps "$MAX_STEPS" --cfg.optim.eval-steps "$MAX_STEPS" \
   --cfg.optim.lambda-rate "$LAMBDA" \
   > "$OUT/train.log" 2>&1
-grep -q "Training finished" "$OUT/train.log" || { echo "TRAIN_FAILED tag=$TAG"; tail -40 "$OUT/train.log"; exit 1; }
+grep -q "Training finished" "$OUT/train.log" || { echo "TRAIN_FAILED tag=$TAG"; echo "FAILED" > "$OUT/STATUS"; tail -40 "$OUT/train.log"; exit 1; }
 echo "[$(date '+%F %T')] TRAIN_DONE tag=$TAG"
 
 python train.py compress \
@@ -65,6 +66,7 @@ python scripts/eval_decoded.py \
   --data-factor 1 --max-width 1600 --no-preload-images > "$OUT/eval_decoded.log" 2>&1
 
 echo "[$(date '+%F %T')] ALL_DONE tag=$TAG"
+echo "DONE" > "$OUT/STATUS"
 echo "=== METRICS $TAG ==="
 tail -1 "$OUT/decoded_eval/metrics.jsonl" 2>/dev/null || true
 python3 - "$OUT/bitstreams/hac_meta.json" <<'PY' 2>/dev/null || true
