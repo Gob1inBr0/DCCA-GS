@@ -808,9 +808,9 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 本文档所有数字均来自以下已确认来源，未新增任何未实测数字：
 
-- `PHG_experiments.csv`（`/Users/chen/Documents/PHG/docs/PHG_experiments.csv`）：
+- `../data/experiments.csv`（`../data/experiments.csv`）：
   主对照、MLP 量化、SPA、I6 侧信息/替换、P0、R、codec efficiency 全部行；
-- `SPA_stageA_report.md`（`/Users/chen/Documents/PHG/docs/SPA_stageA_report.md`）：
+- `../03-reports/SPA_阶段A报告.md`（`../03-reports/SPA_阶段A报告.md`）：
   SPA 阶段 A 结果与体积构成；
 - `PHG_改动说明_框架图版.md`（第 7.8、8、9 节）：MLP 量化表格、体积口径、
   实验汇总；

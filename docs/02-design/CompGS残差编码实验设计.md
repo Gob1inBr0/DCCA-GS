@@ -9,7 +9,7 @@
 | 状态 | 设计稿，未开始实验 |
 | 适用范围 | PHG（`scaffold_gs` / `hacplus`）压缩管线 |
 | 关联代码 | `scaffold_gs/hacpp.py`、`hacplus/scene/gaussian_model.py`、`hacplus/utils/codec_consistency.py` |
-| 关联文档 | [创新点P0设计文档.md](创新点P0设计文档.md)、[P0_stageA_report.md](../../PHG/docs/P0_stageA_report.md) |
+| 关联文档 | [创新点P0设计文档.md](创新点P0设计文档.md)、[P0_阶段A报告](../03-reports/P0_阶段A报告.md) |
 | 论文参照 | CompGS（ACM MM 2024）、CompGS++（arXiv 2504.13022） |
 
 本文档回答一个问题：**把“锚点预测 + 残差”的编码结构引入 PHG，能否在真实码率口径下带来可用的压缩收益？**
@@ -197,4 +197,4 @@ pred_offsets = MLP_o(feat_q, scaling_q, ctx)
 
 - CompGS: Efficient 3D Scene Representation via Compressed Gaussian Splatting（ACM MM 2024，[arXiv:2404.09458](https://arxiv.org/abs/2404.09458)）
 - CompGS++: Compressed Gaussian Splatting for Static and Dynamic Scene Representation（[arXiv:2504.13022](https://arxiv.org/abs/2504.13022)）
-- PHG P0 阶段 A 报告（`/Users/chen/Documents/PHG/docs/P0_stageA_report.md`）
+- PHG P0 阶段 A 报告（`../03-reports/P0_阶段A报告.md`）

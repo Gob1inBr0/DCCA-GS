@@ -12,3 +12,8 @@ outputs/
 *.png
 *.pt
 .DS_Store
+
+# docs/data contains tracked experiment/survey CSV (not runtime data)
+!docs/
+!docs/data/
+!docs/data/*.csv

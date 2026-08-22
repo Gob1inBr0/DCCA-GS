@@ -1,7 +1,7 @@
 # DCCA-GS 项目交接文档（另一个 Agent 打开即用版）
 
-更新：2026-08-19；分支：`main`；HEAD：`08ab7ac`
-（`mlp_complexity input 8->4 (drop zero photo stats) + checkpoint migration + codec v2_4d`）
+更新：2026-08-22；分支：`main`；HEAD：`1b65191`
+（语义先验 T-A2 + MiniSplat depth-reinit + SPA 固定预算 4 格 + docs 重构）
 
 > 本文件的目标：一个没有上下文的新 agent 读完本文件后，能直接连上 5090、
 > 复现已有实验、查看结果、继续排队实验，并知道所有已踩过的坑。
@@ -10,10 +10,10 @@
 
 ```bash
 # 在 5090 上
-cd /home/fansonglin/xieliang/chentong/PHG
+cd /home/fansonglin/data_space/DCCA-GS/PHG
 conda activate HAC_5090_a100
 source scripts/env_5090.sh          # 设置 PYTHONPATH / PATH(tmc3) / PYTHONNOUSERSITE / CUDA_ALLOC_CONF
-pytest tests/ -q                    # 预期 19 passed
+pytest tests/ -q                    # 数据/增长/语义/MiniSplat 单测在 5090 环境跑
 python train.py train --help        # 训练参数
 ```
 
@@ -22,16 +22,16 @@ python train.py train --help        # 训练参数
 ```bash
 ps -ef | grep -E 'train.py train|queue_|runner_' | grep -v grep
 nvidia-smi
-tail -f /home/fansonglin/data_space/web_scan/runs/spa_rd_gpu0.log
-tail -f /home/fansonglin/data_space/web_scan/runs/queue_4_28_gpu0.log
+tail -f /home/fansonglin/data_space/DCCA-GS/runs/spa_fixed_launch.sh
+tail -f /home/fansonglin/data_space/DCCA-GS/runs/spa_minisplat_launch.sh
 ```
 
-所有实验数字在 `docs/PHG_experiments.csv`（202 行，2026-08-19 与 5090 同步），结果目录在
-`/home/fansonglin/data_space/web_scan/runs/`。
+所有实验数字在 `docs/data/experiments.csv`（2026-08-22 已含 MiniSplat/语义行），
+5090 结果目录在 `/home/fansonglin/data_space/DCCA-GS/runs/`。
 
 ## 1. 项目是什么
 
-PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架，
+DCCA-GS（原 PHG / PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架，
 目标是“模型可替换 + 稳定属性导出 + 编解码器接口化”的低耦合架构，在 HAC++ 主链路上
 叠加创新点并给出量化分析。
 
@@ -40,10 +40,12 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 | 位置 | 路径/地址 | 说明 |
 | --- | --- | --- |
 | GitHub | `git@github.com:Gob1inBr0/DCCA-GS.git`（迁移前为 `goblinIBigBro/PHG`，旧地址仍可推） | 唯一权威远端 |
-| 本地 | `/Users/chen/Documents/PHG` | 开发/文档/画图 |
-| 5090 | `/home/fansonglin/xieliang/chentong/PHG` | 训练/压缩/评估 |
+| 本地 | `/Users/chen/Documents/DCCA-GS` | 开发/文档/画图 |
+| 5090 | `/home/fansonglin/data_space/DCCA-GS/PHG` | 训练/压缩/评估 |
 
-注意：本地无法直连 GitHub 22 端口，推送走“bundle 经 5090 中转”（见 §8）。
+注意：本地 SSH(22) 被代理挡，但 **HTTPS 可直推**
+（`git push https://github.com/Gob1inBr0/DCCA-GS.git main`，osxkeychain 存有凭据）；
+bundle 经 5090 中转仅作备用（见 §8）。
 
 ### 1.2 创新点状态总表
 
@@ -52,7 +54,9 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 | HAC++ 核心 codec（`hac_pp`） | ✅ 必需 | GPCC 几何 + 哈希上下文 + 条件熵模型 + 算术编码；bit-exact roundtrip |
 | I2 内容感知公式量化 | ✅ 默认开 | `Q = Q0×(1+tanh(z)×α)`，`mlp_complexity` 预测 Q；**输入已改为 4 维**（4 个结构量，不再带 4 个恒零） |
 | I6 渲染敏感度监督 | ✅ 推荐开 | 仅训练期 EMA 监督，零侧信息；DB playroom 110k 贡献约 +0.064 dB，4-28 约 +0.1 dB |
-| SPA 训练侧稀疏（ADMM 预算） | ⚠️ 核心创新，阶段 A 已通过，110k 实验进行中 | 同锚点数比编码端 top-k 高 5.5 dB（30k playroom）；110k 结果已出（见 §5） |
+| SPA 训练侧稀疏（ADMM 预算） | ✅ 默认开 | 固定预算 r=0.85 为默认；同锚点比编码端 top-k 高 5.5 dB（30k playroom） |
+| MiniSplat depth-reinit | ✅ 默认开（新） | 15k 深度反投影增密；cell2 = +0.199 dB / +2.5% 体积（同预算）→ 主路径 |
+| 语义先验 T-A2（DINO） | ⏸ 默认关 | 15k 自我锚点目标刷新；同比特 BD-rate +8.2%，大场景 4-28 −0.041 dB → 方向暂停 |
 | MLP 权重量化 | ✅ 推荐 cd8/rest16 | complexity/deform 8-bit，其余 16-bit；16-bit 全量零损失，8-bit 全量会劣化 |
 | R4 attr-ctx | ✅ 可选、默认关 | 训练后条件熵调整（scaling），4-28 90k λ0.002 上 -0.41% 体积 |
 | I1 层级上下文 | ⚠️ 默认关 | 有 start_iter 坑；gains 小 |
@@ -76,15 +80,15 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 - `scripts/env_5090.sh`：一次性设置 `PHG_ROOT`/`PYTHONPATH`/`PYTHONNOUSERSITE=1`/
   `PATH`（含 tmc3）/`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
 - `environment.yml`：conda 依赖清单（含 torch 版本坑的注释）
-- `docs/ENVIRONMENT.md`：完整环境说明（数据路径、坑、快速开始）
+- `../04-guides/环境说明.md`：完整环境说明（数据路径、坑、快速开始）
 
 ### 2.2 数据集路径（5090）
 
 | 数据集 | 路径 |
 | --- | --- |
 | 4-28 | `/home/fansonglin/xieliang/chentong/CT_HAC_v1/data/4-28` |
-| DB playroom | `/home/fansonglin/xieliang/Chenzhenxin/dataset/tandt_db/db/playroom` |
-| DB drjohnson | `/home/fansonglin/xieliang/Chenzhenxin/dataset/tandt_db/db/drjohnson` |
+| DB playroom | `$BASE/data/playroom`（`/home/fansonglin/data_space/DCCA-GS/data/playroom`）|
+| DB drjohnson | 以 5090 `$BASE/data/` 实际为准（旧路径 `/home/fansonglin/xieliang/Chenzhenxin/dataset/tandt_db/db/drjohnson` 备用）|
 | Mip360（9 场景） | `/home/fansonglin/xieliang/Chenzhenxin/dataset/360_v2/<scene>` |
 | T&T | `/home/fansonglin/xieliang/Chenzhenxin/dataset/tandt_db/tandt/{train,truck}` |
 
@@ -129,7 +133,7 @@ PHG/
 ### 4.1 训练（推荐配置 = I2+I6，dim50，h32，110k，λ0.002/0.004）
 
 ```bash
-cd /home/fansonglin/xieliang/chentong/PHG
+cd /home/fansonglin/data_space/DCCA-GS/PHG
 source scripts/env_5090.sh
 
 python train.py train \
@@ -211,7 +215,7 @@ pytest tests/ -q     # 5090 预期 19 passed
 
 ## 5. 实验结果（截至 2026-08-19）
 
-所有数字都在 `docs/PHG_experiments.csv`（约 158 行，18 列：
+所有数字都在 `../data/experiments.csv`（约 158 行，18 列：
 `group,scene,run_id,variant,iteration,lambda,feat_dim,mlp_quant,psnr,ssim,lpips,
 total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source`）。
 
@@ -296,12 +300,15 @@ total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source`）
 ## 8. Git 同步（本地 ↔ GitHub ↔ 5090）
 
 ```bash
-# 本地打包 main
-cd /Users/chen/Documents/PHG
+# 方式一（推荐）：HTTPS 直推（SSH 22 被代理挡）
+cd /Users/chen/Documents/DCCA-GS
+git push https://github.com/Gob1inBr0/DCCA-GS.git main
+
+# 方式二（备用）：bundle 经 5090 中转
 git bundle create /tmp/phg-main.bundle main
 # scp 到 5090（可用 expect：scp /tmp/phg-main.bundle small5090:/tmp/phg-main.bundle）
 # 在 5090 上
-cd /home/fansonglin/xieliang/chentong/PHG
+cd /home/fansonglin/data_space/DCCA-GS/PHG
 git fetch /tmp/phg-main.bundle main:refs/heads/bundle-main
 git push origin bundle-main:main
 # 本地再 git fetch/pull 同步
@@ -310,7 +317,7 @@ git push origin bundle-main:main
 5090 工作区保持 `i6-sens-replace` 或 `main` 均可（我们一直以文件同步+远端 main 为准，
 不依赖 5090 本地分支与远端一致）。
 
-## 9. 当前状态（2026-08-19，实时）
+## 9. 当前状态（2026-08-22，实时）
 
 已完成并自动收集：
 
@@ -319,28 +326,33 @@ git push origin bundle-main:main
 - Mip360（garden/flowers/stump）与 T&T（train/truck）30k × λ0.002/0.004 ✅
 - MLP 量化全位宽扫描 + 逐 MLP 8-bit 消融 ✅
 - SPA 110k playroom λ0.002（29.8908 / 1.1292）✅
+- **MiniSplat × SPA 固定预算 4 格**（playroom 30k，HAC++ 解码后）✅
+  （cell1 30.221/1.859 → cell2 30.420/1.905 → cell3 30.338/2.197 → cell4b 30.458/2.257）
+- **SPA 预算曲线 r={0.52,0.85,0.92,0.97} × baseline/语义**（playroom，解码后）✅
+- **4-28 B 组（非 SPA，30k）baseline vs 语义** ✅（28.308 vs 28.267，语义无净增益）
+- **语义先验方向：暂停**（同比特 BD-rate +8.2%；大场景 −0.041 dB）
 
-正在跑 / 排队：
+接下来（按优先级，详见 `../03-reports/MiniSplat×SPA_实验报告.md` §7）：
 
-| 任务 | 状态 |
+| 任务 | 优先级 |
 | --- | --- |
-| DB SPA-RD（SPA 版 λ-RD） | GPU1 全部完成；GPU0 最后一个 cell（drjohnson λ0.002）训练中；完成后自动 collect + 重画双线 RD 图 |
-| 4-28 SPA（90k/110k λ0.004 SPA0.5） | 队列等待中（`queue_4_28_gpu0/gpu1`），等 DB SPA-RD 全部结束后自动启动 |
+| E1 MiniSplat × 预算曲线补齐 | P0 |
+| E4 MiniSplat × 大场景 4-28 | P0 |
+| E3 MiniSplat 参数敏感性 / E5 与 SPA 解耦 / E7 多场景多 seed | P1 |
 
 监控：
 
 ```bash
-tail -f /home/fansonglin/data_space/web_scan/runs/spa_rd_gpu0.log
-tail -f /home/fansonglin/data_space/web_scan/runs/queue_4_28_gpu0.log
-cat /home/fansonglin/data_space/web_scan/runs/db_spa_rd_110k.json   # SPA RD 汇总（collect 后生成）
+ls /home/fansonglin/data_space/DCCA-GS/runs/                 # 最新 run 目录
+tail -f /home/fansonglin/data_space/DCCA-GS/runs/*/train.log
 ```
 
 ## 10. 给下一个 Agent 的行动清单
 
-1. 读本文件 + `docs/ENVIRONMENT.md` + `docs/PHG项目变更文档.md`；
+1. 读本文件 + `../04-guides/环境说明.md` + `../06-planning/DCCA-GS_项目变更文档.md`；
 2. 5090：`conda activate HAC_5090_a100 && source scripts/env_5090.sh`，
-   `pytest tests/ -q` 确认 19 passed；
-3. 看 `docs/PHG_experiments.csv` 和 `runs/db_rd_110k.json` /
+   `pytest tests/ -q` 跑单测；
+3. 看 `../data/experiments.csv` 和 `runs/db_rd_110k.json` /
    `runs/db_spa_rd_110k.json` 了解已有结果；
 4. 看 `ps`/日志确认队列状态，不要重复启动已在跑的任务；
 5. 需要新实验时用 `runner_phg_cell.sh` 或 `queue_*` 脚本，遵循 §7 的坑；
@@ -348,12 +360,13 @@ cat /home/fansonglin/data_space/web_scan/runs/db_spa_rd_110k.json   # SPA RD 汇
 
 ## 11. 相关文档索引
 
-- `docs/ENVIRONMENT.md`：环境
-- `docs/PHG项目变更文档.md`：状态/坑/结果历史
-- `docs/PHG_改动说明_框架图版.md`：架构与创新点详解
-- `docs/P0_stageA_report.md`、`docs/R_stageA_report.md`、`docs/R4_attr_ctx_report.md`、
-  `docs/SPA_stageA_report.md`：各方向报告
-- `docs/PHG_experiments.csv`：统一实验数据
+- `../04-guides/环境说明.md`：环境
+- `../06-planning/DCCA-GS_项目变更文档.md`：状态/坑/结果历史
+- `../01-architecture/DCCA-GS_架构说明.md`：架构与创新点详解
+- `../03-reports/P0_阶段A报告.md`、`../03-reports/R_阶段A报告.md`、`../03-reports/R4_attr上下文_报告.md`、
+  `../03-reports/SPA_阶段A报告.md`：各方向报告
+- `../03-reports/MiniSplat×SPA_实验报告.md`：MiniSplat + 语义 + SPA 主报告（含后续实验设计）
+- `../data/experiments.csv`：统一实验数据
 - `HAC-plus-main-v1/陈曈提案_DCCA-GS论文版.docx`（及中文版）：IEEE 提案（论文级内容；
   旧 `陈曈提案_PHG论文版.docx` 保留归档）
 

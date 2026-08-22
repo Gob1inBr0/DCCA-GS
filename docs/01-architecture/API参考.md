@@ -1,7 +1,7 @@
 # gsplat API 参考文档（中文）
 
 > 本文档根据本仓库源码（`gsplat/` 目录）逐函数整理，覆盖所有公开 API 的
-> 签名、参数含义、返回值和典型用法。建议配合 `docs/上手指南.md` 一起阅读。
+> 签名、参数含义、返回值和典型用法。建议配合 `../04-guides/上手指南.md` 一起阅读。
 >
 > 版本：本仓库 main 分支（v1.5.3 之后，含 2026 年新增特性）
 
@@ -567,7 +567,7 @@ if __name__ == "__main__":
 
 ## 11. 新模块：sensors / scene / experimental
 
-> 这些是 2025-2026 年重构出的新架构（详见 `docs/modules-design.md`），
+> 这些是 2025-2026 年重构出的新架构（详见 `../01-architecture/modules-design.md`），
 > 目前**正在逐步迁移**，日常使用仍以 `rasterization()` 为主。
 
 ### 11.1 `gsplat.sensors` —— 相机/传感器库
@@ -655,5 +655,5 @@ else:
 | 查看器 | `examples/simple_viewer.py` |
 | 动态场景（G-SHARP） | `examples/dynamic_surgical_trainer.py` + `examples/AV_TRAINER.md` |
 | 汽车场景（3DGUT + LiDAR） | `examples/av_trainer.py` |
-| 批量/多场景 | `docs/batch.md` |
+| 批量/多场景 | `../01-architecture/gsplat批量渲染说明.md` |
 | 性能基准 | `examples/benchmarks/`（basic.sh、mcmc.sh 等） |

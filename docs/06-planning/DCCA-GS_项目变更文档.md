@@ -111,7 +111,7 @@ DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 
 
 ### 5.4 Web_Scan feat_dim 粗扫（30k，I2+I6）
 
-详见 `docs/feat_dim_sweep.md`。要点：16 维是甜点（BD-rate 相对 50 维 −24.5%），
+详见 `../03-reports/feat_dim扫描报告.md`。要点：16 维是甜点（BD-rate 相对 50 维 −24.5%），
 32 维质量最高（BD-rate −34%）；4-28 上 90k 全维度表见上（dim16/32/50）。
 
 ## 6. 常用命令（5090）

@@ -5,7 +5,7 @@ Run after queue_after_db_rd.sh finishes both GPUs (GPU0 invokes it):
 
 Scans result dirs by tag prefix, reads baseline (bitstreams + decoded_eval) and
 MLP-quantized (mlp_quant_cd8_rest16) rows, and appends rows to
-docs/PHG_experiments.csv (skipping run_id+variant pairs already present).
+docs/data/experiments.csv (skipping run_id+variant pairs already present).
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ import re
 import time
 from pathlib import Path
 
-RUNS = Path("/home/fansonglin/data_space/web_scan/runs")
-PHG = Path("/home/fansonglin/xieliang/chentong/PHG")
-CSV = PHG / "docs" / "PHG_experiments.csv"
+RUNS = Path("/home/fansonglin/data_space/DCCA-GS/runs")
+PHG = Path("/home/fansonglin/data_space/DCCA-GS/PHG")
+CSV = PHG / "docs" / "data" / "experiments.csv"
 
 PATTERNS = [
     ("phg_db_ablation", "db_playroom_i6_110k_h32_l0p002_ablation_", "DB-playroom"),

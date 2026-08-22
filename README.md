@@ -1,92 +1,75 @@
-# DCCA-GS：Decoder-Reproducible Content-Adaptive Compression for Anchor-Based 3D Gaussian Splatting
+# DCCA-GS
 
-基于 [gsplat](https://github.com/nerfstudio-project/gsplat) 的
-Scaffold-GS / HAC++ 神经高斯压缩框架。当前主线为 **V2**：
-I1（层级上下文）可选、I2（内容感知量化）默认开、I6（渲染敏感度监督）可选。
+**Decoder-Reproducible Content-Adaptive Compression for Anchor-Based 3D Gaussian Splatting**
 
-项目原名 PHG（PKUGS-HAC-Gsplat），现已统一更名为 **DCCA-GS**；代码中的兼容性
-标识（`phg_v1`、`hac_pp` 等）与历史文件名暂保留，后续改名计划见
-[docs/HANDOVER.md](docs/HANDOVER.md) §改名说明。
+一个基于 [gsplat](https://github.com/nerfstudio-project/gsplat) +
+[Scaffold-GS](https://arxiv.org/abs/2312.00109) + [HAC++](https://arxiv.org/abs/2501.12255)
+的锚点式三维高斯泼溅压缩框架。
 
-仓库：<https://github.com/Gob1inBr0/DCCA-GS>
+> 核心观点：**锚点压缩的瓶颈不是数量，而是位置；比特分配不是静态的，而是内容自适应的。**
+> DCCA-GS 用「解码端可重算」的内容自适应量化（I2）、渲染敏感度监督（I6）、
+> 训练侧 ADMM 锚点预算（SPA）、Mini-Splatting 式表面增密（depth-reinit）四条主线，
+> 在**不新增任何侧信息、不改变码流契约**的前提下提升率失真（RD）曲线。
 
-## 特性
+---
 
-- anchor 体素初始化（`voxel_size`，0 时自动取 1-NN 距离中位数）
-- 每个 anchor 解码 K=10 个神经高斯：opacity / covariance / color 三个 MLP
-- gsplat 光栅化：视锥预过滤 + 预计算颜色渲染，packed 模式省显存
-- anchor 层级生长与剪枝（生长统计使用 `torch.scatter_reduce` 实现）
-- COLMAP 训练 / 评估：PSNR、SSIM、LPIPS
+## ✨ 特性
 
-### 三个创新点
-
-| 创新点 | 内容 | 默认 |
+| 模块 | 状态 | 一句话 |
 | --- | --- | --- |
-| I1 | 尺度感知层级 anchor-hash 上下文：`concat(base, parent, level)`，解码端可重算 | 关 |
-| I2 | 内容感知公式量化：`Q = Q0 * (1 + tanh(z) * α)`，complexity MLP 预测 Q | 开 |
-| I6 | 渲染敏感度加权监督：梯度 EMA → 相对归一化 → 监督 complexity MLP | 关 |
+| HAC++ 主链路 | ✅ 必需 | 锚点 + 哈希上下文 + 条件熵模型 + G-PCC + 算术编码，bit-exact roundtrip |
+| **I2 内容自适应量化** | ✅ 默认开 | `Q = Q0 × (1 + tanh(z)·α)`，`mlp_complexity` 按内容预测量化步长 |
+| **I6 渲染敏感度监督** | ✅ 推荐开 | 训练期用渲染梯度 EMA 监督复杂度网络，零侧信息 |
+| **SPA 训练侧稀疏** | ✅ 默认开 | ADMM 硬投影 + 显式锚点预算，训练期而非编码期做剪枝 |
+| **MiniSplat depth-reinit** | ✅ 默认开 | 生长停止时深度反投影增密，把锚点「铺」到场景表面，预算钉在增密前 |
+| 语义先验（T-A2） | ⏸ 可选/默认关 | DINOv2 目标 + 8 维投影头，15k 自我锚点刷新；已证实是「比特换质量」 |
+| MLP 权重量化 | ✅ 推荐 | per-channel PTQ + 静态算术编码，推荐 complexity/deform 8-bit、其余 16-bit |
+| R4 attr-ctx | ⏸ 可选/默认关 | 训练后条件熵预测器（scaling），4-28 上约 -0.4% 体积 |
+| I1 层级上下文 | ⚠️ 默认关 | 尺度感知 anchor-hash 上下文；增益有限，需注意 start_iter |
 
-### 压缩管线
+## 🧪 实验亮点
 
-- 几何：anchor 坐标经 GPCC（`tmc3`）压缩
-- 属性：feat / scaling / offsets / masks / hash 网格走官方 `arithmetic` 熵编码
-- 体积口径与官方 HAC++ 一致：属性流 + 几何 + hash + masks + header
-  + **MLP 权重（32 bit/参数）** + xyz 边界（192 bit），bit-exact roundtrip 校验
+### playroom 30k（HAC++ 压缩后真实解码，1600 宽，λ=0.004）
 
-### 工程要点
+| 配置 | total_MB | 解码 PSNR | SSIM | LPIPS |
+| --- | ---: | ---: | ---: | ---: |
+| 基线 SPA（I2+I6+SPA r0.85） | 1.859 | 30.221 | 0.9068 | 0.2809 |
+| **MiniSplat+SPA（主路径）** | **1.905** | **30.420** | 0.9070 | 0.2787 |
+| 语义 SPA | 2.197 | 30.338 | 0.9074 | 0.2784 |
+| MiniSplat+语义+SPA | 2.257 | 30.458 | 0.9075 | 0.2784 |
 
-- `BaseGaussianModel` + `MODELS` 注册表 + `CompressionCodec` 接口，
-  新增模型/编解码器无需改训练器
-- 修复了 growth 统计的显存泄漏（约 10MB/步，导致 4-28 长训 OOM 的根因）
-- `tile_size` 可配：5090（sm_120）用 32，64 会超过 gsplat 内核共享内存上限
-- `max_width` 复刻官方 `resolution=-1` 评估口径（3795×2134 → 1600×899）
-- I5（格点矢量量化 VQ）实验保留在 `i5-vq` 分支，未合并
+**读法**：同总锚点预算下，MiniSplat 把锚点重排到表面 → **+0.199 dB、体积仅 +2.5%**
+（「位置 > 预算」）；而语义监督 +0.117 dB 却要多花 +18.2% 体积（同比特 BD-rate +8.2%）。
 
-## 目录结构
+### 4-28 大场景（110k，1600 宽）
 
-```
-PHG/
-├── train.py                 # CLI：train / eval / export / compress
-├── scaffold_gs/
-│   ├── config.py            # Data/Model/Optim 配置（tyro 可解析）
-│   ├── datasets.py          # COLMAP 加载、max_width 缩放
-│   ├── model.py             # BaseGaussianModel + ScaffoldGSModel
-│   ├── hacpp.py             # HAC++ 模型适配 + 熵编码 codec
-│   ├── hac_core.py          # HACCoreView（唯一访问核心私有属性的入口）
-│   ├── renderer.py          # gsplat 光栅化封装
-│   ├── growth.py            # 生长/剪枝 + 统计
-│   └── trainer.py           # 训练循环 / 评估 / checkpoint
-├── hacplus/                 # vendored 官方 HAC++ 核心
-└── scripts/
-    ├── eval_decoded.py      # 解码 bitstream 并评估
-    ├── rd_sweep.py          # 后处理 RD 消融（q_scale / mask 比例）
-    ├── sensitivity_gate.py  # I6 相关性 + 离线 RD 上界
-    ├── sensitivity_rd_sweep.py
-    ├── sweep_mlp_complexity.py  # complexity MLP 架构扫描（并行）
-    └── volume_breakdown.py
-```
+| 方案 | PSNR | SSIM | LPIPS | total_MB |
+| --- | ---: | ---: | ---: | ---: |
+| **DCCA-GS（I2+I6）** | **28.823** | **0.8926** | **0.2771** | **5.485** |
+| HAC++ 论文参考 | 28.311 | 0.8900 | 0.2932 | 6.946 |
 
-## 环境
+完整实验数字见 [docs/data/experiments.csv](docs/data/experiments.csv)；分析见
+[MiniSplat×SPA_实验报告](docs/03-reports/MiniSplat×SPA_实验报告.md)。
+
+## 🚀 快速开始
+
+### 环境
 
 ```bash
-# 本地（仅开发/阅读，训练在 5090）
-cd /Users/chen/Documents/PHG
+# 本地（仅开发/阅读；训练在 5090）
 python -m venv .venv && source .venv/bin/activate
-pip install -e /Users/chen/Documents/gsplat-main
+pip install -e /path/to/gsplat
 pip install -r requirements.txt
 
 # 5090（HAC++ CUDA 扩展环境）
 conda activate HAC_5090_a100
-source scripts/env_5090.sh   # 设置 PYTHONPATH / PYTHONNOUSERSITE / PATH(tmc3) / expandable_segments
+source scripts/env_5090.sh   # PYTHONPATH / tmc3(GPCC) / expandable_segments 等
 ```
 
-完整环境说明（驱动/CUDA、包版本、CUDA 扩展、GPCC、数据路径、常见坑）见
-[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)；conda 依赖清单见
-[environment.yml](environment.yml)。
+完整环境（驱动/CUDA、包版本、GPCC、数据路径、常见坑）见
+[docs/04-guides/环境说明.md](docs/04-guides/环境说明.md)，conda 清单见 [environment.yml](environment.yml)。
 
-## 使用
-
-### 训练（4-28 对比协议）
+### 训练
 
 ```bash
 python train.py train \
@@ -95,36 +78,25 @@ python train.py train \
   --cfg.data.data-factor 1 --cfg.data.max-width 1600 --cfg.data.test-every 8 \
   --cfg.data.no-preload-images \
   --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 50 --cfg.model.n-offsets 10 \
-  --cfg.model.appearance-dim 0 --cfg.model.ratio 1 --cfg.model.tile-size 32 \
-  --cfg.model.content-aware-start-iter 20000 --cfg.model.content-aware-ramp-iters 10000 \
-  --cfg.model.sensitivity-enabled --cfg.model.sensitivity-start-iter 20000 \
-  --cfg.model.sensitivity-weight 0.001 \
-  --cfg.optim.max-steps 90000 --cfg.optim.update-until 45000 \
-  --cfg.optim.eval-steps 30000 60000 90000 --cfg.optim.save-steps 30000 60000 90000 \
-  --cfg.optim.lambda-rate 0.004 --cfg.optim.mask-lr-final 0.002 \
-  --cfg.optim.start-stat 500 --cfg.optim.update-from 1500 --cfg.optim.update-interval 100
+  --cfg.model.appearance-dim 0 --cfg.model.tile-size 32 \
+  --cfg.model.content-aware-quant \
+  --cfg.model.sensitivity-enabled \
+  --cfg.model.spa-enabled --cfg.model.spa-ratio 0.85 \
+  --cfg.model.mini-splat-enabled \
+  --cfg.optim.max-steps 30000 --cfg.optim.update-until 15000 \
+  --cfg.optim.eval-steps 30000 --cfg.optim.save-steps 30000 \
+  --cfg.optim.lambda-rate 0.004
 ```
 
-开启 I1（注意 `start_iter` 必须早于 grid MLP 首次使用，短实验用 300）：
-
-```bash
---cfg.model.hierarchical-context --cfg.model.hierarchical-context-start-iter 300
-```
-
-complexity MLP 架构（`8→hidden→3`，扫描出的最优为 hidden=32、1 层）：
-
-```bash
---cfg.model.mlp-complexity-hidden 32 --cfg.model.mlp-complexity-layers 1
-```
+> 默认主路径即为「I2+I6+SPA(0.85)+MiniSplat」（[config.py](scaffold_gs/config.py) 中
+> `spa_enabled=True`、`mini_splat_enabled=True`）。关布尔开关用 `--no-*`（tyro 不认 `False`）。
 
 ### 压缩与评估
 
 ```bash
-# 熵编码
-python train.py compress --cfg.ckpt runs/<tag>/ckpts/ckpt_90000.pth \
+python train.py compress --cfg.ckpt runs/<tag>/ckpts/ckpt_30000.pth \
   --cfg.out-dir runs/<tag>/bitstreams --cfg.codec hac_pp
 
-# 解码 bitstream 并评估（大场景必须 --no-preload-images）
 python scripts/eval_decoded.py --artifact-dir runs/<tag>/bitstreams \
   --data-dir <COLMAP场景> --result-dir runs/<tag>/decoded_eval \
   --max-width 1600 --no-preload-images
@@ -133,44 +105,69 @@ python scripts/eval_decoded.py --artifact-dir runs/<tag>/bitstreams \
 ### 其它工具
 
 ```bash
-# complexity MLP 架构扫描（并行跑多个 hidden:layers 配置）
-python scripts/sweep_mlp_complexity.py --data-dir <场景> --result-root runs/mlp_sweep \
-  --max-steps 15000 --update-until 7500 --sensitivity \
-  --configs "25:1;32:1;64:1;64:2;128:1" --parallel 2
-
-# I6 离线分析（相关性 + 离线 RD 上界）
-python scripts/sensitivity_gate.py --ckpt <ckpt> --data-dir <场景> --result-dir runs/sens_gate
-
-# 后处理 RD 消融（q_scale / mask 比例）
-python scripts/rd_sweep.py --ckpt <ckpt> --data-dir <场景> --result-dir runs/rd_sweep
+pytest tests/ -q                                  # 单元/冒烟测试
+python scripts/sweep_mlp_complexity.py ...        # complexity MLP 架构扫描
+python scripts/mlp_quant_sweep.py ...             # MLP 量化位宽扫描
+python scripts/rd_sweep.py ...                    # 后处理 RD 消融
+python scripts/extract_semantic_priors.py ...     # DINOv2/深度/SAM2 离线提取
+python scripts/semantic_gate.py ...               # 语义相关性门 + 目标导出
 ```
 
-## 实验结果（4-28，1600 宽，官方体积口径含 MLP）
+## 🧱 目录结构
 
-| 方案 | PSNR | SSIM | LPIPS | 体积 |
-| --- | --- | --- | --- | --- |
-| h25 90k（I2+I6） | 28.637 | 0.8922 | 0.2767 | 5.524 MB |
-| h25 30k | 27.866 | 0.8866 | 0.2762 | ~5.91 MB |
-| h32 30k | 27.879 | 0.8867 | 0.2758 | 6.013 MB |
-| Web_Scan 30k（I2+I6） | 25.743 | 0.8526 | 0.1391 | ~3.83 MB |
+```text
+DCCA-GS/
+├── train.py                     # CLI：train / eval / export / compress
+├── scaffold_gs/                 # 本项目逻辑
+│   ├── config.py                # Data/Model/Optim/Compress 配置（tyro）
+│   ├── datasets.py              # COLMAP 加载、max_width、CPU 缓存
+│   ├── model.py                 # BaseGaussianModel + MODELS 注册表
+│   ├── hacpp.py                 # HAC++ 适配 + 熵编码 codec + 监督接入
+│   ├── hac_core.py              # HACCoreView（核心私有属性唯一入口）
+│   ├── mini_splat.py            # Mini-Splatting depth-reinit（新）
+│   ├── semantic_targets.py      # DINO 逐锚点目标构建/刷新（新）
+│   ├── mlp_quant.py             # MLP per-channel 量化 + 算术编码
+│   ├── attr_ctx.py              # R4 条件熵预测器
+│   ├── renderer.py / growth.py / trainer.py / losses.py / codec.py
+├── hacplus/                     # vendored 官方 HAC++ 核心
+│   └── scene/gaussian_model.py  # 锚点/MLP/SPA/语义状态增密与同步
+├── scripts/                     # 扫描/收集/绘图/审计/门控脚本
+├── tests/                       # pytest
+└── docs/                        # 文档中心（见 docs/README.md）
+```
 
-参考行：之前 ours 90k = 28.563 / 0.8882 / 0.2982 / 6.355 MB；
-HAC++ 论文 = 28.311 / 0.8900 / 0.2932 / 6.946 MB。
+## 📚 文档
 
-## 测试
+- [docs/README.md](docs/README.md) — 文档中心索引（分类、命名、维护规则）
+- [docs/03-reports/MiniSplat×SPA_实验报告.md](docs/03-reports/MiniSplat×SPA_实验报告.md) — 本方向核心报告 + 后续实验设计
+- [docs/03-reports/消融实验汇总.md](docs/03-reports/消融实验汇总.md) — 全方向消融结论
+- [docs/02-design/语义先验实验设计.md](docs/02-design/语义先验实验设计.md) — 语义先验设计（含 Stage A/B 门控）
+- [docs/02-design/SPA训练侧实验设计.md](docs/02-design/SPA训练侧实验设计.md) — SPA 训练侧稀疏设计
+- [docs/06-planning/HANDOVER.md](docs/06-planning/HANDOVER.md) — 新 Agent 交接（环境/命令/坑/状态）
+
+## 🔬 复现口径
+
+- 评估：`--data-factor 1 --max-width 1600 --test-every 8`；全分辨率数字不可比。
+- 体积：HAC++ 解码必需载荷 = G-PCC 几何 + 属性流(feat/scaling/offsets/masks/hash) +
+  header + MLP 权重(32 bit/参数) + xyz 边界(192 bit)；bit-exact roundtrip 校验。
+- 数字来源：`docs/data/experiments.csv` + 5090 `runs/*/metrics.jsonl`、`bitstreams/hac_meta.json`。
+
+## 🧪 测试
 
 ```bash
+conda activate HAC_5090_a100 && source scripts/env_5090.sh
 pytest tests/ -q
 ```
 
-5090 `HAC_5090_a100` 环境下当前 **19 passed**。`test_hacpp_smoke.py`
-需要 HAC++ CUDA 扩展；`test_render_smoke.py` 需要 GPU。
+`test_hacpp_smoke.py` 需要 HAC++ CUDA 扩展；`test_render_smoke.py` 需要 GPU。
 
-## 已知注意点
+## 🗺️ Roadmap / 当前状态
 
-- `tile_size=64` 在 sm_120 上报共享内存超限，用 32
-- 4-28 1200 张图预载约 28GB，评估/训练务必 `--no-preload-images`
-- I1 若用默认 `start_iter=12000`，会在训练分支 step>10000 出现输入维度不匹配；
-  要么配 `hierarchical_context_start_iter < 10000`（如 300），要么先修训练分支
-- 5090 上不要占用/杀死其他用户的进程；长训练建议用带“空卡检测+自动重试”的
-  runner 脚本
+- ✅ MiniSplat depth-reinit 已合入并成为默认路径；语义先验方向暂停（同比特无净增益）
+- 🔜 MiniSplat × 预算曲线、大场景 4-28、多 seed 泛化（见报告 §7 E1/E4/E7）
+- 🔜 Mini-Splatting 完整版（blur split / contribution simplification）评估可行性
+
+## 📄 许可与引用
+
+本项目基于 HAC++ / Scaffold-GS / gsplat 的开源实现扩展，遵循上游许可；数据集与
+预训练模型权重版权归各自作者。引用请标注本项目仓库与所基于的上游论文。

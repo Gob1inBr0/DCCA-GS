@@ -408,7 +408,7 @@ Each module should maintain its own `design.md` that documents:
 - public APIs,
 - testing expectations beyond the shared baseline.
 
-This shared `docs/modules-design.md` document defines the common contract.
+This shared `../01-architecture/modules-design.md` document defines the common contract.
 Individual module design docs should reference or follow it rather than
 redefining the same base rules in conflicting ways.
 

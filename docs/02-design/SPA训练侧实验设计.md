@@ -244,4 +244,4 @@ compress → decode → eval（PSNR / SSIM / LPIPS / total_MB / bitstream 组成
 - GaussianSpa: An Optimizing-Sparsity Framework for 3D Gaussian Splatting Compression（CVPR 2025，[arXiv:2411.06019](https://arxiv.org/abs/2411.06019)，[项目页](https://noodle-lab.github.io/gaussianspa/)）
 - 3D Gaussian Splatting as Markov Chain Monte Carlo（[arXiv:2404.09591](https://arxiv.org/abs/2404.09591)）——拓扑/稀疏剪枝类参照
 - A Survey on 3D Gaussian Splatting Compression（[arXiv:2407.09510](https://arxiv.org/abs/2407.09510)）——compaction 类方法综述
-- PHG P0 阶段 A 报告（`/Users/chen/Documents/PHG/docs/P0_stageA_report.md`）
+- PHG P0 阶段 A 报告（`../03-reports/P0_阶段A报告.md`）

@@ -44,7 +44,7 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 
 ### 1.3 历史改名
 
-- 项目原名 `scaffold-gs` / `gsplat2hac`，2026-08 中旬按 `PHG改动计划.md` 改名为
+- 项目原名 `scaffold-gs` / `gsplat2hac`，2026-08 中旬按 `../06-planning/DCCA-GS_改动计划.md` 改名为
   `PHG`（Python 包名仍为 `scaffold_gs`，避免大量 import 改动）。
 - GitHub 仓库名同步改为 `PHG`；本地目录 `/Users/chen/Documents/PHG`；
   5090 上从 `~/PHG` 移到 `/home/fansonglin/xieliang/chentong/PHG`。
@@ -565,7 +565,7 @@ PHG 是三层结构，从下到上依次是：
   （<1%）、反向约 0.4%（<2% 且 Δ_reverse=0.0025MB 远小于 Δ_forward=0.0088MB）。
   全部按决策规则关闭，不进入 Stage B/C。
 - 产物：`scripts/p0_offline_entropy.py`、`p0_offline_entropy_rawctx.py`、
-  `p0_offline_reverse.py`；报告 `docs/P0_stageA_report.md`。
+  `p0_offline_reverse.py`；报告 `../03-reports/P0_阶段A报告.md`。
 
 ### 7.7 feat_dim 泛化（已合入 main）
 
@@ -838,7 +838,7 @@ conda activate HAC_5090_a100
 export PYTHONNOUSERSITE=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PATH=$HOME/miniconda3/envs/HAC_5090_a100/bin:$PATH
-cd /home/fansonglin/xieliang/chentong/PHG
+cd /home/fansonglin/data_space/DCCA-GS/PHG
 
 # 训练（runner：<gpu> <tag> <dim> <max_steps> <update_until> <save> [eval] [hidden] [lambda]）
 bash scripts/runner_4_28_90k.sh 1 i6_90k_h32_l0p002 50 90000 45000 \

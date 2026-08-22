@@ -6,7 +6,7 @@ Run on 5090 after launching runner_db_lambda_rd.sh on both GPUs:
 Waits until each GPU log contains two ALL_DONE lines (playroom + drjohnson),
 then reads baseline (bitstreams + decoded_eval) and MLP-quantized
 (mlp_quant_cd8_rest16) results for lambda in {0.001, 0.002, 0.004} and appends
-rows to docs/PHG_experiments.csv.
+rows to docs/data/experiments.csv.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ import json
 import time
 from pathlib import Path
 
-RUNS = Path("/home/fansonglin/data_space/web_scan/runs")
-PHG = Path("/home/fansonglin/xieliang/chentong/PHG")
-CSV = PHG / "docs" / "PHG_experiments.csv"
+RUNS = Path("/home/fansonglin/data_space/DCCA-GS/runs")
+PHG = Path("/home/fansonglin/data_space/DCCA-GS/PHG")
+CSV = PHG / "docs" / "data" / "experiments.csv"
 GPU_LOGS = [RUNS / "db_rd_lambda_gpu0.log", RUNS / "db_rd_lambda_gpu1.log"]
 SCENES = {"playroom": "DB-playroom", "drjohnson": "DB-drjohnson"}
 SCENE_DIRS = {
