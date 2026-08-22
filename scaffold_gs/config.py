@@ -154,10 +154,13 @@ class ModelConfig:
     """T-A only: which DINO PCA dims are used as the 3-dim supervision target
     (Stage A gate: dims 0/3/4 had the highest Pearson r)."""
 
-    # S (GaussianSpa-style): training-side ADMM anchor sparsity (default OFF).
-    spa_enabled: bool = False
+    # S (GaussianSpa-style): training-side ADMM anchor sparsity.
+    # NOTE: cell2 (MiniSplat+SPA) is now the PRIMARY training path -- SPA budget
+    # + Mini-Splatting depth-reinit are both ON by default. (cell2 = 30.420dB /
+    # 1.905MB vs cell1 baseline-SPA 30.221/1.859 on playroom, decoded.)
+    spa_enabled: bool = True
     """Enforce an explicit anchor budget with ADMM hard projection."""
-    spa_ratio: float = 0.5
+    spa_ratio: float = 0.85
     """Target fraction of surviving anchors (kappa = ratio * N)."""
     spa_rho: float = 1e-3
     """ADMM augmented-Lagrange weight for ||a - z + u||^2."""
@@ -165,7 +168,9 @@ class ModelConfig:
     """Clamp bound for the ADMM multiplier u."""
 
     # Mini-Splatting anchor spatial re-organization (depth reinitialization).
-    mini_splat_enabled: bool = False
+    # ON by default (primary path with SPA): depth-reinit re-places anchors onto
+    # the scene surface so the SPA budget is spent on well-distributed anchors.
+    mini_splat_enabled: bool = True
     """Densify anchors from back-projected depth at the growth-stop point."""
     mini_splat_reinit_iter: int = 15_000
     """Iteration at which depth reinitialization densification runs."""
