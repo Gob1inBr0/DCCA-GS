@@ -22,6 +22,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .config import ModelConfig, OptimConfig
+from .asg import build_asg_modules, evaluate_asg_rgb
 from .utils import (
     get_expon_lr_func,
     inverse_sigmoid,
@@ -122,12 +123,20 @@ class AnchorDecoder(nn.Module):
         n_offsets: int = 10,
         appearance_dim: int = 32,
         use_feat_bank: bool = False,
+        color_mode: str = "rgb",
+        asg_lobes: int = 1,
+        asg_latent_dim: int = 8,
+        asg_hidden: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.feat_dim = feat_dim
         self.n_offsets = n_offsets
         self.appearance_dim = appearance_dim
         self.use_feat_bank = use_feat_bank
+        self.color_mode = color_mode
+        self.asg_lobes = asg_lobes
+        self.asg_latent_dim = asg_latent_dim
+        self.asg_hidden = asg_hidden
 
         # Inputs: [anchor_feat (feat_dim), view_dir (3)].
         self.mlp_opacity = nn.Sequential(
@@ -148,6 +157,15 @@ class AnchorDecoder(nn.Module):
             nn.Linear(feat_dim, 3 * n_offsets),
             nn.Sigmoid(),
         )
+        if color_mode == "asg":
+            self.mlp_asg, self.mlp_color2 = build_asg_modules(
+                color_in,
+                feat_dim,
+                n_offsets,
+                asg_lobes,
+                asg_latent_dim,
+                asg_hidden,
+            )
         if use_feat_bank:
             self.mlp_feature_bank = nn.Sequential(
                 nn.Linear(4, feat_dim),
@@ -246,7 +264,17 @@ class AnchorDecoder(nn.Module):
         else:
             color_input = cat_local
 
-        color = self.mlp_color(color_input).reshape(n, self.n_offsets, 3)
+        if self.color_mode == "asg":
+            color = evaluate_asg_rgb(
+                self.mlp_asg(color_input),
+                ob_view,
+                self.mlp_color2,
+                self.n_offsets,
+                lobes=self.asg_lobes,
+                latent_dim=self.asg_latent_dim,
+            ).reshape(n, self.n_offsets, 3)
+        else:
+            color = self.mlp_color(color_input).reshape(n, self.n_offsets, 3)
         scale_rot = self.mlp_cov(cat_local).reshape(n, self.n_offsets, 7)
 
         scales = anchor_scaling[:, 3:].unsqueeze(1) * torch.sigmoid(
@@ -343,6 +371,10 @@ class ScaffoldGSModel(BaseGaussianModel):
             n_offsets=cfg.n_offsets,
             appearance_dim=cfg.appearance_dim,
             use_feat_bank=cfg.use_feat_bank,
+            color_mode=cfg.color_mode,
+            asg_lobes=cfg.asg_lobes,
+            asg_latent_dim=cfg.asg_latent_dim,
+            asg_hidden=cfg.asg_hidden,
         ).to(device)
 
         # Running statistics for anchor growing / pruning.
@@ -467,6 +499,17 @@ class ScaffoldGSModel(BaseGaussianModel):
             list(self.decoder.mlp_color.parameters()),
             optim_cfg.mlp_color_lr_init,
         )
+        if self.decoder.color_mode == "asg":
+            add(
+                "mlp_asg",
+                list(self.decoder.mlp_asg.parameters()),
+                optim_cfg.mlp_color_lr_init,
+            )
+            add(
+                "mlp_color2",
+                list(self.decoder.mlp_color2.parameters()),
+                optim_cfg.mlp_color_lr_init,
+            )
         if self.decoder.use_feat_bank:
             add(
                 "mlp_featurebank",
@@ -516,6 +559,19 @@ class ScaffoldGSModel(BaseGaussianModel):
                 max_steps=optim_cfg.mlp_color_lr_max_steps,
             ),
         }
+        if self.decoder.color_mode == "asg":
+            self.lr_schedulers["mlp_asg"] = get_expon_lr_func(
+                optim_cfg.mlp_color_lr_init,
+                optim_cfg.mlp_color_lr_final,
+                lr_delay_mult=optim_cfg.mlp_color_lr_delay_mult,
+                max_steps=optim_cfg.mlp_color_lr_max_steps,
+            )
+            self.lr_schedulers["mlp_color2"] = get_expon_lr_func(
+                optim_cfg.mlp_color_lr_init,
+                optim_cfg.mlp_color_lr_final,
+                lr_delay_mult=optim_cfg.mlp_color_lr_delay_mult,
+                max_steps=optim_cfg.mlp_color_lr_max_steps,
+            )
         if self.decoder.use_feat_bank:
             self.lr_schedulers["mlp_featurebank"] = get_expon_lr_func(
                 optim_cfg.mlp_featurebank_lr_init,
@@ -583,6 +639,9 @@ class ScaffoldGSModel(BaseGaussianModel):
             ("mlp_color", self.decoder.mlp_color),
         ]:
             decoder_state[key] = module.state_dict()
+        if self.decoder.color_mode == "asg":
+            decoder_state["mlp_asg"] = self.decoder.mlp_asg.state_dict()
+            decoder_state["mlp_color2"] = self.decoder.mlp_color2.state_dict()
         if self.decoder.use_feat_bank:
             decoder_state["mlp_feature_bank"] = self.decoder.mlp_feature_bank.state_dict()
         if self.decoder.embedding_appearance is not None:
@@ -620,6 +679,9 @@ class ScaffoldGSModel(BaseGaussianModel):
         model.decoder.mlp_opacity.load_state_dict(decoder_state["mlp_opacity"])
         model.decoder.mlp_cov.load_state_dict(decoder_state["mlp_cov"])
         model.decoder.mlp_color.load_state_dict(decoder_state["mlp_color"])
+        if model.decoder.color_mode == "asg":
+            model.decoder.mlp_asg.load_state_dict(decoder_state["mlp_asg"])
+            model.decoder.mlp_color2.load_state_dict(decoder_state["mlp_color2"])
         if model.decoder.use_feat_bank:
             model.decoder.mlp_feature_bank.load_state_dict(
                 decoder_state["mlp_feature_bank"]
@@ -745,6 +807,9 @@ class ScaffoldGSModel(BaseGaussianModel):
         torch.save(self.decoder.mlp_opacity.state_dict(), path / "opacity_mlp.pt")
         torch.save(self.decoder.mlp_cov.state_dict(), path / "cov_mlp.pt")
         torch.save(self.decoder.mlp_color.state_dict(), path / "color_mlp.pt")
+        if self.decoder.color_mode == "asg":
+            torch.save(self.decoder.mlp_asg.state_dict(), path / "asg_mlp.pt")
+            torch.save(self.decoder.mlp_color2.state_dict(), path / "color2_mlp.pt")
         if self.decoder.use_feat_bank:
             torch.save(
                 self.decoder.mlp_feature_bank.state_dict(),
@@ -767,6 +832,13 @@ class ScaffoldGSModel(BaseGaussianModel):
         self.decoder.mlp_color.load_state_dict(
             torch.load(path / "color_mlp.pt", weights_only=False)
         )
+        if self.decoder.color_mode == "asg":
+            self.decoder.mlp_asg.load_state_dict(
+                torch.load(path / "asg_mlp.pt", weights_only=False)
+            )
+            self.decoder.mlp_color2.load_state_dict(
+                torch.load(path / "color2_mlp.pt", weights_only=False)
+            )
         if self.decoder.use_feat_bank:
             self.decoder.mlp_feature_bank.load_state_dict(
                 torch.load(path / "feature_bank_mlp.pt", weights_only=False)

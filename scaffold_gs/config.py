@@ -77,6 +77,16 @@ class ModelConfig:
     appearance_dim: int = 32
     """Per-training-camera appearance embedding dim; 0 disables it."""
 
+    color_mode: str = "rgb"
+    """Color decoding mode: ``"rgb"`` (baseline mlp_color) or ``"asg"``
+    (two-stage anisotropic spherical Gaussian color path)."""
+    asg_lobes: int = 1
+    """Number of ASG lobes per neural Gaussian (1 first; higher later)."""
+    asg_latent_dim: int = 8
+    """Latent dimension carried from the ASG evaluator to mlp_color2."""
+    asg_hidden: Optional[int] = None
+    """Hidden width for mlp_asg/mlp_color2; None -> feat_dim (0 also -> feat_dim)."""
+
     ratio: int = 1
     """Sample every ``ratio``-th SfM point before voxelization."""
 
@@ -182,6 +192,16 @@ class ModelConfig:
     """Voxel size for depth-surface anchor sampling; <=0 uses model voxel_size."""
 
     def __post_init__(self) -> None:
+        if self.color_mode not in ("rgb", "asg"):
+            raise ValueError(
+                f"color_mode must be 'rgb' or 'asg', got {self.color_mode!r}"
+            )
+        if self.asg_lobes < 1:
+            raise ValueError("asg_lobes must be >= 1")
+        if self.asg_latent_dim < 1:
+            raise ValueError("asg_latent_dim must be >= 1")
+        if self.asg_hidden is not None and self.asg_hidden < 1:
+            raise ValueError("asg_hidden must be None or >= 1")
         if self.content_aware_q_mode != "formula":
             raise ValueError(
                 "content_aware_q_mode must be 'formula' in PHG v1; "

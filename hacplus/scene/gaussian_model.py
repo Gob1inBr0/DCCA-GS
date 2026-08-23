@@ -36,6 +36,7 @@ from hacplus.utils.encodings_cuda import \
     encoder, decoder, \
     encoder_gaussian_chunk, decoder_gaussian_chunk, encoder_gaussian_mixed_chunk, decoder_gaussian_mixed_chunk
 from hacplus.utils.gpcc_utils import compress_gpcc, decompress_gpcc, calculate_morton_order
+from scaffold_gs.asg import build_asg_modules, evaluate_asg_rgb
 
 bit2MB_scale = 8 * 1024 * 1024
 MAX_batch_size = 3000
@@ -267,6 +268,10 @@ class GaussianModel(nn.Module):
                  mlp_complexity_layers: int=1,
                  level_threshold_low: float=0.33,
                  level_threshold_high: float=0.66,
+                 color_mode: str="rgb",
+                 asg_lobes: int=1,
+                 asg_latent_dim: int=8,
+                 asg_hidden: int=None,
                  ):
         super().__init__()
         print('hash_params:', use_2D, n_features_per_level,
@@ -308,6 +313,10 @@ class GaussianModel(nn.Module):
         self.mlp_complexity_layers = max(int(mlp_complexity_layers), 1)
         self.level_threshold_low = float(level_threshold_low)
         self.level_threshold_high = float(level_threshold_high)
+        self.color_mode = str(color_mode)
+        self.asg_lobes = int(asg_lobes)
+        self.asg_latent_dim = int(asg_latent_dim)
+        self.asg_hidden = asg_hidden
         self.current_step = 0
         self.current_iter = 0
 
@@ -419,6 +428,17 @@ class GaussianModel(nn.Module):
             nn.Linear(feat_dim, 3*self.n_offsets),
             nn.Sigmoid()
         ).cuda()
+        if self.color_mode == "asg":
+            self.mlp_asg, self.mlp_color2 = build_asg_modules(
+                mlp_input_feat_dim + 3 + 1,
+                feat_dim,
+                self.n_offsets,
+                self.asg_lobes,
+                self.asg_latent_dim,
+                self.asg_hidden,
+            )
+            self.mlp_asg = self.mlp_asg.cuda()
+            self.mlp_color2 = self.mlp_color2.cuda()
 
         self.base_grid_context_dim = self.encoding_xyz.output_dim
         if self.hierarchical_context:
@@ -478,6 +498,9 @@ class GaussianModel(nn.Module):
         self.mlp_opacity.eval()
         self.mlp_cov.eval()
         self.mlp_color.eval()
+        if self.color_mode == "asg":
+            self.mlp_asg.eval()
+            self.mlp_color2.eval()
         self.encoding_xyz.eval()
         self.mlp_grid.eval()
         self.mlp_deform.eval()
@@ -490,6 +513,9 @@ class GaussianModel(nn.Module):
         self.mlp_opacity.train()
         self.mlp_cov.train()
         self.mlp_color.train()
+        if self.color_mode == "asg":
+            self.mlp_asg.train()
+            self.mlp_color2.train()
         self.encoding_xyz.train()
         self.mlp_grid.train()
         self.mlp_deform.train()
@@ -563,6 +589,17 @@ class GaussianModel(nn.Module):
     @property
     def get_color_mlp(self):
         return self.mlp_color
+
+    def decode_asg_color(self, color_input, view_dir):
+        """Two-stage ASG color decoding (only used when color_mode='asg')."""
+        return evaluate_asg_rgb(
+            self.mlp_asg(color_input),
+            view_dir,
+            self.mlp_color2,
+            self.n_offsets,
+            lobes=self.asg_lobes,
+            latent_dim=self.asg_latent_dim,
+        )
 
     @property
     def get_grid_mlp(self):
@@ -896,6 +933,11 @@ class GaussianModel(nn.Module):
                 {'params': self.mlp_deform.parameters(), 'lr': training_args.mlp_deform_lr_init, "name": "mlp_deform"},
                 {'params': self.mlp_complexity.parameters(), 'lr': training_args.mlp_complexity_lr_init, "name": "mlp_complexity"},
             ]
+            if self.color_mode == "asg":
+                l += [
+                    {'params': self.mlp_asg.parameters(), 'lr': training_args.mlp_color_lr_init, "name": "mlp_asg"},
+                    {'params': self.mlp_color2.parameters(), 'lr': training_args.mlp_color_lr_init, "name": "mlp_color2"},
+                ]
             if self.semantic_proj_head is not None:
                 l.append(
                     {
@@ -923,6 +965,11 @@ class GaussianModel(nn.Module):
                 {'params': self.mlp_deform.parameters(), 'lr': training_args.mlp_deform_lr_init, "name": "mlp_deform"},
                 {'params': self.mlp_complexity.parameters(), 'lr': training_args.mlp_complexity_lr_init, "name": "mlp_complexity"},
             ]
+            if self.color_mode == "asg":
+                l += [
+                    {'params': self.mlp_asg.parameters(), 'lr': training_args.mlp_color_lr_init, "name": "mlp_asg"},
+                    {'params': self.mlp_color2.parameters(), 'lr': training_args.mlp_color_lr_init, "name": "mlp_color2"},
+                ]
             if self.semantic_proj_head is not None:
                 l.append(
                     {
@@ -960,6 +1007,19 @@ class GaussianModel(nn.Module):
                                                     lr_final=training_args.mlp_color_lr_final,
                                                     lr_delay_mult=training_args.mlp_color_lr_delay_mult,
                                                     max_steps=training_args.mlp_color_lr_max_steps)
+        if self.color_mode == "asg":
+            self.mlp_asg_scheduler_args = get_expon_lr_func(
+                lr_init=training_args.mlp_color_lr_init,
+                lr_final=training_args.mlp_color_lr_final,
+                lr_delay_mult=training_args.mlp_color_lr_delay_mult,
+                max_steps=training_args.mlp_color_lr_max_steps,
+            )
+            self.mlp_color2_scheduler_args = get_expon_lr_func(
+                lr_init=training_args.mlp_color_lr_init,
+                lr_final=training_args.mlp_color_lr_final,
+                lr_delay_mult=training_args.mlp_color_lr_delay_mult,
+                max_steps=training_args.mlp_color_lr_max_steps,
+            )
         if self.use_feat_bank:
             self.mlp_featurebank_scheduler_args = get_expon_lr_func(lr_init=training_args.mlp_featurebank_lr_init,
                                                         lr_final=training_args.mlp_featurebank_lr_final,
@@ -1014,6 +1074,12 @@ class GaussianModel(nn.Module):
                 param_group['lr'] = lr
             if param_group["name"] == "mlp_color":
                 lr = self.mlp_color_scheduler_args(iteration)
+                param_group['lr'] = lr
+            if self.color_mode == "asg" and param_group["name"] == "mlp_asg":
+                lr = self.mlp_asg_scheduler_args(iteration)
+                param_group['lr'] = lr
+            if self.color_mode == "asg" and param_group["name"] == "mlp_color2":
+                lr = self.mlp_color2_scheduler_args(iteration)
                 param_group['lr'] = lr
             if param_group["name"] == "encoding_xyz":
                 lr = self.encoding_xyz_scheduler_args(iteration)
@@ -1641,7 +1707,7 @@ class GaussianModel(nn.Module):
         mkdir_p(os.path.dirname(path))
 
         if self.use_feat_bank:
-            torch.save({
+            state = {
                 'opacity_mlp': self.mlp_opacity.state_dict(),
                 'mlp_feature_bank': self.mlp_feature_bank.state_dict(),
                 'cov_mlp': self.mlp_cov.state_dict(),
@@ -1649,16 +1715,20 @@ class GaussianModel(nn.Module):
                 'encoding_xyz': self.encoding_xyz.state_dict(),
                 'grid_mlp': self.mlp_grid.state_dict(),
                 'deform_mlp': self.mlp_deform.state_dict(),
-            }, path)
+            }
         else:
-            torch.save({
+            state = {
                 'opacity_mlp': self.mlp_opacity.state_dict(),
                 'cov_mlp': self.mlp_cov.state_dict(),
                 'color_mlp': self.mlp_color.state_dict(),
                 'encoding_xyz': self.encoding_xyz.state_dict(),
                 'grid_mlp': self.mlp_grid.state_dict(),
                 'deform_mlp': self.mlp_deform.state_dict(),
-            }, path)
+            }
+        if self.color_mode == "asg":
+            state['asg_mlp'] = self.mlp_asg.state_dict()
+            state['color2_mlp'] = self.mlp_color2.state_dict()
+        torch.save(state, path)
 
 
     def load_mlp_checkpoints(self,path):
@@ -1666,6 +1736,9 @@ class GaussianModel(nn.Module):
         self.mlp_opacity.load_state_dict(checkpoint['opacity_mlp'])
         self.mlp_cov.load_state_dict(checkpoint['cov_mlp'])
         self.mlp_color.load_state_dict(checkpoint['color_mlp'])
+        if self.color_mode == "asg":
+            self.mlp_asg.load_state_dict(checkpoint['asg_mlp'])
+            self.mlp_color2.load_state_dict(checkpoint['color2_mlp'])
         if self.use_feat_bank:
             self.mlp_feature_bank.load_state_dict(checkpoint['mlp_feature_bank'])
         self.encoding_xyz.load_state_dict(checkpoint['encoding_xyz'])

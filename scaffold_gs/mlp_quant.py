@@ -36,7 +36,9 @@ AC_FREQ_TOTAL = 1 << AC_FREQ_BITS
 MLP_GROUPS = (
     "mlp_opacity",
     "mlp_cov",
+    "mlp_color2",
     "mlp_color",
+    "mlp_asg",
     "mlp_grid",
     "mlp_deform",
     "mlp_complexity",
@@ -51,8 +53,9 @@ def mlp_param_items(core) -> Iterable[Tuple[str, torch.Tensor]]:
 
 
 def _group_of(name: str) -> str:
+    module_name = name.split(".", 1)[0]
     for g in MLP_GROUPS:
-        if name.startswith(g):
+        if module_name == g or name.startswith(g + "."):
             return g
     return "other"
 

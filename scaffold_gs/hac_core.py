@@ -150,6 +150,9 @@ class HACCoreView:
             "mlp_complexity": core.mlp_complexity.state_dict(),
             "encoding_xyz": core.encoding_xyz.state_dict(),
         }
+        if getattr(core, "color_mode", "rgb") == "asg":
+            state["mlp_asg"] = core.mlp_asg.state_dict()
+            state["mlp_color2"] = core.mlp_color2.state_dict()
         if core.use_feat_bank:
             state["mlp_feature_bank"] = core.mlp_feature_bank.state_dict()
         return state
@@ -171,6 +174,9 @@ class HACCoreView:
         core.mlp_opacity.load_state_dict(state["mlp_opacity"])
         core.mlp_cov.load_state_dict(state["mlp_cov"])
         core.mlp_color.load_state_dict(state["mlp_color"])
+        if getattr(core, "color_mode", "rgb") == "asg":
+            core.mlp_asg.load_state_dict(state["mlp_asg"])
+            core.mlp_color2.load_state_dict(state["mlp_color2"])
         core.mlp_grid.load_state_dict(state["mlp_grid"])
         core.mlp_deform.load_state_dict(state["mlp_deform"])
         core.mlp_complexity.load_state_dict(state["mlp_complexity"])

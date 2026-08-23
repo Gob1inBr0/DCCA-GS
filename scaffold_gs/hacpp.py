@@ -182,6 +182,10 @@ class HACPlusModel(BaseGaussianModel):
             mlp_complexity_layers=cfg.mlp_complexity_layers,
             level_threshold_low=cfg.level_threshold_low,
             level_threshold_high=cfg.level_threshold_high,
+            color_mode=cfg.color_mode,
+            asg_lobes=cfg.asg_lobes,
+            asg_latent_dim=cfg.asg_latent_dim,
+            asg_hidden=cfg.asg_hidden,
         )
         self.core.to(self.device)
         self.core.spa_enabled = bool(cfg.spa_enabled)
@@ -727,7 +731,12 @@ class HACPlusModel(BaseGaussianModel):
             neural_opacity_parts.append(no)
             selection_parts.append(sel)
 
-            color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
+            if getattr(core, "color_mode", "rgb") == "asg":
+                color = core.decode_asg_color(
+                    cat_local_view, ob_view
+                ).reshape(c * k, 3)[sel]
+            else:
+                color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
             scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[sel]
             offsets_c = go.reshape(-1, 3)[sel]
             scaling_repeat = (
