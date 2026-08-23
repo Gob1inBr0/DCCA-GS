@@ -21,8 +21,8 @@ log() { echo "[$(date '+%F %T')] $*"; }
 wait_gpu() {
   while :; do
     for i in 0 1; do
-      used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$i" 2>/dev/null | tr -d ' ')
-      if [ -n "$used" ] && [ "$used" -lt 1500 ]; then
+      used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$i" 2>/dev/null | head -1 | tr -d '[:space:]')
+      if [[ "$used" =~ ^[0-9]+$ ]] && [ "$used" -lt 1500 ]; then
         echo "$i"; return 0
       fi
     done
@@ -57,12 +57,8 @@ log "ORCHESTRATOR_START $(date)"
 
 # E1 recovery
 run_finish p0_e1_playroom_r052_mini playroom
-run_finish p0_e1_playroom_r097_mini playroom
 
-# E1 remaining budget point
-run_pipeline 0 p0_e1_playroom_r092_mini playroom 1 1 0.92 30000 15000
-
-# E4 4-28 110k (r=0.85)
+# E4 4-28 110k (r=0.85), protocol matched to the reused baseline (mask-lr-final 0.002)
 run_pipeline 0 p0_e4_428_110k_spa_mini 4-28 1 1 0.85 110000 45000
 run_pipeline 0 p0_e4_428_110k_spa_base 4-28 1 0 0.85 110000 45000
 run_pipeline 0 p0_e4_428_110k_nospa_mini 4-28 0 1 0.85 110000 45000

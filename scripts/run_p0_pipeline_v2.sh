@@ -45,12 +45,12 @@ python train.py train \
   --cfg.data.data-factor 1 --cfg.data.max-width 1600 --cfg.data.test-every 8 \
   --cfg.data.no-preload-images \
   --cfg.model.feat-dim 50 --cfg.model.tile-size 32 --cfg.model.appearance-dim 0 \
-  --cfg.model.mlp-complexity-hidden 32 \
+  --cfg.model.mlp-complexity-hidden 32 --cfg.model.mlp-complexity-layers 1 \
   --cfg.model.content-aware-quant --cfg.model.sensitivity-enabled \
   $SPA_ARGS $MINI_ARGS $EXTRA \
   --cfg.optim.max-steps "$MAX_STEPS" --cfg.optim.update-until "$UPDATE_UNTIL" \
   --cfg.optim.save-steps "$MAX_STEPS" --cfg.optim.eval-steps "$MAX_STEPS" \
-  --cfg.optim.lambda-rate "$LAMBDA" \
+  --cfg.optim.lambda-rate "$LAMBDA" --cfg.optim.mask-lr-final 0.002 \
   > "$OUT/train.log" 2>&1
 grep -q "Training finished" "$OUT/train.log" || { echo "TRAIN_FAILED tag=$TAG"; echo "FAILED" > "$OUT/STATUS"; tail -40 "$OUT/train.log"; exit 1; }
 echo "[$(date '+%F %T')] TRAIN_DONE tag=$TAG"
