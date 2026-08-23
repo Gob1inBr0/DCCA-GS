@@ -265,6 +265,7 @@ class AnchorDecoder(nn.Module):
             color_input = cat_local
 
         if self.color_mode == "asg":
+            # Spec-Gaussian [arXiv:2402.15870, Eq. (4)] two-stage color path.
             color = evaluate_asg_rgb(
                 self.mlp_asg(color_input),
                 ob_view,

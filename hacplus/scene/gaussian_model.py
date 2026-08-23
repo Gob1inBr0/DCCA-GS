@@ -592,6 +592,8 @@ class GaussianModel(nn.Module):
 
     def decode_asg_color(self, color_input, view_dir):
         """Two-stage ASG color decoding (only used when color_mode='asg')."""
+        # Spec-Gaussian [arXiv:2402.15870, Eq. (4)]:
+        # ASG(v) = xi * max(v.z, 0) * exp(-lambda (v.x)^2 - mu (v.y)^2).
         return evaluate_asg_rgb(
             self.mlp_asg(color_input),
             view_dir,
