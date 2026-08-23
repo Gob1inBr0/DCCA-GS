@@ -86,6 +86,8 @@ python train.py train \
   --cfg.optim.max-steps 30000 --cfg.optim.update-until 15000 \
   --cfg.optim.eval-steps 30000 --cfg.optim.save-steps 30000 \
   --cfg.optim.lambda-rate 0.004
+# 可选：ASG 两级颜色解码（默认 rgb，实验分支 codex/color-asg）
+# --cfg.model.color-mode asg
 ```
 
 > 默认主路径即为「I2+I6+SPA(0.85)+MiniSplat」（[config.py](scaffold_gs/config.py) 中
