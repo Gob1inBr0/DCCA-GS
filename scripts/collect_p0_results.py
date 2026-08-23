@@ -39,6 +39,9 @@ EXPECTED = {
     "p0_e4_428_nospa_mini": dict(ratio=None, mini=1, spa=0, scene="4-28"),
     "p0_e4_428_spa_base": dict(ratio=0.85, mini=0, spa=1, scene="4-28"),
     "p0_e4_428_spa_mini": dict(ratio=0.85, mini=1, spa=1, scene="4-28"),
+    "p0_e4_428_110k_nospa_mini": dict(ratio=None, mini=1, spa=0, scene="4-28"),
+    "p0_e4_428_110k_spa_base": dict(ratio=0.85, mini=0, spa=1, scene="4-28"),
+    "p0_e4_428_110k_spa_mini": dict(ratio=0.85, mini=1, spa=1, scene="4-28"),
 }
 
 
