@@ -9,7 +9,7 @@
 | 目录 | 内容 | 文件 |
 | --- | --- | --- |
 | [01-architecture](01-architecture/) | 架构、API、模块设计 | [DCCA-GS_架构说明](01-architecture/DCCA-GS_架构说明.md)、[DCCA-GS_创新点说明](01-architecture/DCCA-GS_创新点说明.md)、[API参考](01-architecture/API参考.md)、[modules-design](01-architecture/modules-design.md)、[DEV](01-architecture/DEV.md)、[gsplat批量渲染说明](01-architecture/gsplat批量渲染说明.md) |
-| [02-design](02-design/) | 实验设计（做什么、怎么验） | [语义先验实验设计](02-design/语义先验实验设计.md)、[SPA训练侧实验设计](02-design/SPA训练侧实验设计.md)、[CompGS残差编码实验设计](02-design/CompGS残差编码实验设计.md)、[创新点P0设计文档](02-design/创新点P0设计文档.md) |
+| [02-design](02-design/) | 实验设计（做什么、怎么验） | [语义先验实验设计](02-design/语义先验实验设计.md)、[SPA训练侧实验设计](02-design/SPA训练侧实验设计.md)、[CompGS残差编码实验设计](02-design/CompGS残差编码实验设计.md)、[创新点P0设计文档](02-design/创新点P0设计文档.md)、[锚点颜色表示_叠加实验设计](02-design/锚点颜色表示_叠加实验设计.md) |
 | [03-reports](03-reports/) | 实验报告（阶段 A/B、方向结论） | [MiniSplat×SPA_实验报告](03-reports/MiniSplat×SPA_实验报告.md)、[消融实验汇总](03-reports/消融实验汇总.md)、[SPA_阶段A报告](03-reports/SPA_阶段A报告.md)、[语义先验_阶段A报告](03-reports/语义先验_阶段A报告.md)、[P0_阶段A报告](03-reports/P0_阶段A报告.md)、[R_阶段A报告](03-reports/R_阶段A报告.md)、[R4_attr上下文_报告](03-reports/R4_attr上下文_报告.md)、[feat_dim扫描报告](03-reports/feat_dim扫描报告.md)、[分块解码最小实验_3.5报告](03-reports/分块解码最小实验_3.5报告.md)、[Octree层级离线熵实验_6.4报告](03-reports/Octree层级离线熵实验_6.4报告.md) |
 | [04-guides](04-guides/) | 环境、安装、上手 | [上手指南](04-guides/上手指南.md)、[环境说明](04-guides/环境说明.md)、[Windows安装说明](04-guides/Windows安装说明.md)、[Makefile](04-guides/Makefile)、[requirements.txt](04-guides/requirements.txt) |
 | [05-paper](05-paper/) | 论文/提案 | [3366-…提案](05-paper/3366-DCCA-GS：Decoder-Reproducible%20Content-Adaptive%20Compression%20for%20Anchor-Based%203D%20Gaussian%20Splatting.docx)、[摘要引言改写](05-paper/3366_摘要引言改写.md)、[实验改写](05-paper/3366_实验改写.md)、[提案汇报讲稿](05-paper/DCCA-GS_提案汇报讲稿.md) |
