@@ -329,8 +329,12 @@ git push origin bundle-main:main
 - **MiniSplat × SPA 固定预算 4 格**（playroom 30k，HAC++ 解码后）✅
   （cell1 30.221/1.859 → cell2 30.420/1.905 → cell3 30.338/2.197 → cell4b 30.458/2.257）
 - **SPA 预算曲线 r={0.52,0.85,0.92,0.97} × baseline/语义**（playroom，解码后）✅
+- **E1 MiniSplat × SPA 预算曲线** ✅（BD-PSNR +0.124 dB，BD-rate −8.6%）
+- **E4 4-28 110k** ✅（SPA+Mini 28.736/5.449，SPA base 28.748/5.514，
+  非SPA+Mini 28.759/5.433；大场景未见明显 Mini 增益）
 - **4-28 B 组（非 SPA，30k）baseline vs 语义** ✅（28.308 vs 28.267，语义无净增益）
 - **语义先验方向：暂停**（同比特 BD-rate +8.2%；大场景 −0.041 dB）
+- **drjohnson 30k cell1/cell2 泛化** 🔜（5090 已启动，等待结果）
 
 接下来（按优先级，详见 `../03-reports/MiniSplat×SPA_实验报告.md` §7）：
 
@@ -349,7 +353,8 @@ tail -f /home/fansonglin/data_space/DCCA-GS/runs/*/train.log
 
 ## 10. 给下一个 Agent 的行动清单
 
-1. 读本文件 + `../04-guides/环境说明.md` + `../06-planning/DCCA-GS_项目变更文档.md`；
+1. 读本文件 + `../04-guides/环境说明.md` + `../04-guides/环境配置与交接.md` +
+   `../06-planning/DCCA-GS_项目变更文档.md`；
 2. 5090：`conda activate HAC_5090_a100 && source scripts/env_5090.sh`，
    `pytest tests/ -q` 跑单测；
 3. 看 `../data/experiments.csv` 和 `runs/db_rd_110k.json` /
@@ -361,6 +366,7 @@ tail -f /home/fansonglin/data_space/DCCA-GS/runs/*/train.log
 ## 11. 相关文档索引
 
 - `../04-guides/环境说明.md`：环境
+- `../04-guides/环境配置与交接.md`：另一台 Linux+NVIDIA 机器的完整配置步骤
 - `../06-planning/DCCA-GS_项目变更文档.md`：状态/坑/结果历史
 - `../01-architecture/DCCA-GS_架构说明.md`：架构与创新点详解
 - `../03-reports/P0_阶段A报告.md`、`../03-reports/R_阶段A报告.md`、`../03-reports/R4_attr上下文_报告.md`、
