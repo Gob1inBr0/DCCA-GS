@@ -5,6 +5,7 @@ import torch
 from scaffold_gs.attr_ctx import (
     AttrCtxPredictor,
     load_attr_ctx_payload,
+    quantize_attr_ctx_inplace,
     save_attr_ctx_payload,
 )
 
@@ -14,6 +15,7 @@ def test_payload_roundtrip(tmp_path):
     pred = AttrCtxPredictor(feat_dim=50, grid_ctx_dim=48, n_offsets=10, hidden=64)
     n = save_attr_ctx_payload(pred, tmp_path)
     assert n > 0
+    quantize_attr_ctx_inplace(pred)
     pred2 = load_attr_ctx_payload(tmp_path, "cpu")
     sd1 = pred.state_dict()
     sd2 = pred2.state_dict()
@@ -42,5 +44,5 @@ def test_adjust_shapes():
     scaling_q = torch.randn(n, 6)
     masks = torch.randint(0, 2, (n, 10)).float()
     mo, so = adjust_offsets(pred, mean_o, scale_o, feat_q, scaling_q, masks, ctx)
-    assert mo.shape == (n, k3) and so.shape == (n, k3)
+    assert mo.shape == (n * k3,) and so.shape == (n * k3,)
     assert (so > 0).all()

@@ -11,9 +11,9 @@ import pytest
 from scaffold_gs.config import ModelConfig
 
 
-def test_mini_splat_default_off() -> None:
+def test_mini_splat_default_on() -> None:
     cfg = ModelConfig()
-    assert cfg.mini_splat_enabled is False
+    assert cfg.mini_splat_enabled is True
     assert cfg.mini_splat_reinit_iter == 15_000
     assert cfg.mini_splat_max_new == 4_000
     assert cfg.mini_splat_views == 8
