@@ -15,6 +15,7 @@
 | --- | --- |
 | **「位置 > 预算」成立** | playroom 30k 同预算（SPA ratio 0.85）：MiniSplat+SPA 30.420 dB / 1.905 MB，基线 SPA 30.221 dB / 1.859 MB → **+0.199 dB，体积仅 +2.5%** |
 | MiniSplat 是「免费重排」 | 增密只把锚点铺到表面，SPA 预算钉在增密前；训练锚点 112,875→115,170（+2.0%），体积 +2.5% |
+| MiniSplat 是**场景依赖** | drjohnson 30k：cell2 29.3146 dB / 2.0021 MB vs cell1 29.3871 dB / 2.0379 MB → **−0.073 dB，体积 −1.8%**；4-28 110k 同样近零 |
 | 语义监督是**比特昂贵**的 | 同预算下语义 +0.117 dB（高档），但体积 +18.2%；完整预算曲线上 **BD-PSNR −0.10 dB、BD-rate +8.2%**（同率不占优） |
 | 大场景语义无净增益 | 4-28（非 SPA，30k）语义 28.267 vs 基线 28.308 dB（**−0.041 dB**），SSIM/LPIPS 几乎不变 |
 | 当前主路径 | **cell2 = I2 + I6 + SPA(0.85) + MiniSplat**（`spa_enabled=True, spa_ratio=0.85, mini_splat_enabled=True`）；语义方向暂停 |
