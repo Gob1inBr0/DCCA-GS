@@ -14,9 +14,9 @@ UPDATE_UNTIL=${7:-45000}
 shift 7
 EXTRA=("$@")
 
-R=/home/fansonglin/data_space/web_scan/runs/${TAG}
-LOG=/home/fansonglin/data_space/web_scan/runs/${TAG}.log
-RUNROOT=/home/fansonglin/xieliang/chentong/PHG
+R=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}
+LOG=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}.log
+RUNROOT=${RUNROOT:-/home/fansonglin/xieliang/chentong/PHG}
 export PATH=/home/fansonglin/miniconda3/envs/HAC_5090_a100/bin:$PATH
 export PYTHONNOUSERSITE=1
 export PYTHONPATH="$RUNROOT"

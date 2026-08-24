@@ -8,8 +8,11 @@
 
 > 核心观点：**锚点压缩的瓶颈不是数量，而是位置；比特分配不是静态的，而是内容自适应的。**
 > DCCA-GS 用「解码端可重算」的内容自适应量化（I2）、渲染敏感度监督（I6）、
-> 训练侧 ADMM 锚点预算（SPA）、Mini-Splatting 式表面增密（depth-reinit）四条主线，
+> 训练侧 ADMM 锚点预算（SPA）、Mini-Splatting 式表面增密（depth-reinit）、
+> 解码 MLP 混合精度量化（cd8/rest16）五条主线，
 > 在**不新增任何侧信息、不改变码流契约**的前提下提升率失真（RD）曲线。
+
+论文当前统一口径为 **5 组件**：`I2 + I6 + SPA + MiniSplat + MLP 量化`。
 
 ---
 
@@ -23,7 +26,7 @@
 | **SPA 训练侧稀疏** | ✅ 默认开 | ADMM 硬投影 + 显式锚点预算，训练期而非编码期做剪枝 |
 | **MiniSplat depth-reinit** | ✅ 默认开 | 生长停止时深度反投影增密，把锚点「铺」到场景表面，预算钉在增密前 |
 | 语义先验（T-A2） | ⏸ 可选/默认关 | DINOv2 目标 + 8 维投影头，15k 自我锚点刷新；已证实是「比特换质量」 |
-| MLP 权重量化 | ✅ 推荐 | per-channel PTQ + 静态算术编码，推荐 complexity/deform 8-bit、其余 16-bit |
+| MLP 权重量化 | ✅ 5 组件标配 | per-channel PTQ + 静态算术编码，complexity/deform 8-bit、其余 16-bit |
 | R4 attr-ctx | ⏸ 可选/默认关 | 训练后条件熵预测器（scaling），4-28 上约 -0.4% 体积 |
 | I1 层级上下文 | ⚠️ 默认关 | 尺度感知 anchor-hash 上下文；增益有限，需注意 start_iter |
 
@@ -140,6 +143,7 @@ DCCA-GS/
 
 - [docs/README.md](docs/README.md) — 文档中心索引（分类、命名、维护规则）
 - [docs/03-reports/MiniSplat×SPA_实验报告.md](docs/03-reports/MiniSplat×SPA_实验报告.md) — 本方向核心报告 + 后续实验设计
+- [docs/04-guides/环境配置与交接.md](docs/04-guides/环境配置与交接.md) — 另一台 Linux+NVIDIA 机器的完整环境配置与验证步骤
 - [docs/03-reports/消融实验汇总.md](docs/03-reports/消融实验汇总.md) — 全方向消融结论
 - [docs/02-design/语义先验实验设计.md](docs/02-design/语义先验实验设计.md) — 语义先验设计（含 Stage A/B 门控）
 - [docs/02-design/SPA训练侧实验设计.md](docs/02-design/SPA训练侧实验设计.md) — SPA 训练侧稀疏设计
