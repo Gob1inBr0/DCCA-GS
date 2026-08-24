@@ -821,7 +821,7 @@ dim16/dim32 都是“更小、质量略降”）。
 pytest tests/ -q
 ```
 
-- 5090 `HAC_5090_a100` 环境：**19 passed**。
+- 5090 `HAC_5090_a100` 环境：**37 passed**。
 - `tests/test_hacpp_smoke.py`、`tests/test_render_smoke.py` 需要 HAC++ CUDA
   扩展/GPU；其余 CPU 单测（模型/生长/数据集/配置）本地可跑。
 - 测试文件：`test_datasets.py`（max_width 规则）、`test_model.py`（体素化/

@@ -115,7 +115,7 @@ PHG/
 │   ├── scene/gaussian_model.py   # 锚点/MLP/SPA 状态/ADMM 剪枝
 │   └── utils/                    # entropy_models / codec_consistency / gpcc_utils ...
 ├── scripts/                      # runner / 扫描 / 收集 / 绘图 / 审计（见 §4）
-├── tests/                        # pytest（5090 上 19 passed）
+├── tests/                        # pytest（5090 上 37 passed）
 └── docs/                         # 设计文档、实验报告、HANDOVER（本文件）
 ```
 
@@ -210,7 +210,7 @@ python scripts/mlp_quant_sweep.py --ckpt <ckpt.pth> --data-dir <DATA_DIR> \
 ### 4.5 测试
 
 ```bash
-pytest tests/ -q     # 5090 预期 19 passed
+pytest tests/ -q     # 5090 预期 37 passed
 ```
 
 ## 5. 实验结果（截至 2026-08-19）
