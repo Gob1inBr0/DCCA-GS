@@ -334,7 +334,8 @@ git push origin bundle-main:main
   非SPA+Mini 28.759/5.433；大场景未见明显 Mini 增益）
 - **4-28 B 组（非 SPA，30k）baseline vs 语义** ✅（28.308 vs 28.267，语义无净增益）
 - **语义先验方向：暂停**（同比特 BD-rate +8.2%；大场景 −0.041 dB）
-- **drjohnson 30k cell1/cell2 泛化** 🔜（5090 已启动，等待结果）
+- **drjohnson 30k cell1/cell2 泛化** ✅（cell1 29.3899/2.0379，cell2 29.3146/2.0021；
+  MiniSplat −0.073 dB / −1.8% 体积 → 场景依赖，非普适）
 
 接下来（按优先级，详见 `../03-reports/MiniSplat×SPA_实验报告.md` §7）：
 

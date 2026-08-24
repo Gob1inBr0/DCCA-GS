@@ -51,6 +51,15 @@
 | **DCCA-GS（I2+I6）** | **28.823** | **0.8926** | **0.2771** | **5.485** |
 | HAC++ 论文参考 | 28.311 | 0.8900 | 0.2932 | 6.946 |
 
+### drjohnson 30k（5 组件对照，λ=0.004，SPA 0.85，1600 宽）
+
+| 方案 | PSNR | SSIM | LPIPS | total_MB（MLP量化） |
+| --- | ---: | ---: | ---: | ---: |
+| I2+I6+SPA | **29.3899** | **0.9000** | **0.2806** | **2.0379** |
+| +MiniSplat | 29.3146 | 0.8993 | 0.2809 | 2.0021 |
+
+MiniSplat 在 drjohnson 上为 **−0.073 dB / −1.8% 体积**；与 playroom 正增益、4-28 近零一起说明该机制是**场景依赖**。
+
 完整实验数字见 [docs/data/experiments.csv](docs/data/experiments.csv)；分析见
 [MiniSplat×SPA_实验报告](docs/03-reports/MiniSplat×SPA_实验报告.md)。
 

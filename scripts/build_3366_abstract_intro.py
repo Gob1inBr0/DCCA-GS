@@ -37,8 +37,9 @@ NEW_ABSTRACT = (
     "PSNR cost on Deep-Blending playroom at 110k); and (5) Mini-Splatting "
     "depth re-initialization, which re-seeds anchors from visible scene "
     "depth under a fixed SPA budget without side information, giving "
-    "+0.199 dB PSNR at +2.5% payload on playroom but no reliable gain on "
-    "the 4-28 UAV scene. Components (1) and (2) "
+    "+0.199 dB PSNR at +2.5% payload on playroom but a small negative "
+    "effect on both 4-28 110k (-0.012 dB) and drjohnson 30k (-0.073 dB). "
+    "Components (1) and (2) "
     "are jointly designed; their interaction is analyzed in the ablation "
     "study, where I6 is critical at low-rate SPA points (+0.42 dB). On the "
     "4-28 UAV scene, the 110k-iteration operating point with MLP "
@@ -101,8 +102,9 @@ NEW_INTRO = [
     "over the SPA ratio curve it gives BD-PSNR +0.124 dB and BD-rate "
     "-8.6%. The gain is not reproduced on 4-28 110k "
     "(SPA+Mini 28.736 dB / 5.449 MiB vs SPA baseline 28.748 dB / "
-    "5.514 MiB), so we report it as scene-dependent and do not claim "
-    "universal improvement.",
+    "5.514 MiB), and drjohnson 30k is slightly negative (29.315 vs "
+    "29.390 dB at -1.8% payload), so we report it as scene-dependent and "
+    "do not claim universal improvement.",
     "In the implementation and experiments, components (1) and (2) are "
     "referred to as I2 and I6, respectively; they are jointly designed, and "
     "their interaction is analyzed in the ablation study. All experiments "
