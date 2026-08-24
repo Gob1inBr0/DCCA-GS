@@ -31,6 +31,36 @@ import torch
 from .model import BaseGaussianModel
 
 
+MINI_SPLAT_ALPHA_MIN = 0.05
+
+
+def valid_depth_alpha_mask(
+    depth: torch.Tensor,
+    alpha: torch.Tensor,
+    alpha_min: float = MINI_SPLAT_ALPHA_MIN,
+) -> torch.Tensor:
+    """Mask valid surface pixels rendered by gsplat.
+
+    gsplat fills missing/background depth with 0; the depth channel is also
+    unreliable where accumulated alpha is negligible. Keeping only
+    ``alpha > alpha_min`` and finite positive depth prevents invalid
+    camera-origin points from being back-projected as anchors.
+    """
+    if depth.dim() == 4:
+        depth = depth[0, :, :, 0]
+    elif depth.dim() == 3 and depth.shape[0] == 1:
+        depth = depth[0]
+    if alpha.dim() == 4:
+        alpha = alpha[0, :, :, 0]
+    elif alpha.dim() == 3 and alpha.shape[0] == 1:
+        alpha = alpha[0]
+    elif alpha.dim() == 3:
+        alpha = alpha[..., 0]
+    if alpha.dim() == 1:
+        alpha = alpha.reshape(depth.shape)
+    return torch.isfinite(depth) & (depth > 0) & (alpha > alpha_min)
+
+
 def _backproject_depth(
     depth: torch.Tensor,  # [1, H, W, 1] camera-z (gsplat render_mode="D")
     cam,
@@ -65,13 +95,13 @@ def render_scene_depth(
     cam,
     background: torch.Tensor,
     device: torch.device,
-) -> Optional[torch.Tensor]:
-    """Render a depth-only map (render_mode="D") from the decoded Gaussians."""
+) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+    """Render depth and alpha with render_mode="D" for Mini-Splatting."""
     from gsplat.rendering import rasterization
 
     visible_mask = model.prefilter_anchors(cam)
     if visible_mask.sum() == 0:
-        return None
+        return None, None
     gaussians = model.generate_gaussians(
         cam,
         visible_mask=visible_mask,
@@ -80,9 +110,9 @@ def render_scene_depth(
         step=0,
     )
     if gaussians.xyz.shape[0] == 0:
-        return None
+        return None, None
     viewmats, Ks = cam.to_gsplat(device)
-    render_depths, _alphas, _meta = rasterization(
+    render_depths, render_alphas, _meta = rasterization(
         means=gaussians.xyz,
         quats=gaussians.quats,
         scales=gaussians.scales,
@@ -98,7 +128,7 @@ def render_scene_depth(
         packed=True,
         tile_size=int(getattr(model.cfg, "tile_size", 16)),
     )
-    return render_depths
+    return render_depths, render_alphas
 
 
 def collect_depth_surface_anchors(
@@ -117,16 +147,18 @@ def collect_depth_surface_anchors(
     """
     all_candidate: List[torch.Tensor] = []
     for cam in cameras:
-        depth = render_scene_depth(model, cam, background, device)
-        if depth is None:
+        depth, alpha = render_scene_depth(model, cam, background, device)
+        if depth is None or alpha is None:
             continue
         world = _backproject_depth(depth, cam, device)
+        mask = valid_depth_alpha_mask(depth, alpha)
+        world = world[mask.reshape(-1)]
         # Keep a sparse, well-spread subset of surface points.
         if world.shape[0] == 0:
             continue
         cell = torch.round(world / voxel_size).int()
         uniq, inv = torch.unique(cell, return_inverse=True, dim=0)
-        # Median world point per occupied cell (robust surface estimate).
+        # Mean world point per occupied cell (robust surface estimate).
         scatter = torch.zeros(uniq.shape[0], 3, device=device)
         count = torch.zeros(uniq.shape[0], 1, device=device)
         scatter.scatter_reduce_(
@@ -148,15 +180,24 @@ def collect_depth_surface_anchors(
     # Voxel subsample the deep surface to a spread, capped candidate set.
     cell = torch.round(candidates / voxel_size).int()
     uniq, inv = torch.unique(cell, return_inverse=True, dim=0)
-    first_idx: List[int] = []
-    seen = torch.zeros(uniq.shape[0], dtype=torch.bool, device=device)
-    for i in range(candidates.shape[0]):
-        c = inv[i].item()
-        if not seen[c]:
-            seen[c] = True
-            first_idx.append(i)
-            if len(first_idx) >= max_new:
-                break
-    if not first_idx:
+    scatter = torch.zeros(uniq.shape[0], 3, device=device)
+    count = torch.zeros(uniq.shape[0], 1, device=device)
+    scatter.scatter_reduce_(
+        0, inv.view(-1, 1).expand(-1, 3), candidates, reduce="sum", include_self=False
+    )
+    count.scatter_reduce_(
+        0,
+        inv.view(-1, 1),
+        torch.ones(candidates.shape[0], 1, device=device),
+        reduce="sum",
+        include_self=False,
+    )
+    cell_xyz = (scatter / count.clamp_min(1.0)).cpu()
+    if cell_xyz.shape[0] == 0:
         return torch.zeros(0, 3, device=device)
-    return candidates[torch.tensor(first_idx, device=device)]
+    rng = torch.Generator(device="cpu")
+    rng.manual_seed(42)
+    if cell_xyz.shape[0] > max_new:
+        idx = torch.randperm(cell_xyz.shape[0], generator=rng)[:max_new]
+        cell_xyz = cell_xyz[idx]
+    return cell_xyz.to(device)
