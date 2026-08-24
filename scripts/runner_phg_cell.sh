@@ -17,7 +17,8 @@ EXTRA=("$@")
 R=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}
 LOG=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}.log
 RUNROOT=${RUNROOT:-/home/fansonglin/xieliang/chentong/PHG}
-export PATH=/home/fansonglin/miniconda3/envs/HAC_5090_a100/bin:$PATH
+EXPORT_PATH="${CONDA_ENV_BIN:-/home/fansonglin/miniconda3/envs/HAC_5090_a100/bin}"
+export PATH="$EXPORT_PATH:$PATH"
 export PYTHONNOUSERSITE=1
 export PYTHONPATH="$RUNROOT"
 cd "$RUNROOT"
