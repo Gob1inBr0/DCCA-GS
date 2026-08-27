@@ -180,6 +180,12 @@ class ModelConfig:
     """Number of training cameras used to sample the scene surface."""
     mini_splat_voxel: float = 0.0
     """Voxel size for depth-surface anchor sampling; <=0 uses model voxel_size."""
+    mini_splat_full: bool = False
+    """Enable blur split + intersection-preserving simplification (full version)."""
+    mini_splat_blur_threshold: float = 0.01
+    """Max-contribution area fraction above which an anchor is blur-split."""
+    mini_splat_importance_weight: float = 0.25
+    """Weight of the ADMM score when blended with contribution area."""
 
     def __post_init__(self) -> None:
         if self.content_aware_q_mode != "formula":
@@ -191,6 +197,12 @@ class ModelConfig:
             raise ValueError("mini_splat_reinit_iter must be >= 1")
         if self.mini_splat_max_new < 0:
             raise ValueError("mini_splat_max_new must be >= 0")
+        if not (0.0 < self.mini_splat_blur_threshold < 1.0):
+            raise ValueError(
+                "mini_splat_blur_threshold must be in (0, 1)"
+            )
+        if self.mini_splat_importance_weight < 0.0:
+            raise ValueError("mini_splat_importance_weight must be >= 0")
         if self.mlp_complexity_layers < 1:
             raise ValueError("mlp_complexity_layers must be >= 1")
         if not (0.0 <= self.level_threshold_low < self.level_threshold_high <= 1.0):

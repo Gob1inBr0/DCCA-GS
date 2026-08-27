@@ -348,6 +348,11 @@ class GaussianModel(nn.Module):
         self.spa_final_n = 0
         self.spa_ref_n = 0
 
+        # Mini-Splatting full-mode per-anchor contribution area (training-only).
+        self.mini_splat_importance = torch.empty(0, 1)
+        self.mini_splat_full_selected = False
+        self.mini_splat_importance_weight = 0.25
+
         self.offset_gradient_accum = torch.empty(0)
         self.offset_denom = torch.empty(0)
 
@@ -1256,7 +1261,7 @@ class GaussianModel(nn.Module):
         self._sync_semantic_state()
         for name in (
             "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
-            "spa_z", "spa_u",
+            "spa_z", "spa_u", "mini_splat_importance",
         ):
             tensor = getattr(self, name)
             if tensor.numel() == 0:
@@ -1294,7 +1299,7 @@ class GaussianModel(nn.Module):
 
         for name in (
             "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
-            "spa_z", "spa_u",
+            "spa_z", "spa_u", "mini_splat_importance",
         ):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
@@ -1394,7 +1399,7 @@ class GaussianModel(nn.Module):
 
                 for name in (
                     "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
-                    "spa_z", "spa_u",
+                    "spa_z", "spa_u", "mini_splat_importance",
                 ):
                     if name.startswith("spa_") and not self.spa_enabled:
                         continue
@@ -1495,6 +1500,7 @@ class GaussianModel(nn.Module):
             "sensitivity_offsets",
             "spa_z",
             "spa_u",
+            "mini_splat_importance",
         ):
             tensor = getattr(self, name, None)
             if tensor is None or tensor.numel() == 0:
@@ -1559,7 +1565,11 @@ class GaussianModel(nn.Module):
             if self.spa_z.numel() == 0 or self.spa_z.shape[0] != n:
                 self.spa_z = torch.zeros(n, 1, device="cuda")
                 self.spa_u = torch.zeros(n, 1, device="cuda")
-            if self.current_step >= self.spa_update_until:
+            if getattr(self, "mini_splat_full_selected", False):
+                if self.spa_final_n == 0:
+                    self.spa_final_n = n
+                kappa = max(1, int(round(self.spa_final_n)))
+            elif self.current_step >= self.spa_update_until:
                 if self.spa_final_n == 0:
                     self.spa_final_n = n
                 kappa = max(1, int(round(self.spa_final_n * self.spa_ratio)))
@@ -1582,6 +1592,15 @@ class GaussianModel(nn.Module):
                 kappa = max(1, int(round(self.spa_ref_n * ratio_t)))
             a = self.get_mask.mean(dim=1).detach()  # [N, 1] soft anchor score
             scores = (a + self.spa_u).squeeze(-1)
+            if getattr(self, "mini_splat_full_selected", False):
+                importance = getattr(self, "mini_splat_importance", None)
+                if importance is not None and importance.numel() == scores.shape[0]:
+                    imp = importance.squeeze(-1).detach()
+                    imp = imp / imp.max().clamp_min(1e-8)
+                    weight = float(
+                        getattr(self, "mini_splat_importance_weight", 0.25)
+                    )
+                    scores = imp + weight * scores
             kappa = min(kappa, scores.shape[0])
             z = torch.zeros_like(scores, dtype=torch.bool)
             if kappa > 0:
@@ -1622,7 +1641,7 @@ class GaussianModel(nn.Module):
 
         for name in (
             "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
-            "spa_z", "spa_u",
+            "spa_z", "spa_u", "mini_splat_importance",
         ):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
