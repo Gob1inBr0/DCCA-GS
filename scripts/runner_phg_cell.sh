@@ -13,6 +13,7 @@ MAX_STEPS=${6:-110000}
 UPDATE_UNTIL=${7:-45000}
 shift 7
 EXTRA=("$@")
+WAIT_VRAM_MB=${WAIT_VRAM_MB:-20000}
 
 R=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}
 LOG=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}.log
@@ -38,7 +39,7 @@ wait_vram() {
   exit 1
 }
 
-wait_vram 20000
+wait_vram "$WAIT_VRAM_MB"
 for attempt in $(seq 1 40); do
   echo "ATTEMPT $attempt tag=$TAG lambda=$LAMBDA steps=$MAX_STEPS $(date)"
   if CUDA_VISIBLE_DEVICES="$GPU" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
