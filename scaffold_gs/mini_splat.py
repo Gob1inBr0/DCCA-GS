@@ -287,7 +287,7 @@ def compute_contribution_areas(
 ) -> torch.Tensor:
     """Per-anchor max-contribution pixel area over the sampled cameras."""
     n_total = int(model.num_anchors)
-    area = torch.zeros(n_total, 1, device=device)
+    area = torch.zeros(n_total, device=device)
     for cam in cameras:
         _, _, gaussians, gids, meta = render_scene_depth(
             model, cam, background, device
@@ -297,7 +297,11 @@ def compute_contribution_areas(
         counts = _intersection_weights(meta, device)
         if counts is None:
             continue
-        area.scatter_add_(0, gids.long(), counts.unsqueeze(-1))
+        global_gids = meta.get("gaussian_ids")
+        if global_gids is None or global_gids.numel() == 0:
+            continue
+        anchor_gids = gids.long()[global_gids.long()]
+        area.scatter_add_(0, anchor_gids, counts)
     return area
 
 
@@ -319,13 +323,18 @@ def collect_blur_split_anchors(
         return torch.zeros(0, 3, device=device)
     parts: List[torch.Tensor] = []
     for cam in cameras:
-        _, _, gaussians, gids, _ = render_scene_depth(
+        _, _, gaussians, gids, meta = render_scene_depth(
             model, cam, background, device
         )
-        if gaussians is None or gids is None:
+        if gaussians is None or gids is None or meta is None:
             continue
-        keep = blur[gids.long()]
-        parts.append(gaussians.xyz[keep])
+        global_gids = meta.get("gaussian_ids")
+        if global_gids is None or global_gids.numel() == 0:
+            continue
+        active_anchor = gids.long()[global_gids.long()]
+        active_xyz = gaussians.xyz[global_gids.long()]
+        keep = blur[active_anchor]
+        parts.append(active_xyz[keep])
     if not parts:
         return torch.zeros(0, 3, device=device)
     candidates = torch.cat(parts, dim=0)
