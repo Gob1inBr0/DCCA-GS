@@ -1397,6 +1397,10 @@ class GaussianModel(nn.Module):
                 del self.opacity_accum
                 self.opacity_accum = temp_opacity_accum
 
+                if self.mini_splat_importance.numel() == 0:
+                    self.mini_splat_importance = torch.zeros(
+                        self.get_anchor.shape[0], 1, device="cuda"
+                    )
                 for name in (
                     "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
                     "spa_z", "spa_u", "mini_splat_importance",
@@ -1494,6 +1498,10 @@ class GaussianModel(nn.Module):
         ext = torch.zeros((n, 1), device="cuda").float()
         self.anchor_demon = torch.cat([self.anchor_demon, ext], dim=0)
         self.opacity_accum = torch.cat([self.opacity_accum, ext], dim=0)
+        if self.mini_splat_importance.numel() == 0:
+            self.mini_splat_importance = torch.zeros(
+                self.get_anchor.shape[0], 1, device="cuda"
+            )
         for name in (
             "sensitivity_feat",
             "sensitivity_scaling",
@@ -1537,6 +1545,10 @@ class GaussianModel(nn.Module):
 
     def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005):
         # # adding anchors
+        if self.mini_splat_importance.numel() == 0:
+            self.mini_splat_importance = torch.zeros(
+                self.get_anchor.shape[0], 1, device="cuda"
+            )
         grads = self.offset_gradient_accum / self.offset_denom
         grads[grads.isnan()] = 0.0
         grads_norm = torch.norm(grads, dim=-1)
