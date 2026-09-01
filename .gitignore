@@ -13,6 +13,17 @@ outputs/
 *.pt
 .DS_Store
 
+# LaTeX build artifacts (keep source files only)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+docs/05-paper/iclr2027/main.log
+docs/05-paper/iclr2027/main.pdf
+
 # docs/data contains tracked experiment/survey CSV (not runtime data)
 !docs/
 !docs/data/

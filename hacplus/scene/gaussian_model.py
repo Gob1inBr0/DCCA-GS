@@ -1367,6 +1367,31 @@ class GaussianModel(nn.Module):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
                 setattr(self, name, tensor[valid_points_mask])
+        # Direct prune calls (e.g. MiniSplat-full) bypass adjust_anchor's
+        # manual slicing; keep growth statistics aligned here too.
+        if (
+            self.offset_gradient_accum.numel() > 0
+            and self.offset_gradient_accum.shape[0]
+            != self._anchor.shape[0] * self.n_offsets
+        ):
+            keep_stats = valid_points_mask.repeat_interleave(self.n_offsets)
+            self.offset_gradient_accum = self.offset_gradient_accum[keep_stats]
+            self.offset_denom = self.offset_denom[keep_stats]
+        if (
+            self.opacity_accum.numel() > 0
+            and self.opacity_accum.shape[0] != self._anchor.shape[0]
+        ):
+            self.opacity_accum = self.opacity_accum[valid_points_mask]
+        if (
+            self.anchor_demon.numel() > 0
+            and self.anchor_demon.shape[0] != self._anchor.shape[0]
+        ):
+            self.anchor_demon = self.anchor_demon[valid_points_mask]
+        if (
+            self.max_radii2D.numel() > 0
+            and self.max_radii2D.shape[0] != self._anchor.shape[0]
+        ):
+            self.max_radii2D = self.max_radii2D[valid_points_mask]
         if self.semantic_target.numel() > 0:
             self.semantic_target = self.semantic_target[valid_points_mask]
             self.semantic_cov = self.semantic_cov[valid_points_mask]
@@ -1557,6 +1582,19 @@ class GaussianModel(nn.Module):
         ext = torch.zeros((n, 1), device="cuda").float()
         self.anchor_demon = torch.cat([self.anchor_demon, ext], dim=0)
         self.opacity_accum = torch.cat([self.opacity_accum, ext], dim=0)
+        # MiniSplat reinit changes the anchor count outside the regular
+        # adjust_anchor path; these optimizer/stat buffers must stay aligned
+        # with the new N*K size or the next training_statis / adjust_anchor
+        # overflows (observed as CUDA device-side assert / IndexError on 1-78).
+        stat_ext = torch.zeros(
+            (n * self.n_offsets, 1),
+            dtype=self.offset_gradient_accum.dtype,
+            device="cuda",
+        )
+        self.offset_gradient_accum = torch.cat(
+            [self.offset_gradient_accum, stat_ext], dim=0
+        )
+        self.offset_denom = torch.cat([self.offset_denom, stat_ext], dim=0)
         for name in (
             "sensitivity_feat",
             "sensitivity_scaling",

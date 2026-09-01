@@ -1,16 +1,18 @@
 # PHG 创新点说明
 
-> 版本：v2.1（2026-08-17）
+> 版本：v2.2（2026-09-02）
 >
 > 定位：论文创新点草稿。每个创新点按“动机 → 原版机制与伪代码 → 方法 → 公式/算法
 > → 与基线对比 → 消融证据 → 边界与理论局限”组织，原理说明达到论文方法章
 > （Methods）的学术粒度。
 >
-> 共三个创新点：
+> 共四个创新点：
 >
 > 1. **渲染敏感性复杂度量化**（原 I2 + I6 合并）；
 > 2. **MLP 权重量化 + 算术编码**；
 > 3. **GaussianSpa 式训练侧 ADMM 剪枝**（阶段 A 完成，尚未补完整实验）。
+> 4. **Mini-Splatting 锚点空间重排**（当前主路径为 depth-reinit；完整版
+>    blur-split + contribution simplification 作为可选/消融版本）。
 
 ---
 
@@ -36,7 +38,7 @@ HAC++ 的压缩管线可以抽象成五个环节：
    写码流。feat 额外经过 `Channel_CTX_fea` 通道自回归（逐 10 维组条件解码），
    所以解码必须按固定顺序（feat → scaling → offsets）。
 
-### 0.2 体积口径（三个创新点“省在哪里”的共同参照系）
+### 0.2 体积口径（四个创新点“省在哪里”的共同参照系）
 
 ```text
 total_MB = (bits_xyz + bits_feat + bits_scaling + bits_offsets
@@ -46,16 +48,18 @@ total_MB = (bits_xyz + bits_feat + bits_scaling + bits_offsets
 
 - `bit_mlp` 官方口径 = Σ(MLP 参数个数) × 32 bit；MLP 量化实验用真实压缩载荷替换；
 - `bit_bounds` = 32 × 3 × 2（x_bound 边界，float32）；
-- 三个创新点的贡献对应：创新点①省 `bits_feat/scaling/offsets`，创新点②省
-  `bit_mlp`，创新点③省几乎所有与锚点数量成比例的项（几何 + 属性 + masks + hash）。
+- 四个创新点的贡献对应：创新点①省 `bits_feat/scaling/offsets`，创新点②省
+  `bit_mlp`，创新点③省几乎所有与锚点数量成比例的项（几何 + 属性 + masks + hash），
+  创新点④在固定预算下调整锚点位置。
 
-### 0.3 三个创新点“动在哪里”的速览
+### 0.3 四个创新点“动在哪里”的速览
 
 | 创新点 | 维度 | 原版基线 | PHG 改动 |
 | --- | --- | --- | --- |
 | ① 渲染敏感性复杂度量化 | 量化步长 Q | `mlp_grid` 输出每锚点 Q 调整量 | 再乘一个内容复杂度乘子，并用渲染敏感度监督该乘子 |
 | ② MLP 权重量化 + 算术编码 | 解码器模型体积 | 权重按 float32 计入体积 | 逐通道 PTQ + 静态区间编码 |
 | ③ SPA 剪枝 | 锚点数量 | 训练后一次 topk | 训练中 ADMM 交替“优化-稀疏化” |
+| ④ MiniSplat | 锚点位置 | 固定预算下重排锚点 | 生长停止点做深度/表面重采样，SPA 预算钉在增密前 |
 
 ---
 
@@ -733,24 +737,115 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 4. 三个创新点的正交性与组合策略
+## 4. 创新点④：Mini-Splatting anchor spatial re-organization
 
-| 创新点 | 维度 | 省什么 | 与其余两个的关系 |
+### 4.1 动机
+
+SPA 解决的是“保留多少锚点”；MiniSplat 解决的是“哪些锚点值得保留”。
+训练侧的 top-k/ADMM 只是删锚点，不会改变幸存锚点的空间分布。当场景里存在
+“重叠区域锚点扎堆、覆盖不足区域又缺锚点”时，只压数量会把质量损失放在最不该
+损失的位置。
+
+本文沿用 Fang & Wang 的观点：**count is not the bottleneck, placement is**。
+把 Mini-Splatting 的 depth-reinit 移植到锚点/HAC++ 世界，不增加码流侧信息，
+只改变训练中的锚点位置。
+
+### 4.2 与 SPA 的关系
+
+`depth-reinit + SPA` 的关键设计是：
+
+1. 在生长停止点（30k 协议为 15000，110k 协议为 45000）渲染若干训练相机的深度图；
+2. 把有效深度反投影到世界表面，体素去重后生成候选锚点；
+3. 调用 `append_depth_anchors` 加入候选锚点；
+4. **增密前把 SPA 预算钉死**（`spa_final_n = 增密前锚点数`），
+   因此新增锚点只参与“谁活下来”，不会抬高预算；
+5. SPA 的 ADMM top-k 在重排后的锚点集上继续训练。
+
+这样隔离了“位置（placement）”与“数量（count）”：如果增益来自多塞锚点，
+体积会相应变大；如果来自重排，体积几乎不动而质量上升。
+
+### 4.3 depth-reinit 实现
+
+关键模块：
+
+| 模块 | 职责 |
+| --- | --- |
+| `scaffold_gs/config.py` | `mini_splat_enabled / reinit_iter / max_new / views / voxel` |
+| `scaffold_gs/hacpp.py` | `mini_splat_reinit()`，固定 SPA 预算并调用重采样 |
+| `scaffold_gs/mini_splat.py` | 深度渲染、反投影、体素化、确定性采样 |
+| `hacplus/scene/gaussian_model.py` | `append_depth_anchors()`、统计张量同步 |
+| `scaffold_gs/trainer.py` | 在 `iteration == mini_splat_reinit_iter` 触发 |
+
+工程上需要同步的状态包括 `offset_gradient_accum / offset_denom /
+opacity_accum / anchor_demon / max_radii2D / spa_z / spa_u /
+mini_splat_importance` 等。当前版本在 `append_depth_anchors` 中扩展统计张量，
+并在直接 `prune_anchor`（完整版路径）中按“实际锚点数是否一致”决定是否裁剪，
+避免 `adjust_anchor` 已预裁剪后的二次裁剪。
+
+### 4.4 完整版（blur split + contribution simplification）
+
+`mini_splat_full=True` 时，在 depth-reinit 之外增加：
+
+- 用 gsplat packed intersection API 计算每个锚点的最大贡献像素面积；
+- blur split：对贡献面积过大的锚点生成子锚点；
+- intersection-preserving simplification：按贡献面积选锚点，再用
+  `mini_splat_importance` 加权 SPA 分数；
+- 最后固定到同一预算，让后续 SPA 重排。
+
+完整版是“更大改动但更复杂”的路径；当前可用作消融，不作为默认主路径。
+
+### 4.5 实验结果
+
+**playroom 30k、SPA ratio=0.85、λ=0.004、HAC++ 解码后：**
+
+| 配置 | PSNR | total_MB | 说明 |
+| --- | ---: | ---: | --- |
+| SPA baseline | 30.2210 | 1.8594 | 无 MiniSplat |
+| depth-reinit + SPA | 30.4202 | 1.9051 | +0.199 dB，体积 +2.5% |
+| SPA 预算曲线（r=0.52/0.85/0.92/0.97） | — | — | BD-PSNR +0.124 dB，BD-rate −8.6% |
+
+**完整版 vs depth-reinit 跨场景（30k、SPA 0.85、λ=0.004，官方体积口径）：**
+
+| 场景 | full PSNR/MB | depth PSNR/MB | ΔPSNR | Δ体积 |
+| --- | ---: | ---: | ---: | ---: |
+| playroom | 30.525 / 1.356 | 30.273 / 1.422 | +0.252 | −4.6% |
+| drjohnson | 29.416 / 2.082 | 29.504 / 2.225 | −0.088 | −6.4% |
+| T&T train | 22.164 / 3.239 | 22.284 / 3.631 | −0.120 | −10.8% |
+| T&T truck | 25.391 / 3.248 | 25.380 / 3.434 | +0.011 | −5.4% |
+| Mip garden | 26.181 / 5.529 | 26.291 / 6.060 | −0.110 | −8.8% |
+| Mip bicycle | 24.171 / 3.824 | 24.255 / 4.270 | −0.085 | −10.4% |
+| Mip stump | 25.665 / 2.648 | 25.781 / 2.980 | −0.116 | −11.1% |
+
+结论：
+
+1. depth-reinit 在 playroom 上是“免费重排”，在 SPA 预算曲线上 BD-rate −8.6%；
+2. 完整版跨场景的优势是**体积更紧凑**（约 5–11%），不是普适 PSNR 提升；
+3. 完整版只在 playroom/T&T truck 同时改善质量，playroom 换 seed 后增益不稳定；
+4. 因此论文应报告 depth-reinit 为主要实现，完整版作为可选/消融版本，
+   不能写成“泛化有效”。
+5. 新三场景（1-78、2-06、4-10）的 30k 矩阵正在跑，后续按同一协议更新本表。
+
+---
+
+## 5. 四个创新点的正交性与组合策略
+
+| 创新点 | 维度 | 省什么 | 与其余三个的关系 |
 | --- | --- | --- | --- |
 | ① 渲染敏感性复杂度量化 | 量化步长 | 属性字段的码率 | 独立于锚点数量和 MLP 体积 |
 | ② MLP 权重量化 | 模型体积 | bit_mlp 固定开销 | SPA 后占比最大，必须组合 |
 | ③ SPA 剪枝 | 锚点数量 | 所有与锚点数成比例的项 | 与 ① 正交；低码率点依赖 ② 收尾 |
+| ④ MiniSplat | 锚点位置 | 固定预算下重新分配锚点 | 与 ③ 联合，改变“哪些锚点活”而不是增加预算 |
 
 组合优先级：
 
 1. **低码率操作点**：SPA（③）先压锚点数，再叠加 MLP 量化（②）——此时 MLP
    权重占比最高，② 的收益最大；
 2. **中等码率**：I2+I6（①）微调 Q 分配，MLP 量化（②）压固定开销；
-3. **全码率**：三者同时开，用多场景、多 λ 的完整 RD 曲线和 BD-rate 对照验证。
+3. **全码率**：四者联合（①+②+③+④），用多场景、多 λ 的完整 RD 曲线和 BD-rate 对照验证。
 
 ---
 
-## 5. 汇总对照表
+## 6. 汇总对照表
 
 **4-28 场景（1600 宽，官方体积口径，含 MLP 权重）：**
 
@@ -775,7 +870,7 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 6. 术语表
+## 7. 术语表
 
 | 术语 | 含义 |
 | --- | --- |
@@ -804,7 +899,7 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 7. 数据来源
+## 8. 数据来源
 
 本文档所有数字均来自以下已确认来源，未新增任何未实测数字：
 
@@ -828,7 +923,7 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 8. 明确不属于创新点的部分（供论文叙述时排除）
+## 9. 明确不属于创新点的部分（供论文叙述时排除）
 
 - feat_dim 泛化、训练加速、图像缓存、tile 尺寸、deform 加载修复：工程实现；
 - I1 层级上下文：消融为中性偏负（+0.003dB、体积 +0.10MB），已默认关闭并删除
