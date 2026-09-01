@@ -764,37 +764,251 @@ SPA 解决的是“保留多少锚点”；MiniSplat 解决的是“哪些锚点
 这样隔离了“位置（placement）”与“数量（count）”：如果增益来自多塞锚点，
 体积会相应变大；如果来自重排，体积几乎不动而质量上升。
 
-### 4.3 depth-reinit 实现
+### 4.3 训练触发点与整体数据流
 
-关键模块：
+训练器在每次迭代的尾部、优化器更新之前检查：
+
+```text
+if iteration == mini_splat_reinit_iter and not core.mini_splat_done:
+    # 1) 钉死 SPA 预算：增密前的锚点数
+    core.spa_final_n = n_before
+    core.spa_ref_n = max(core.spa_ref_n, n_before)
+
+    # 2) depth-reinit：从训练相机得到表面候选锚点
+    candidates = collect_depth_surface_anchors(model, cams, ...)
+    depth_added = core.append_depth_anchors(candidates, voxel)
+
+    # 3) 完整版（可选）：贡献面积 + blur-split + 简化
+    if mini_splat_full:
+        area = compute_contribution_areas(model, cams, ...)
+        blur_candidates = collect_blur_split_anchors(...)
+        blur_added = core.append_depth_anchors(blur_candidates, voxel)
+        keep = topk(area, kappa)
+        core.prune_anchor(~keep)
+        core.mini_splat_full_selected = True
+        core.mini_splat_importance = area[keep]
+
+    core.mini_splat_done = True
+```
+
+这里“生长停止点”是 `optim.update_until`（30k 协议为 15000，110k 协议为 45000）。
+在该迭代上，正常的 `adjust_anchor` 不再执行，因此深度重采样不会与“同一轮
+生长/剪枝”互相干扰；重采样后，SPA 继续在重排后的锚点集上工作。
+
+### 4.4 depth-reinit 的具体实现
+
+#### 4.4.1 相机选择
+
+不从全部训练相机采样，而是固定抽样以保持确定性和控制开销：
+
+```text
+views = min(mini_splat_views, len(train_cameras))
+stride = len(train_cameras) / float(views)
+idx = sorted(set(int(i * stride) for i in range(views)))
+cams = [train_cameras[i] for i in idx if i < len(train_cameras)]
+```
+
+默认 `views=8`。该选择顺序与随机种子无关，后续解码/复现不需要存相机索引。
+
+#### 4.4.2 深度渲染
+
+`render_scene_depth()` 不使用 RGB 渲染，而是直接用 gsplat 深度模式：
+
+```text
+visible_mask = prefilter_anchors(model, cam)
+gaussians = generate_gaussians(cam, visible_mask, is_training=False)
+depths, alphas, meta = rasterization(
+    means=gaussians.xyz,
+    quats=gaussians.quats,
+    scales=gaussians.scales,
+    opacities=gaussians.opacities,
+    viewmats=viewmats,
+    Ks=Ks,
+    render_mode="D",
+    packed=True,
+)
+```
+
+返回的：
+
+- `depths`：`[1, H, W, 1]`，相机坐标系深度；
+- `alphas`：`[1, H, W, 1]` 累积不透明度；
+- `meta`：包含 `gaussian_ids`、`means2d`、`conics`、`opacities`、
+  `isect_offsets`、`flatten_ids` 等，供完整版计算贡献面积；
+- `gaussians.gaussian_anchor_indices`：每个被光栅化的高斯回到其全局锚点索引。
+
+这一层在训练时也是“训练后的重采样”，因此不参与当前步的 autograd。
+
+#### 4.4.3 有效深度过滤与反投影
+
+gsplat 背景/无表面位置深度为 0，必须过滤：
+
+```text
+valid = isfinite(depth) and depth > 0 and alpha > alpha_min
+```
+
+默认 `alpha_min = 0.05`。随后把像素坐标反投影到世界坐标：
+
+```text
+x_cam = (u - cx) * z / fx
+y_cam = (v - cy) * z / fy
+[x, y, z, 1] -> world = c2w @ [x, y, z, 1]
+```
+
+`fx/fy/cx/cy` 来自 `SceneCamera.K`，且已经由 `max_width` 缩放；`c2w` 是
+COLMAP 相机到世界矩阵。反投影结果为 `[N_pixel, 3]`。
+
+#### 4.4.4 体素去重与确定性上限
+
+候选点先按世界坐标体素化：
+
+```text
+cell = round(world / voxel_size)
+uniq, inverse = unique(cell)
+mean_world = scatter_mean(world, inverse)
+```
+
+如果去重后的候选数超过 `mini_splat_max_new`，用固定 seed 的 CPU
+`torch.randperm` 选择子集，避免 GPU 随机数与解码/复现不一致。
+
+这保证：
+
+- 表面点不重复；
+- 候选锚点稳定；
+- 不会因为一个相机恰好投影大量近景像素而生成失控数量的锚点。
+
+#### 4.4.5 追加锚点
+
+`append_depth_anchors(candidates, voxel)` 对每个候选锚点初始化：
+
+```text
+scaling = log(voxel * ones(6))
+rotation = identity quaternion
+anchor_feat = zeros(feat_dim)
+offset = zeros(K, 3)
+mask = ones(K+1)
+opacity = inverse_sigmoid(0.1)
+```
+
+然后走官方的 `cat_tensors_to_optimizer`，让新锚点进入与旧锚点相同的优化器参数组。
+注意：优化器中有 MLP/编码器/语义投影头参数组，这些组没有逐锚点扩展，必须跳过；
+只有 `anchor / offset / mask / anchor_feat / scaling / rotation / opacity`
+逐锚点组合并扩展。
+
+#### 4.4.6 关键状态同步
+
+只扩展模型参数是不够的，训练统计张量也必须同步：
+
+```text
+anchor_demon              [N, 1]                   per-anchor
+opacity_accum             [N, 1]                   per-anchor
+offset_gradient_accum     [N*K, 1]                 per Gaussian fan-in
+offset_denom              [N*K, 1]                 per Gaussian fan-in
+sensitivity_feat/scaling/offsets  [N, 1]           per-anchor
+spa_z / spa_u             [N, 1]                   per-anchor
+mini_splat_importance     [N, 1]                   per-anchor
+semantic_target / cov     [N, dim] / [N, 1]        per-anchor
+```
+
+当前实现：
+
+1. `append_depth_anchors` 中追加 `n*K` 长度的 `offset_gradient_accum` /
+   `offset_denom`，而不是只追加 `n`；
+2. 完整版直接调用 `prune_anchor`（绕过 `adjust_anchor` 的预裁剪）时，统一裁剪
+   上述统计张量；
+3. 用“统计张量长度是否等于当前实际锚点数 `self._anchor.shape[0]`”判断是否
+   已经预裁剪，避免 `adjust_anchor` 路径的二次裁剪。
+
+这一步缺失会导致下一步 `training_statis` 或 `anchor_growing` 出现
+`device-side assert` / `IndexError`，是 1-78 大场景培训期最常见的故障源。
+
+### 4.5 完整版实现：贡献面积、blur split 与 intersection-preserving simplification
+
+#### 4.5.1 贡献面积
+
+完整版先用低层 gsplat 相交接口计算每个锚点的“最大贡献像素面积”：
+
+```text
+gs_ids, pixel_ids, image_ids = rasterize_to_indices_in_range(
+    transmittances, means2d, conics, opacities, ...
+)
+```
+
+对每个相交像素，用 alpha 合成公式恢复该像素的“argmax contributor”权重，再通过：
+
+```text
+global_anchor = gaussian_anchor_indices[gaussian_ids]
+area.scatter_add_(0, global_anchor, per_gaussian_count / (H*W))
+```
+
+把像素面积累加回全局锚点。这里的 `gaussian_ids` 是当前光栅化视图中可见高斯的
+局部索引，必须先映射回全局锚点索引，否则面积会统计到错误锚点。
+
+#### 4.5.2 blur split
+
+贡献面积超过 `mini_splat_blur_threshold` 的锚点被认为覆盖了过多像素。
+对每个被判断为 blur 的锚点，取其光栅化高斯的世界坐标作为子锚点候选，再做
+体素去重并限制在 blur 预算内。默认：
+
+```text
+blur_threshold = 0.01
+max_new = 4000
+depth_budget = max_new // 2
+blur_budget = max_new - depth_added
+```
+
+#### 4.5.3 简化
+
+增密后重新计算贡献面积，按面积分数保留：
+
+```text
+if spa_enabled:
+    kappa = n_before * spa_ratio
+else:
+    kappa = n_before
+
+keep = topk(score, kappa)
+core.prune_anchor(~keep)
+```
+
+之后把幸存锚点的贡献面积存为 `mini_splat_importance`。后续 SPA 分数为：
+
+```text
+scores = importance_normalized + 0.25 * spa_soft_score
+```
+
+这样完整版不是“先删后忘”，而是把“哪些位置对渲染贡献大”的记忆传给 SPA。
+
+### 4.6 码流与训练端边界
+
+上述所有过程都是训练端行为：
+
+- 不新增逐锚点 side information；
+- 不改变 `codec_header`、`FORMULA_INPUT_VERSION`、算术编码顺序；
+- 不改变 `total_MB` 的字段定义；
+- 完整版的 `mini_splat_importance` 只参与训练，不写入码流；
+- 增密会把“训练锚点数”提高，但 SPA 预算钉在增密前，因此编码锚点数和码流
+  体积累积不会按增密数量线性上涨。
+
+工程上的额外工作包括：
+
+- HAC++ 读取 1200 张大图时设置 `ulimit -n 65536`；
+- 官方 `capture()` 引用未初始化 `denom` 的开关不要打开；
+- 深度模式渲染和贡献面积计算均使用 packed gsplat，避免大场景显存爆炸；
+- 大场景图像用 `--no-preload-images` + CPU uint8 缓存；
+- 远程训练调度使用 `WAIT_VRAM_MB` 显存门槛，避免和其他任务叠爆。
+
+### 4.7 关键模块
 
 | 模块 | 职责 |
 | --- | --- |
-| `scaffold_gs/config.py` | `mini_splat_enabled / reinit_iter / max_new / views / voxel` |
+| `scaffold_gs/config.py` | `mini_splat_enabled / reinit_iter / max_new / views / voxel / full` |
 | `scaffold_gs/hacpp.py` | `mini_splat_reinit()`，固定 SPA 预算并调用重采样 |
-| `scaffold_gs/mini_splat.py` | 深度渲染、反投影、体素化、确定性采样 |
-| `hacplus/scene/gaussian_model.py` | `append_depth_anchors()`、统计张量同步 |
+| `scaffold_gs/mini_splat.py` | 深度渲染、反投影、体素化、贡献面积、blur split |
+| `hacplus/scene/gaussian_model.py` | `append_depth_anchors()`、统计张量同步、`prune_anchor()` |
 | `scaffold_gs/trainer.py` | 在 `iteration == mini_splat_reinit_iter` 触发 |
 
-工程上需要同步的状态包括 `offset_gradient_accum / offset_denom /
-opacity_accum / anchor_demon / max_radii2D / spa_z / spa_u /
-mini_splat_importance` 等。当前版本在 `append_depth_anchors` 中扩展统计张量，
-并在直接 `prune_anchor`（完整版路径）中按“实际锚点数是否一致”决定是否裁剪，
-避免 `adjust_anchor` 已预裁剪后的二次裁剪。
-
-### 4.4 完整版（blur split + contribution simplification）
-
-`mini_splat_full=True` 时，在 depth-reinit 之外增加：
-
-- 用 gsplat packed intersection API 计算每个锚点的最大贡献像素面积；
-- blur split：对贡献面积过大的锚点生成子锚点；
-- intersection-preserving simplification：按贡献面积选锚点，再用
-  `mini_splat_importance` 加权 SPA 分数；
-- 最后固定到同一预算，让后续 SPA 重排。
-
-完整版是“更大改动但更复杂”的路径；当前可用作消融，不作为默认主路径。
-
-### 4.5 实验结果
+### 4.8 实验结果
 
 **playroom 30k、SPA ratio=0.85、λ=0.004、HAC++ 解码后：**
 
