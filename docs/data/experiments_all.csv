@@ -1,0 +1,621 @@
+group,scene,run_id,variant,iteration,lambda,feat_dim,mlp_quant,psnr,ssim,lpips,total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source,method_rank
+phg_main,4-28,4-28_i6_90k_h32,PHG h32 90k (I2+I6),90000,0.004,50,float32,28.655,0.8921,0.2767,5.5604,259061,,render_metrics,,eval 1600 宽; 主对照行,PHG docs,
+phg_main,4-28,4-28_i6_90k_h25,PHG h25 90k (I2+I6),90000,0.004,50,float32,28.637,0.8922,0.2767,5.5240,,,,,mlp_complexity hidden=25,PHG docs,
+phg_main,4-28,4-28_i6_90k_h32_30k,PHG h32 30k (I2+I6),30000,0.004,50,float32,27.879,0.8867,0.2758,6.0130,,,,,30k 短训,PHG docs,
+phg_main,4-28,4-28_i6_90k_dim16,PHG dim16 90k,90000,0.004,16,float32,28.273,0.8877,0.2815,4.0279,,,,,feat_dim=16,PHG docs,
+phg_main,4-28,4-28_i6_90k_dim32,PHG dim32 90k,90000,0.004,32,float32,28.455,0.8901,0.2796,4.5630,,,,,feat_dim=32,PHG docs,
+phg_main,4-28,4-28_i6_90k_h32_l0p002,PHG h32 90k λ0.002,90000,0.002,50,float32,28.988,0.8974,0.2708,8.3069,338130,,render_metrics,,高 PSNR 分支,annotation,
+phg_main,4-28,4-28_lxdim_110k_dim50_l0p004,PHG 110k dim50 λ0.004 baseline,110000,0.004,50,float32,28.825,0.8926,,5.6471,254921,,render_metrics,,eval 标签显示 30000 为 bug 实际 110k,5090 results,
+phg_main,4-28,4-28_lxdim_110k_dim50_l0p004,PHG 110k dim50 λ0.004 + MLP 量化,110000,0.004,50,cd8_rest16,28.8235,0.8926,0.2771,5.4852,254921,,render_metrics,,attr_MB=5.3202 mlp_payload=0.165; 最优操作点,mlp_quant results.json,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=60000,60000,0.004,50,float32,28.545,0.8938,,6.9627,,,,,120k 训练中途 checkpoint 评估,5090 eval_step,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=70000,70000,0.004,50,float32,28.609,0.8939,,6.3974,,,,,,5090 eval_step,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=80000,80000,0.004,50,float32,28.681,0.8937,,6.1106,,,,,,5090 eval_step,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=90000,90000,0.004,50,float32,28.682,0.8933,,5.9427,,,,,,5090 eval_step,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=100000,100000,0.004,50,float32,28.771,0.8929,,5.7769,,,,,,5090 eval_step,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=110000,110000,0.004,50,float32,28.825,0.8926,,5.6471,,,,,PSNR 极大值点 → 选 110k,5090 eval_step,
+phg_step_sweep,4-28,4-28_i6_90k_h32_120k,step=120000,120000,0.004,50,float32,,,,,,,,,120k 评估缺失（用户确认 110k 为最佳轮数）,5090,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=0.75,90000,0.004,50,float32,28.707,0.8928,0.2761,6.0881,,,,,RD 曲线,PHG docs,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=0.875,90000,0.004,50,float32,28.685,0.8925,0.2764,5.7970,,,,,,PHG docs,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.0,90000,0.004,50,float32,28.655,0.8921,0.2767,5.5604,,,,,,PHG docs,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.125,90000,0.004,50,float32,28.626,0.8917,0.2771,5.3637,,,,,,PHG docs,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.25,90000,0.004,50,float32,28.587,0.8913,0.2775,5.1977,,,,,,PHG docs,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=1.5,90000,0.004,50,float32,28.502,0.8902,0.2785,4.9329,,,,,,PHG docs,
+phg_rd_qscale,4-28,4-28_i6_90k_h32,q_scale=2.0,90000,0.004,50,float32,28.286,0.8874,0.2810,4.5751,,,,,,PHG docs,
+phg_attr_ctx,4-28,4-28_i6_90k_h32_l0p002,R4 attr_ctx scaling-only 8bit,90000,0.002,50,cd8_rest16,28.988,0.8974,0.2708,8.2730,338130,,render_metrics,0.0339,净省 0.0339 MB(0.41%); payload 13381B; 质量不变; 默认关,R4 report,
+phg_mlp_quant,DB-playroom,db_playroom_i6_110k_h32_l0p002,playroom 110k baseline,110000,0.002,50,float32,30.7310,0.9130,0.2575,4.3819,148569,,render_metrics,,eval 标签 30000 为 bug 实际 110k,5090 results,
+phg_mlp_quant,DB-playroom,db_playroom_i6_110k_h32_l0p002,playroom 110k + MLP 量化,110000,0.002,50,cd8_rest16,30.7288,0.9130,0.2575,4.2231,148569,,render_metrics,,attr_MB=4.0578 mlp_payload=0.1653,mlp_quant results.json,
+phg_mlp_quant,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p002,drjohnson 110k baseline,110000,0.002,50,float32,30.0376,0.9112,0.2459,7.0156,252965,,render_metrics,,eval 标签 30000 为 bug 实际 110k,5090 results,
+phg_mlp_quant,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p002,drjohnson 110k + MLP 量化,110000,0.002,50,cd8_rest16,30.0376,0.9112,0.2459,6.8549,252965,,render_metrics,,attr_MB=6.6902 mlp_payload=0.1647,mlp_quant results.json,
+phg_spa,DB-playroom,spa_db_playroom_30k_base,SPA 基线(无 SPA),30000,0.002,50,float32,30.872,0.9134,0.2594,4.1831,338560,168626,render_metrics,,编码端 mask_anchor 已滤掉一半,SPA report,
+phg_spa,DB-playroom,spa_db_playroom_30k_topk05,MaskTopk-only 0.5,30000,0.002,50,float32,30.872,0.9134,0.2594,4.1958,338560,169280,render_metrics,,与基线几乎相同,SPA report,
+phg_spa,DB-playroom,spa_db_playroom_30k_topk010,MaskTopk-only 0.1026,30000,0.002,50,float32,24.120,0.8399,0.3714,1.4740,338560,34736,render_metrics,,对齐 SPA 编码锚点数,SPA report,
+phg_spa,DB-playroom,spa_db_playroom_30k_spa,SPA-anchor ratio=0.5,30000,0.002,50,float32,29.639,0.8948,0.3106,1.0835,50741,34722,render_metrics,,同锚点数比 topk 高 5.52dB 且更小; 阶段A通过,SPA report,
+phg_p0,4-28,4-28_i6_90k_h32,P0 H_base(scaling+offsets 熵),90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3826,,P0 report,
+phg_p0,4-28,4-28_i6_90k_h32,P0-1 feat 条件化 h64/400,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3755,gain +1.86% 关闭,P0 report,
+phg_p0,4-28,4-28_i6_90k_h32,P0-1 feat 条件化 h128/1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3738,gain +2.30% 关闭,p0_offline_big.json,
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 邻居均值池化 k8,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3821,gain +0.13% 关闭,P0 report,
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 邻居均值池化 k16,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3822,gain +0.09% 关闭,P0 report,
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 邻居均值池化 k32,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3824,gain +0.06% 关闭,P0 report,
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 原始邻居特征 k8/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3816,gain +0.257% 关闭,p0_offline_rawctx_s1500.json,
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 原始邻居特征 k16/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3817,gain +0.247% 关闭,p0_offline_rawctx_s1500.json,
+phg_p0,4-28,4-28_i6_90k_h32,P0-2 原始邻居特征 k32/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3819,gain +0.177% 关闭,p0_offline_rawctx_s1500.json,
+phg_p0,4-28,4-28_i6_90k_h32,P0-reverse H_feat_base,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.6038,,p0_offline_reverse.json,
+phg_p0,4-28,4-28_i6_90k_h32,P0-reverse H_so_base,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.3924,,p0_offline_reverse.json,
+phg_p0,4-28,4-28_i6_90k_h32,P0-reverse 条件熵最佳 h64/s1500,90000,0.004,50,float32,,,,,259061,,entropy_MB,0.6013,gain +0.421% 关闭; delta_rev=0.0025MB,p0_offline_reverse.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R H_base(feat+scaling+offsets 熵),90000,0.002,50,float32,,,,,338130,,entropy_MB,1.5328,feat=0.9589 scaling=0.3333 offsets=0.2406,residual_feasibility.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R0 拉普拉斯残差,90000,0.002,50,float32,,,,,338130,,so_gain_pct,0.112,净省 0.00064MB 无增益,residual_feasibility.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R1 ctx MLP 拉普拉斯 h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,-9.661,关闭,residual_feasibility.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R2 跨字段拉普拉斯 h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,-9.457,净省 -0.10024MB 关闭,residual_feasibility.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R2 跨字段高斯 h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,-32.202,关闭,residual_feasibility.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R3 feat 通道 delta,90000,0.002,50,float32,,,,,338130,,total_gain_pct,-45.634,关闭,residual_feasibility.json,
+phg_r,4-28,4-28_i6_90k_h32_l0p002,R4 条件均值+log-scale h64/s1500,90000,0.002,50,float32,,,,,338130,,so_gain_pct,11.931,净省 0.00925MB; 阶段A整体 close 但 R4 可作可选路径,residual_feasibility.json,
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,feat,90000,0.004,50,float32,,,,,259061,,efficiency,1.0042,actual=23065952 est=22970156.88 bits,codec_efficiency.py,
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,scaling,90000,0.004,50,float32,,,,,259061,,efficiency,0.9634,actual=9409976 est=9767245.48 bits,codec_efficiency.py,
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,offsets,90000,0.004,50,float32,,,,,259061,,efficiency,1.0018,actual=5871984 est=5861708.90 bits,codec_efficiency.py,
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,masks,90000,0.004,50,float32,,,,,259061,,efficiency,1.0066,actual=1458712 est=1449125.83 bits,codec_efficiency.py,
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,hash,90000,0.004,50,float32,,,,,259061,,efficiency,1.0314,actual=214864 est=208325.03 bits,codec_efficiency.py,
+phg_codec_efficiency,4-28,4-28_i6_90k_h32,total,90000,0.004,50,float32,,,,,259061,,efficiency,0.9942,actual=40021488 est=40256562.13 bits,codec_efficiency.py,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed formula,6000,0.004,50,float32,20.43,0.789,0.3865,10.7662,,,,,6k probe; 替换方案相关,i6_sweep_fixed.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed strength=0.5,6000,0.004,50,float32,21.1876,0.7864,0.3885,9.9341,,,,,delta -0.8321MB,i6_sweep_fixed.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed strength=1.0,6000,0.004,50,float32,20.6775,0.7732,0.4,9.6084,,,,,delta -1.1578MB,i6_sweep_fixed.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6_sweep_fixed strength=2.0,6000,0.004,50,float32,19.6419,0.7552,0.4164,9.3324,,,,,delta -1.4338MB,i6_sweep_fixed.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,i6 相关性 gate(feat/scaling/offsets),90000,0.004,50,float32,,,,,259061,,correlation,0.0042,feat=-0.0003 scaling=0.0042 offsets=0.0006; 关闭,i6_sweep_fixed.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,I6 替换方案相关性 gate 最佳,90000,0.004,50,float32,,,,,259061,,correlation,0.0086,输入集 A/B/C 最大 0.0086 < 0.3 关闭,sens_replace_gate.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,sensitivity_side_info baseline_formula,90000,0.004,50,float32,28.6551,0.8921,0.2767,5.5604,,,,,真值侧信息 s0.5_true 28.6846/5.7143 更大; 关闭,sensitivity_side_info.json,
+phg_i6_sweep,4-28,4-28_i6_90k_h32,sensitivity_side_info s0.5_N8,90000,0.004,50,float32,28.6806,0.8923,0.2765,5.9867,,,,,raw; ctx 版本 6.0017MB,sensitivity_side_info.json,
+phg_i5,4-28,4-28_i6_90k_h32,I5 scalar(VQ 基线),90000,0.004,50,float32,28.6371,0.8922,0.2767,5.5242,257702,,,,关闭,i5_rd.json,
+phg_i5,4-28,4-28_i6_90k_h32,I5 d4_4_4_4_ca,90000,0.004,50,float32,23.5921,0.7892,0.3593,16.6199,257702,,,,关闭,i5_rd.json,
+phg_i5,4-28,4-28_i6_90k_h32,I5 d4_4_4_4_ca_dither,90000,0.004,50,float32,22.8295,0.7744,0.3732,16.7285,257702,,,,关闭,i5_rd.json,
+phg_i5,4-28,4-28_i6_90k_h32,I5 e8_8_4_4_ca,90000,0.004,50,float32,23.9996,0.8016,0.3476,18.5074,257702,,,,关闭,i5_rd.json,
+baseline,4-28,old_ours_90k,旧 ours 90k(CT_HAC 前版本),90000,,,,28.563,0.8882,0.2982,6.3547,,,,,对比基线,PHG docs,
+baseline,4-28,hacpp_paper,HAC++ 论文,90000,,,,28.311,0.89,0.2932,6.9462,,,,,论文对照,PHG docs,
+baseline,DB-playroom,haC_plus_highrate,HAC++ highrate,110000,,,,30.9313,0.91297,0.25488,4.5635,522152,,,,survey 单场景,survey repo,
+baseline,DB-playroom,haC_plus_lowrate,HAC++ lowrate,110000,,,,30.6874,0.90887,0.26791,2.5358,266328,,,,survey 单场景,survey repo,
+baseline,DB-playroom,hac_highrate,HAC highrate,110000,,,,30.8384,0.90567,0.26161,5.2775,448521,,,,survey 单场景,survey repo,
+baseline,DB-playroom,hac_lowrate,HAC lowrate,110000,,,,30.4394,0.90232,0.27239,3.3065,380598,,,,survey 单场景,survey repo,
+baseline,DB-playroom,contextgs_high,ContextGS highrate,110000,,,,30.933,0.90974,0.2682,5.6716,,,,,survey 单场景,survey repo,
+baseline,DB-playroom,contextgs_low,ContextGS lowrate,110000,,,,30.512,0.90811,0.26873,3.1256,,,,,survey 单场景,survey repo,
+baseline,DB-playroom,smolgs_large,Smol-GS large,110000,,,,30.6682,0.90852,0.25668,2.9548,266668,,,,survey 单场景,survey repo,
+baseline,DB-playroom,smolgs_base,Smol-GS base,110000,,,,30.6173,0.90668,0.26082,2.3899,211473,,,,survey 单场景,survey repo,
+baseline,DB-playroom,compgs_3points,CompGS 3 档,110000,,,,30.044/29.593/29.614,0.900/0.895/0.894,0.287/0.305/0.305,7.496/5.695/5.303,177280/181368/219789,,,,survey 单场景 3 个码率点,survey repo,
+baseline,DB-playroom,scaffold_gs,HAC++/Scaffold 未压缩基线,110000,,,,30.21,0.906,0.254,66,,,,,survey 聚合(两场景均值),survey aggregate,
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b32,all 32-bit,90000,0.004,50,32,28.6551,0.8921,0.2767,5.5604,,259061,render_metrics,,mlp_payload=0.3320 attr=5.2284,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b16,all 16-bit,90000,0.004,50,16,28.6551,0.8921,0.2767,5.4210,,259061,render_metrics,,mlp_payload=0.1926 attr=5.2284,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b8,all 8-bit,90000,0.004,50,8,28.5765,0.8917,0.2771,5.6181,,259061,render_metrics,,mlp_payload=0.1273 attr=5.4908,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b6,all 6-bit,90000,0.004,50,6,27.2459,0.8830,0.2856,6.5003,,259061,render_metrics,,mlp_payload=0.0882 attr=6.4120,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sweep_b4,all 4-bit,90000,0.004,50,4,20.3864,0.7898,0.3837,9.1215,,259061,render_metrics,,mlp_payload=0.0591 attr=9.0623,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_opacity,8-bit only mlp_opacity,90000,0.004,50,8bit_group,28.6011,0.8919,0.2769,5.2350,,259061,render_metrics,,mlp_payload=0.0066 attr=5.2284,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_cov,8-bit only mlp_cov,90000,0.004,50,8bit_group,28.6376,0.8920,0.2769,5.2390,,259061,render_metrics,,mlp_payload=0.0106 attr=5.2284,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_color,8-bit only mlp_color,90000,0.004,50,8bit_group,28.6458,0.8921,0.2769,5.2368,,259061,render_metrics,,mlp_payload=0.0084 attr=5.2284,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_grid,8-bit only mlp_grid,90000,0.004,50,8bit_group,28.6584,0.8922,0.2767,5.5180,,259061,render_metrics,,mlp_payload=0.0398 attr=5.4782,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_deform,8-bit only mlp_deform,90000,0.004,50,8bit_group,28.6551,0.8921,0.2767,5.2963,,259061,render_metrics,,mlp_payload=0.0592 attr=5.2371,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_mlp_complexity,8-bit only mlp_complexity,90000,0.004,50,8bit_group,28.6553,0.8921,0.2767,5.2341,,259061,render_metrics,,mlp_payload=0.0027 attr=5.2314,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_8bit_nogrid,8-bit except mlp_grid,90000,0.004,50,8bit_nogrid,28.5722,0.8917,0.2772,5.3276,,259061,render_metrics,,mlp_payload=0.0875 attr=5.2401,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_cd8_rest16,mixed cd8/rest16 (90k),90000,0.004,50,cd8_rest16,28.6559,0.8921,0.2767,5.4052,,259061,render_metrics,,mlp_payload=0.165 attr=5.2401,5090 mlp_quant results,
+phg_mlp_quant_ablation,4-28,mlp_quant_sens_cd8_rest16_110k,mixed cd8/rest16 (110k),110000,0.004,50,cd8_rest16,28.8235,0.8926,0.2771,5.4852,,254921,render_metrics,,mlp_payload=0.165 attr=5.3202,5090 mlp_quant results,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) baseline float32,110000,0.002,50,float32,30.728597246367357,0.9128845292946388,0.25627637680234583,4.4143,,148161,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,30.7289,0.9129,0.2563,4.257,,148161,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off baseline float32,110000,0.002,50,float32,30.667108141142748,0.9122857985825374,0.25766993904935903,4.4668,,151320,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,30.6655,0.9123,0.2577,4.3052,,151320,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) baseline float32,30000,0.002,50,float32,31.013122098199254,0.9141277526987011,0.25715664234654656,4.1157,,165079,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,31.0131,0.9141,0.2572,3.9505,,165079,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off baseline float32,30000,0.002,50,float32,30.928085327148438,0.9128675173068869,0.25950652669216023,4.2039,,163566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,30.9285,0.9129,0.2595,4.0378,,163566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_110k,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA ratio=0.5 (110k) baseline float32,110000,0.002,50,float32,29.890774167817213,0.896295257683458,0.30719929214181574,1.1292,,32848,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_110k,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA ratio=0.5 (110k) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.9003,0.8964,0.3072,0.9639,,32848,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-flowers,mip360_flowers_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,21.36965560913086,0.5763589997183193,0.3738724250685085,14.9354,,547566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-flowers,mip360_flowers_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,21.3693,0.5764,0.3739,14.7759,,547566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-flowers,mip360_flowers_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,21.35466159473766,0.5742653080008246,0.37887117808515375,11.5624,,495254,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-flowers,mip360_flowers_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,21.3549,0.5743,0.3789,11.4021,,495254,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-garden,mip360_garden_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,27.288723866144817,0.8348689079284668,0.16401366020242372,16.2612,,541977,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-garden,mip360_garden_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,27.2887,0.8349,0.164,16.0983,,541977,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-garden,mip360_garden_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,27.11559494336446,0.8267905861139297,0.179361242800951,12.3399,,489813,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-garden,mip360_garden_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,27.1157,0.8268,0.1794,12.1707,,489813,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-stump,mip360_stump_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,26.58709168434143,0.7596466913819313,0.27014442440122366,13.7277,,436634,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-stump,mip360_stump_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,26.5879,0.7596,0.2701,13.5614,,436634,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-stump,mip360_stump_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,26.578014850616455,0.7583711370825768,0.2765505574643612,10.5842,,378897,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360-stump,mip360_stump_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,26.5778,0.7584,0.2765,10.4206,,378897,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-train,tandt_train_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,22.481398557361803,0.8356074235941234,0.2200336958232679,8.3811,,280672,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-train,tandt_train_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,22.4837,0.8357,0.22,8.222,,280672,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-train,tandt_train_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,22.494976495441637,0.8333001528915606,0.22401797300890872,6.9195,,272653,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-train,tandt_train_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,22.4747,0.8326,0.224,6.7568,,272653,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-truck,tandt_truck_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,25.933749675750732,0.8881524838507175,0.17217998066917062,10.0664,,370950,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-truck,tandt_truck_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,25.9321,0.8882,0.1722,9.9022,,370950,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-truck,tandt_truck_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,25.939057409763336,0.8870338965207338,0.17599129304289818,7.8927,,329639,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT-truck,tandt_truck_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,25.9391,0.887,0.176,7.7319,,329639,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) baseline float32,110000,0.002,50,float32,30.728597246367357,0.9128845292946388,0.25627637680234583,4.4143,,148161,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,30.7289,0.9129,0.2563,4.257,,148161,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off baseline float32,110000,0.002,50,float32,30.667108141142748,0.9122857985825374,0.25766993904935903,4.4668,,151320,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,30.6655,0.9123,0.2577,4.3052,,151320,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) baseline float32,30000,0.002,50,float32,31.013122098199254,0.9141277526987011,0.25715664234654656,4.1157,,165079,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,31.0131,0.9141,0.2572,3.9505,,165079,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off baseline float32,30000,0.002,50,float32,30.928085327148438,0.9128675173068869,0.25950652669216023,4.2039,,163566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,30.9285,0.9129,0.2595,4.0378,,163566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_110k,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA RD (I2+I6+SPA) baseline float32,110000,0.002,50,float32,29.890774167817213,0.896295257683458,0.30719929214181574,1.1292,,32848,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_110k,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.9003,0.8964,0.3072,0.9639,,32848,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i6off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i6off,lambda=0.002 SPA + I2 (w/o I6) baseline float32,110000,0.002,50,float32,29.469090165763067,0.8919845428960077,0.32087216397811624,0.9836,,23929,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i6off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i6off,lambda=0.002 SPA + I2 (w/o I6) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.4728,0.892,0.3209,0.8172,,23929,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i2off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i2off,lambda=0.002 SPA only (w/o I2/I6) baseline float32,110000,0.002,50,float32,29.762293651186187,0.8939698071315371,0.3161659651789172,1.0083,,24704,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i2off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i2off,lambda=0.002 SPA only (w/o I2/I6) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.7655,0.894,0.3162,0.8429,,24704,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,21.36965560913086,0.5763589997183193,0.3738724250685085,14.9354,,547566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,21.3693,0.5764,0.3739,14.7759,,547566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,21.35466159473766,0.5742653080008246,0.37887117808515375,11.5624,,495254,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,21.3549,0.5743,0.3789,11.4021,,495254,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,27.288723866144817,0.8348689079284668,0.16401366020242372,16.2612,,541977,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,27.2887,0.8349,0.164,16.0983,,541977,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,27.11559494336446,0.8267905861139297,0.179361242800951,12.3399,,489813,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,27.1157,0.8268,0.1794,12.1707,,489813,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,26.58709168434143,0.7596466913819313,0.27014442440122366,13.7277,,436634,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,26.5879,0.7596,0.2701,13.5614,,436634,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,26.578014850616455,0.7583711370825768,0.2765505574643612,10.5842,,378897,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,26.5778,0.7584,0.2765,10.4206,,378897,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,22.481398557361803,0.8356074235941234,0.2200336958232679,8.3811,,280672,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,22.4837,0.8357,0.22,8.222,,280672,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,22.494976495441637,0.8333001528915606,0.22401797300890872,6.9195,,272653,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,22.4747,0.8326,0.224,6.7568,,272653,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,25.933749675750732,0.8881524838507175,0.17217998066917062,10.0664,,370950,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,25.9321,0.8882,0.1722,9.9022,,370950,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,25.939057409763336,0.8870338965207338,0.17599129304289818,7.8927,,329639,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,25.9391,0.887,0.176,7.7319,,329639,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_minisplat,DB-drjohnson,p0_drjohnson_5c_cell1,SPA0.85 drjohnson 30k cell1 (4组件) baseline float32,30000,0.004,50,float32,29.389962,0.900049,0.280545,2.206,155370,90501,render_metrics,,I2+I6+SPA0.85 no MiniSplat; bit-exact,5090 drjohnson 5c,
+phg_minisplat,DB-drjohnson,p0_drjohnson_5c_cell1,SPA0.85 drjohnson 30k cell1 (4组件) MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,29.3871,0.9,0.2806,2.0379,155370,90501,render_metrics,,final 5组件口径; bit-exact,5090 drjohnson 5c,
+phg_minisplat,DB-drjohnson,p0_drjohnson_5c_cell2,SPA0.85+MiniSplat drjohnson 30k cell2 (5组件) baseline float32,30000,0.004,50,float32,29.315056,0.899250,0.280933,2.1704,152698,89790,render_metrics,,I2+I6+SPA0.85+MiniSplat; bit-exact,5090 drjohnson 5c,
+phg_minisplat,DB-drjohnson,p0_drjohnson_5c_cell2,SPA0.85+MiniSplat drjohnson 30k cell2 (5组件) MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,29.3146,0.8993,0.2809,2.0021,152698,89790,render_metrics,,final 5组件口径; bit-exact,5090 drjohnson 5c,
+phg_minisplat,DB-playroom,spa_fixed_low_baseline,SPA r0.52 baseline (I2+I6),30000,0.004,50,float32,29.374343,0.894152,0.310510,1.058,51735,40897,render_metrics,,HAC++ decoded; 30k lambda=0.004 update_until=15000,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_low_semantic,SPA r0.52 + DINO T-A2,30000,0.004,50,float32,29.615210,0.895717,0.305870,1.2331,52616,45197,render_metrics,,15k self-anchor target refresh; decoded,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_high_baseline,SPA r0.85 baseline (cell1),30000,0.004,50,float32,30.221048,0.906776,0.280928,1.8594,112875,87449,render_metrics,,HAC++ decoded; main baseline,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_high_semantic,SPA r0.85 + DINO T-A2 (cell3),30000,0.004,50,float32,30.337938,0.907431,0.278438,2.1974,115410,101206,render_metrics,,15k refresh; decoded,5090 results,
+phg_minisplat,DB-playroom,spa_minisplat_cell2,MiniSplat+SPA r0.85 (cell2),30000,0.004,50,float32,30.420158,0.907014,0.278745,1.9051,115170,90872,render_metrics,,default primary path; +0.199dB vs cell1,5090 results,
+phg_minisplat,DB-playroom,spa_minisplat_cell4b,MiniSplat+语义+SPA r0.85 (cell4b),30000,0.004,50,float32,30.458409,0.907505,0.278364,2.2568,114554,101706,render_metrics,,15k refresh; decoded; bug-fixed run,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_r092_baseline,SPA r0.92 baseline,30000,0.004,50,float32,30.578197,0.908787,0.274914,2.2026,137827,109966,render_metrics,,HAC++ decoded,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_r092_semantic,SPA r0.92 + DINO T-A2,30000,0.004,50,float32,30.576260,0.908416,0.275479,2.6672,146025,131230,render_metrics,,15k refresh; decoded,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_r097_baseline,SPA r0.97 baseline,30000,0.004,50,float32,30.819597,0.910385,0.267571,2.8383,176402,151222,render_metrics,,HAC++ decoded,5090 results,
+phg_minisplat,DB-playroom,spa_fixed_r097_semantic,SPA r0.97 + DINO T-A2,30000,0.004,50,float32,30.796672,0.910360,0.266464,3.1101,176888,151437,render_metrics,,15k refresh; decoded,5090 results,
+phg_semantic_stageB,DB-playroom,db_playroom_sem_t2a5_30k,非SPA 基线 (≈I2+I6; 空语义目标),30000,0.002,50,float32,30.916649,0.912239,0.257911,4.1075,,161134,render_metrics,,1600w decoded; 训练锚点数未采集,MiniSplat report,
+phg_semantic_stageB,DB-playroom,db_playroom_sem_t2a5_30k_v3,非SPA + DINO T-A2 (15k刷新),30000,0.002,50,float32,31.041856,0.913964,0.257424,5.2841,,204035,render_metrics,,+0.125dB / +28.6% volume; 训练锚点数未采集,MiniSplat report,
+phg_semantic_stageB,4-28,run428_baseline,非SPA 30k I2+I6 baseline,30000,0.004,50,float32,28.308024,0.892691,0.271688,,455404,,render_metrics,,训练期验证评估(未压缩),5090 results,
+phg_semantic_stageB,4-28,run428_semantic,非SPA 30k + DINO T-A2,30000,0.004,50,float32,28.267294,0.892705,0.272012,,458015,,render_metrics,,15k 458015 anchors refresh; 训练期验证(未压缩),5090 results,
+phg_minisplat,DB-playroom,p0_e1_playroom_r052_mini,MiniSplat+SPA r0.52 (E1),30000,0.004,50,float32,29.524713,0.895617,0.306516,1.0908,57500,43154,render_metrics,,E1; +0.150dB vs SPA r0.52; BD curve,P0_E1 report,
+phg_minisplat,DB-playroom,p0_e1_playroom_r092_mini,MiniSplat+SPA r0.92 (E1),30000,0.004,50,float32,30.608918,0.908787,0.274774,2.2421,143043,109476,render_metrics,,E1; +0.031dB vs SPA r0.92,P0_E1 report,
+phg_minisplat,DB-playroom,p0_e1_playroom_r097_mini,MiniSplat+SPA r0.97 (E1),30000,0.004,50,float32,30.818201,0.910908,0.266682,2.8739,183240,147878,render_metrics,,E1; ~0.00dB vs SPA r0.97; BD-rate -8.59%,P0_E1 report,
+phg_minisplat,4-28,p0_e4_428_110k_spa_mini,SPA0.85+MiniSplat 110k (E4),110000,0.004,50,float32,28.735902,0.891610,0.276917,5.449,527052,247344,render_metrics,,protocol mask-lr-final 0.002; decoded; vs nonSPA base 28.825/5.647,P0_E4 report,
+phg_minisplat,4-28,p0_e4_428_110k_spa_base,SPA0.85 110k (E4),110000,0.004,50,float32,28.747707,0.891724,0.276448,5.5137,523187,259999,render_metrics,,protocol mask-lr-final 0.002; decoded; MiniSplat=-,5090 E4 results,
+phg_minisplat,4-28,p0_e4_428_110k_nospa_mini,MiniSplat 非SPA 110k (E4),110000,0.004,50,float32,28.759421,0.891796,0.277176,5.4329,587921,243627,render_metrics,,protocol 110k; decoded; MiniSplat=+,5090 E4 results,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) baseline float32,110000,0.002,50,float32,30.728597246367357,0.9128845292946388,0.25627637680234583,4.4143,,148161,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,30.7289,0.9129,0.2563,4.257,,148161,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off baseline float32,110000,0.002,50,float32,30.667108141142748,0.9122857985825374,0.25766993904935903,4.4668,,151320,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation,DB-playroom,db_playroom_i6_110k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,30.6655,0.9123,0.2577,4.3052,,151320,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) baseline float32,30000,0.002,50,float32,31.013122098199254,0.9141277526987011,0.25715664234654656,4.1157,,165079,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i2off,lambda=0.002 ablation I2-off (I6 off too) MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,31.0131,0.9141,0.2572,3.9505,,165079,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off baseline float32,30000,0.002,50,float32,30.928085327148438,0.9128675173068869,0.25950652669216023,4.2039,,163566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_db_ablation_30k,DB-playroom,db_playroom_i6_30k_h32_l0p002_ablation_i6off,lambda=0.002 ablation I6-off MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,30.9285,0.9129,0.2595,4.0378,,163566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_110k,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA RD (I2+I6+SPA) baseline float32,110000,0.002,50,float32,29.890774167817213,0.896295257683458,0.30719929214181574,1.1292,,32848,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_110k,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.9003,0.8964,0.3072,0.9639,,32848,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i6off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i6off,lambda=0.002 SPA + I2 (w/o I6) baseline float32,110000,0.002,50,float32,29.469090165763067,0.8919845428960077,0.32087216397811624,0.9836,,23929,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i6off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i6off,lambda=0.002 SPA + I2 (w/o I6) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.4728,0.892,0.3209,0.8172,,23929,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i2off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i2off,lambda=0.002 SPA only (w/o I2/I6) baseline float32,110000,0.002,50,float32,29.762293651186187,0.8939698071315371,0.3161659651789172,1.0083,,24704,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_i2off,DB-playroom,db_playroom_i6_110k_h32_l0p002_spa_i2off,lambda=0.002 SPA only (w/o I2/I6) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,29.7655,0.894,0.3162,0.8429,,24704,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-playroom,db_playroom_i6_110k_h32_l0p001_spa0p5,lambda=0.001 SPA RD (I2+I6+SPA) baseline float32,110000,0.001,50,float32,30.29028478162042,0.9021747872747224,0.2931223193119312,1.5665,,43481,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-playroom,db_playroom_i6_110k_h32_l0p001_spa0p5,lambda=0.001 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.001,50,cd8_rest16,30.2829,0.9022,0.2931,1.4033,,43481,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-playroom,db_playroom_i6_110k_h32_l0p004_spa0p5,lambda=0.004 SPA RD (I2+I6+SPA) baseline float32,110000,0.004,50,float32,28.80457615030223,0.883561187777026,0.3348338018203604,0.9914,,51307,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-playroom,db_playroom_i6_110k_h32_l0p004_spa0p5,lambda=0.004 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.004,50,cd8_rest16,28.8015,0.8835,0.3349,0.8254,,51307,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p001_spa0p5,lambda=0.001 SPA RD (I2+I6+SPA) baseline float32,110000,0.001,50,float32,29.273654186364375,0.8953557971752051,0.2878223165418162,2.376,,71319,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p001_spa0p5,lambda=0.001 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.001,50,cd8_rest16,29.2733,0.8953,0.2878,2.2122,,71319,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA RD (I2+I6+SPA) baseline float32,110000,0.002,50,float32,28.766134204286516,0.8890183568000793,0.3021522737813718,1.716,,54727,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p002_spa0p5,lambda=0.002 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.002,50,cd8_rest16,28.7635,0.889,0.3021,1.5495,,54727,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p004_spa0p5,lambda=0.004 SPA RD (I2+I6+SPA) baseline float32,110000,0.004,50,float32,28.04984138951157,0.876842094190193,0.32422524013302545,1.2343,,45595,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_spa_rd,DB-drjohnson,db_drjohnson_i6_110k_h32_l0p004_spa0p5,lambda=0.004 SPA RD (I2+I6+SPA) MLP quant cd8_rest16,110000,0.004,50,cd8_rest16,28.0458,0.8768,0.3243,1.0683,,45595,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,21.36965560913086,0.5763589997183193,0.3738724250685085,14.9354,,547566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,21.3693,0.5764,0.3739,14.7759,,547566,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,21.35466159473766,0.5742653080008246,0.37887117808515375,11.5624,,495254,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_flowers_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,21.3549,0.5743,0.3789,11.4021,,495254,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,27.288723866144817,0.8348689079284668,0.16401366020242372,16.2612,,541977,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,27.2887,0.8349,0.164,16.0983,,541977,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,27.11559494336446,0.8267905861139297,0.179361242800951,12.3399,,489813,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_garden_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,27.1157,0.8268,0.1794,12.1707,,489813,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,26.58709168434143,0.7596466913819313,0.27014442440122366,13.7277,,436634,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,26.5879,0.7596,0.2701,13.5614,,436634,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,26.578014850616455,0.7583711370825768,0.2765505574643612,10.5842,,378897,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_mip360_rd,Mip360,mip360_stump_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,26.5778,0.7584,0.2765,10.4206,,378897,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,22.481398557361803,0.8356074235941234,0.2200336958232679,8.3811,,280672,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,22.4837,0.8357,0.22,8.222,,280672,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,22.494976495441637,0.8333001528915606,0.22401797300890872,6.9195,,272653,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_train_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,22.4747,0.8326,0.224,6.7568,,272653,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k baseline float32,30000,0.002,50,float32,25.933749675750732,0.8881524838507175,0.17217998066917062,10.0664,,370950,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p002,lambda=0.002 lambda-RD 30k MLP quant cd8_rest16,30000,0.002,50,cd8_rest16,25.9321,0.8882,0.1722,9.9022,,370950,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k baseline float32,30000,0.004,50,float32,25.939057409763336,0.8870338965207338,0.17599129304289818,7.8927,,329639,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+phg_tandt_rd,TNT,tandt_truck_i6_30k_h32_l0p004,lambda=0.004 lambda-RD 30k MLP quant cd8_rest16,30000,0.004,50,cd8_rest16,25.9391,0.887,0.176,7.7319,,329639,render_metrics,,queued DB-ablation/Mip360/T&T (new optimal config),collect_queue_results.py,
+survey,1-23,survey_HAC++_1-23,HAC++,,,,,26.421,0.860,0.173,19.976,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,1-42,survey_HAC++_1-42,HAC++,,,,,27.824,0.831,0.231,7.218,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,1-71,survey_HAC++_1-71,HAC++,,,,,28.961,0.895,0.144,15.226,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,1-73,survey_HAC++_1-73,HAC++,,,,,28.340,0.880,0.150,17.702,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,1-78,survey_HAC++_1-78,HAC++,,,,,27.140,0.865,0.175,17.227,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,1-100,survey_HAC++_1-100,HAC++,,,,,28.998,0.912,0.118,16.787,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,2-6,survey_HAC++_2-6,HAC++,,,,,28.508,0.893,0.119,21.032,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,2-8,survey_HAC++_2-8,HAC++,,,,,28.489,0.849,0.292,8.522,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,3-7,survey_HAC++_3-7,HAC++,,,,,28.772,0.860,0.187,17.473,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,3-11,survey_HAC++_3-11,HAC++,,,,,27.757,0.852,0.196,14.001,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,4-10,survey_HAC++_4-10,HAC++,,,,,28.756,0.865,0.186,17.419,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,4-25,survey_HAC++_4-25,HAC++,,,,,27.471,0.930,0.099,19.513,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,4-28,survey_HAC++_4-28,HAC++,,,,,28.311,0.890,0.293,6.946,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,5-6,survey_HAC++_5-6,HAC++,,,,,27.981,0.915,0.136,20.859,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,5-13,survey_HAC++_5-13,HAC++,,,,,30.128,0.923,0.124,15.245,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,6-7,survey_HAC++_6-7,HAC++,,,,,31.520,0.947,0.087,6.695,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,6-22,survey_HAC++_6-22,HAC++,,,,,32.732,0.955,0.059,17.582,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,6-26,survey_HAC++_6-26,HAC++,,,,,28.424,0.886,0.160,19.829,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,6-31,survey_HAC++_6-31,HAC++,,,,,27.870,0.872,0.152,21.325,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,6-44,survey_HAC++_6-44,HAC++,,,,,27.705,0.900,0.123,16.324,,,render_metrics,,3DGS compression survey table,allMothod,2.500
+survey,1-23,survey_PC-GS_1-23,PC-GS,,,,,24.245,0.757,0.298,13.737,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,1-42,survey_PC-GS_1-42,PC-GS,,,,,25.791,0.748,0.353,4.891,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,1-71,survey_PC-GS_1-71,PC-GS,,,,,26.997,0.836,0.247,11.044,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,1-73,survey_PC-GS_1-73,PC-GS,,,,,26.345,0.812,0.259,12.175,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,1-78,survey_PC-GS_1-78,PC-GS,,,,,23.092,0.739,0.322,12.033,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,1-100,survey_PC-GS_1-100,PC-GS,,,,,26.335,0.838,0.237,11.549,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,2-6,survey_PC-GS_2-6,PC-GS,,,,,26.259,0.823,0.221,15.133,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,2-8,survey_PC-GS_2-8,PC-GS,,,,,27.289,0.843,0.315,5.981,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,3-7,survey_PC-GS_3-7,PC-GS,,,,,26.971,0.788,0.296,12.161,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,3-11,survey_PC-GS_3-11,PC-GS,,,,,25.859,0.767,0.303,9.326,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,4-10,survey_PC-GS_4-10,PC-GS,,,,,26.363,0.760,0.320,11.840,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,4-25,survey_PC-GS_4-25,PC-GS,,,,,25.070,0.854,0.206,14.998,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,4-28,survey_PC-GS_4-28,PC-GS,,,,,27.324,0.886,0.300,5.040,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,5-6,survey_PC-GS_5-6,PC-GS,,,,,25.119,0.833,0.255,16.771,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,5-13,survey_PC-GS_5-13,PC-GS,,,,,27.945,0.861,0.238,10.661,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,6-7,survey_PC-GS_6-7,PC-GS,,,,,30.195,0.928,0.169,4.724,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,6-22,survey_PC-GS_6-22,PC-GS,,,,,30.132,0.904,0.150,12.965,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,6-26,survey_PC-GS_6-26,PC-GS,,,,,26.156,0.799,0.283,13.790,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,6-31,survey_PC-GS_6-31,PC-GS,,,,,24.630,0.743,0.302,14.730,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,6-44,survey_PC-GS_6-44,PC-GS,,,,,25.763,0.839,0.226,11.387,,,render_metrics,,3DGS compression survey table,allMothod,5.833
+survey,1-23,survey_CAT_1-23,CAT,,,,,23.686,0.728,0.275,14.402,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,1-42,survey_CAT_1-42,CAT,,,,,25.694,0.735,0.315,5.037,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,1-71,survey_CAT_1-71,CAT,,,,,26.913,0.828,0.194,11.308,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,1-73,survey_CAT_1-73,CAT,,,,,25.642,0.786,0.220,14.333,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,1-78,survey_CAT_1-78,CAT,,,,,23.404,0.746,0.280,14.350,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,1-100,survey_CAT_1-100,CAT,,,,,26.291,0.830,0.175,13.114,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,2-6,survey_CAT_2-6,CAT,,,,,25.721,0.791,0.183,15.436,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,2-8,survey_CAT_2-8,CAT,,,,,27.268,0.838,0.232,5.879,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,3-7,survey_CAT_3-7,CAT,,,,,26.765,0.770,0.271,12.530,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,3-11,survey_CAT_3-11,CAT,,,,,25.677,0.754,0.264,11.353,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,4-10,survey_CAT_4-10,CAT,,,,,26.293,0.738,0.269,13.082,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,4-25,survey_CAT_4-25,CAT,,,,,23.376,0.782,0.203,13.623,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,4-28,survey_CAT_4-28,CAT,,,,,27.468,0.886,0.184,5.261,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,5-6,survey_CAT_5-6,CAT,,,,,24.542,0.801,0.181,17.670,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,5-13,survey_CAT_5-13,CAT,,,,,27.575,0.840,0.162,10.881,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,6-7,survey_CAT_6-7,CAT,,,,,30.646,0.929,0.081,5.547,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,6-22,survey_CAT_6-22,CAT,,,,,29.760,0.890,0.098,14.817,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,6-26,survey_CAT_6-26,CAT,,,,,25.747,0.774,0.235,14.568,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,6-31,survey_CAT_6-31,CAT,,,,,24.662,0.735,0.251,16.607,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,6-44,survey_CAT_6-44,CAT,,,,,25.699,0.830,0.166,13.550,,,render_metrics,,3DGS compression survey table,allMothod,6.333
+survey,1-23,survey_contextgs_1-23,contextgs,,,,,25.082,0.794,0.256,29.602,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-42,survey_contextgs_1-42,contextgs,,,,,27.056,0.802,0.287,10.721,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-71,survey_contextgs_1-71,contextgs,,,,,27.465,0.851,0.228,19.089,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-73,survey_contextgs_1-73,contextgs,,,,,27.239,0.834,0.234,24.362,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-78,survey_contextgs_1-78,contextgs,,,,,24.904,0.800,0.260,29.260,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-100,survey_contextgs_1-100,contextgs,,,,,27.752,0.871,0.196,30.165,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,2-6,survey_contextgs_2-6,contextgs,,,,,27.203,0.851,0.188,26.773,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,2-8,survey_contextgs_2-8,contextgs,,,,,27.634,0.852,0.304,9.615,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,3-7,survey_contextgs_3-7,contextgs,,,,,28.104,0.828,0.249,23.656,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,3-11,survey_contextgs_3-11,contextgs,,,,,26.962,0.811,0.258,18.385,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,4-10,survey_contextgs_4-10,contextgs,,,,,27.387,0.814,0.260,22.572,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,4-25,survey_contextgs_4-25,contextgs,,,,,26.330,0.889,0.166,29.372,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,4-28,survey_contextgs_4-28,contextgs,,,,,27.602,0.894,0.289,8.652,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,5-6,survey_contextgs_5-6,contextgs,,,,,26.488,0.876,0.195,38.089,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,5-13,survey_contextgs_5-13,contextgs,,,,,28.648,0.881,0.215,17.806,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-7,survey_contextgs_6-7,contextgs,,,,,32.224,0.947,0.137,12.997,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-22,survey_contextgs_6-22,contextgs,,,,,30.892,0.917,0.130,22.025,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-26,survey_contextgs_6-26,contextgs,,,,,27.628,0.846,0.233,27.485,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-31,survey_contextgs_6-31,contextgs,,,,,25.407,0.781,0.260,38.916,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-44,survey_contextgs_6-44,contextgs,,,,,27.057,0.874,0.184,23.152,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-23,survey_HAC_1-23,HAC,,,,,24.547,0.769,0.286,25.350,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-42,survey_HAC_1-42,HAC,,,,,26.216,0.766,0.333,8.094,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-71,survey_HAC_1-71,HAC,,,,,27.299,0.843,0.236,19.453,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-73,survey_HAC_1-73,HAC,,,,,26.147,0.808,0.263,22.162,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-78,survey_HAC_1-78,HAC,,,,,24.833,0.793,0.279,21.749,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-100,survey_HAC_1-100,HAC,,,,,26.041,0.835,0.234,21.692,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,2-6,survey_HAC_2-6,HAC,,,,,26.856,0.841,0.201,26.839,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,2-8,survey_HAC_2-8,HAC,,,,,27.644,0.852,0.304,11.471,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,3-7,survey_HAC_3-7,HAC,,,,,27.477,0.803,0.279,21.779,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,3-11,survey_HAC_3-11,HAC,,,,,26.233,0.782,0.288,16.948,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,4-10,survey_HAC_4-10,HAC,,,,,26.940,0.784,0.294,20.873,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,4-25,survey_HAC_4-25,HAC,,,,,25.520,0.867,0.193,23.348,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,4-28,survey_HAC_4-28,HAC,,,,,27.598,0.892,0.292,9.387,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,5-6,survey_HAC_5-6,HAC,,,,,25.552,0.849,0.234,27.089,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,5-13,survey_HAC_5-13,HAC,,,,,28.472,0.875,0.222,18.358,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-7,survey_HAC_6-7,HAC,,,,,30.735,0.934,0.157,8.237,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-22,survey_HAC_6-22,HAC,,,,,30.795,0.915,0.134,23.233,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-26,survey_HAC_6-26,HAC,,,,,26.631,0.815,0.266,23.551,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-31,survey_HAC_6-31,HAC,,,,,25.102,0.762,0.283,26.443,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,6-44,survey_HAC_6-44,HAC,,,,,26.142,0.850,0.213,19.865,,,render_metrics,,3DGS compression survey table,allMothod,6.833
+survey,1-23,survey_RDO-gaussian_1-23,RDO-gaussian,,,,,23.617,0.737,0.310,14.056,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,1-42,survey_RDO-gaussian_1-42,RDO-gaussian,,,,,24.851,0.717,0.391,5.413,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,1-71,survey_RDO-gaussian_1-71,RDO-gaussian,,,,,25.606,0.779,0.324,6.653,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,1-73,survey_RDO-gaussian_1-73,RDO-gaussian,,,,,25.019,0.774,0.298,8.611,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,1-78,survey_RDO-gaussian_1-78,RDO-gaussian,,,,,23.908,N/A,0.310,11.242,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,1-100,survey_RDO-gaussian_1-100,RDO-gaussian,,,,,26.099,0.824,0.253,13.383,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,2-6,survey_RDO-gaussian_2-6,RDO-gaussian,,,,,25.137,0.785,0.264,14.721,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,2-8,survey_RDO-gaussian_2-8,RDO-gaussian,,,,,26.034,0.813,0.348,2.728,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,3-7,survey_RDO-gaussian_3-7,RDO-gaussian,,,,,24.857,0.720,0.367,6.012,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,3-11,survey_RDO-gaussian_3-11,RDO-gaussian,,,,,25.062,0.733,0.332,8.510,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,4-10,survey_RDO-gaussian_4-10,RDO-gaussian,,,,,24.683,0.669,0.406,6.356,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,4-25,survey_RDO-gaussian_4-25,RDO-gaussian,,,,,24.471,0.841,0.204,27.043,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,4-28,survey_RDO-gaussian_4-28,RDO-gaussian,,,,,25.424,0.864,0.320,2.975,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,5-6,survey_RDO-gaussian_5-6,RDO-gaussian,,,,,24.734,0.821,0.254,31.878,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,5-13,survey_RDO-gaussian_5-13,RDO-gaussian,,,,,26.465,0.804,0.298,7.562,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,6-7,survey_RDO-gaussian_6-7,RDO-gaussian,,,,,28.492,0.896,0.209,4.634,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,6-22,survey_RDO-gaussian_6-22,RDO-gaussian,,,,,28.205,0.859,0.203,12.535,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,6-26,survey_RDO-gaussian_6-26,RDO-gaussian,,,,,25.113,N/A,0.306,14.842,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,6-31,survey_RDO-gaussian_6-31,RDO-gaussian,,,,,24.250,0.730,0.311,13.389,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,6-44,survey_RDO-gaussian_6-44,RDO-gaussian,,,,,24.528,0.806,0.255,12.260,,,render_metrics,,3DGS compression survey table,allMothod,8.333
+survey,1-23,survey_Scaffold-gs_1-23,Scaffold-gs,,,,,25.282,0.813,0.229,287.701,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,1-42,survey_Scaffold-gs_1-42,Scaffold-gs,,,,,28.609,0.865,0.206,253.848,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,1-71,survey_Scaffold-gs_1-71,Scaffold-gs,,,,,27.848,0.867,0.198,254.261,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,1-73,survey_Scaffold-gs_1-73,Scaffold-gs,,,,,27.442,0.848,0.212,275.421,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,1-78,survey_Scaffold-gs_1-78,Scaffold-gs,,,,,24.626,0.805,0.253,286.129,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,1-100,survey_Scaffold-gs_1-100,Scaffold-gs,,,,,28.394,0.889,0.166,287.151,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,2-6,survey_Scaffold-gs_2-6,Scaffold-gs,,,,,27.208,0.859,0.174,250.227,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,2-8,survey_Scaffold-gs_2-8,Scaffold-gs,,,,,27.872,0.862,0.289,144.619,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,3-7,survey_Scaffold-gs_3-7,Scaffold-gs,,,,,27.648,0.836,0.235,247.447,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,3-11,survey_Scaffold-gs_3-11,Scaffold-gs,,,,,27.140,0.827,0.236,194.238,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,4-10,survey_Scaffold-gs_4-10,Scaffold-gs,,,,,27.206,0.829,0.237,202.018,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,4-25,survey_Scaffold-gs_4-25,Scaffold-gs,,,,,26.160,0.893,0.157,235.048,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,4-28,survey_Scaffold-gs_4-28,Scaffold-gs,,,,,27.677,0.898,0.281,132.520,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,5-6,survey_Scaffold-gs_5-6,Scaffold-gs,,,,,26.546,0.885,0.181,303.557,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,5-13,survey_Scaffold-gs_5-13,Scaffold-gs,,,,,28.866,0.891,0.198,174.855,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,6-7,survey_Scaffold-gs_6-7,Scaffold-gs,,,,,33.142,0.956,0.120,182.918,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,6-22,survey_Scaffold-gs_6-22,Scaffold-gs,,,,,31.665,0.934,0.101,227.471,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,6-26,survey_Scaffold-gs_6-26,Scaffold-gs,,,,,27.896,0.866,0.202,255.769,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,6-31,survey_Scaffold-gs_6-31,Scaffold-gs,,,,,25.676,0.801,0.243,319.983,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,6-44,survey_Scaffold-gs_6-44,Scaffold-gs,,,,,26.782,0.878,0.173,225.657,,,render_metrics,,3DGS compression survey table,allMothod,9.167
+survey,1-23,survey_compact3d_1-23,compact3d,,,,,23.930,0.752,0.305,28.850,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,1-42,survey_compact3d_1-42,compact3d,,,,,25.731,0.759,0.354,16.710,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,1-71,survey_compact3d_1-71,compact3d,,,,,26.123,0.806,0.296,16.790,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,1-73,survey_compact3d_1-73,compact3d,,,,,25.595,0.795,0.285,20.170,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,1-78,survey_compact3d_1-78,compact3d,,,,,24.268,0.773,0.310,21.480,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,1-100,survey_compact3d_1-100,compact3d,,,,,26.528,0.841,0.242,25.880,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,2-6,survey_compact3d_2-6,compact3d,,,,,25.676,0.808,0.248,33.560,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,2-8,survey_compact3d_2-8,compact3d,,,,,26.797,0.836,0.326,9.290,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,3-7,survey_compact3d_3-7,compact3d,,,,,25.673,0.754,0.341,16.420,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,3-11,survey_compact3d_3-11,compact3d,,,,,25.848,0.771,0.306,22.320,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,4-10,survey_compact3d_4-10,compact3d,,,,,25.533,0.734,0.354,19.950,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,4-25,survey_compact3d_4-25,compact3d,,,,,24.828,0.856,0.206,50.320,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,4-28,survey_compact3d_4-28,compact3d,,,,,25.872,0.879,0.307,8.510,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,5-6,survey_compact3d_5-6,compact3d,,,,,25.239,0.841,0.248,58.440,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,5-13,survey_compact3d_5-13,compact3d,,,,,27.597,0.858,0.247,25.990,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,6-7,survey_compact3d_6-7,compact3d,,,,,30.827,0.933,0.157,17.930,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,6-22,survey_compact3d_6-22,compact3d,,,,,29.208,0.891,0.170,29.810,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,6-26,survey_compact3d_6-26,compact3d,,,,,25.827,0.792,0.299,31.100,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,6-31,survey_compact3d_6-31,compact3d,,,,,24.723,0.748,0.308,26.040,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,6-44,survey_compact3d_6-44,compact3d,,,,,25.088,0.828,0.240,24.820,,,render_metrics,,3DGS compression survey table,allMothod,9.833
+survey,1-23,survey_reduced3dgs_1-23,reduced3dgs,,,,,25.349,0.810,0.238,325.088,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,1-42,survey_reduced3dgs_1-42,reduced3dgs,,,,,27.362,0.816,0.277,151.595,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,1-73,survey_reduced3dgs_1-73,reduced3dgs,,,,,26.955,0.838,0.228,194.613,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,1-100,survey_reduced3dgs_1-100,reduced3dgs,,,,,28.355,0.887,0.175,350.452,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,2-6,survey_reduced3dgs_2-6,reduced3dgs,,,,,27.657,0.866,0.178,358.461,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,2-8,survey_reduced3dgs_2-8,reduced3dgs,,,,,27.631,0.857,0.297,92.745,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,3-11,survey_reduced3dgs_3-11,reduced3dgs,,,,,27.381,0.829,0.237,211.414,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,4-10,survey_reduced3dgs_4-10,reduced3dgs,,,,,26.851,0.795,0.287,160.170,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,4-25,survey_reduced3dgs_4-25,reduced3dgs,,,,,27.461,0.920,0.124,576.099,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,5-6,survey_reduced3dgs_5-6,reduced3dgs,,,,,27.952,0.913,0.146,688.216,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,5-13,survey_reduced3dgs_5-13,reduced3dgs,,,,,29.295,0.900,0.192,247.010,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,6-7,survey_reduced3dgs_6-7,reduced3dgs,,,,,32.409,0.949,0.129,155.277,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,6-26,survey_reduced3dgs_6-26,reduced3dgs,,,,,28.007,0.860,0.217,332.755,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,6-31,survey_reduced3dgs_6-31,reduced3dgs,,,,,26.562,0.825,0.225,299.771,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,6-44,survey_reduced3dgs_6-44,reduced3dgs,,,,,26.936,0.885,0.166,307.025,,,render_metrics,,3DGS compression survey table,allMothod,10.000
+survey,1-23,survey_gsplat_1-23,gsplat,,,,,25.355,0.810,0.219,600.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,1-42,survey_gsplat_1-42,gsplat,,,,,28.285,0.847,0.216,601.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,1-71,survey_gsplat_1-71,gsplat,,,,,27.423,0.849,0.213,602.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,1-73,survey_gsplat_1-73,gsplat,,,,,27.116,0.841,0.207,603.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,1-78,survey_gsplat_1-78,gsplat,,,,,26.019,0.838,0.226,604.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,1-100,survey_gsplat_1-100,gsplat,,,,,28.665,0.891,0.144,605.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,2-6,survey_gsplat_2-6,gsplat,,,,,27.628,0.865,0.145,606.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,2-8,survey_gsplat_2-8,gsplat,,,,,27.643,0.857,0.306,607.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,3-7,survey_gsplat_3-7,gsplat,,,,,27.301,0.804,0.284,608.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,3-11,survey_gsplat_3-11,gsplat,,,,,27.462,0.830,0.211,609.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,4-10,survey_gsplat_4-10,gsplat,,,,,26.816,0.794,0.267,610.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,4-25,survey_gsplat_4-25,gsplat,,,,,27.520,0.921,0.100,611.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,4-28,survey_gsplat_4-28,gsplat,,,,,26.745,0.896,0.292,612.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,5-6,survey_gsplat_5-6,gsplat,,,,,28.010,0.915,0.104,613.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,5-13,survey_gsplat_5-13,gsplat,,,,,29.272,0.900,0.155,614.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,6-7,survey_gsplat_6-7,gsplat,,,,,32.454,0.950,0.083,615.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,6-22,survey_gsplat_6-22,gsplat,,,,,32.402,0.941,0.070,616.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,6-26,survey_gsplat_6-26,gsplat,,,,,26.760,0.832,0.198,617.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,6-31,survey_gsplat_6-31,gsplat,,,,,26.965,0.887,0.139,618.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,6-44,survey_gsplat_6-44,gsplat,,,,,28.198,0.863,0.194,619.000,,,render_metrics,,3DGS compression survey table,allMothod,10.083
+survey,1-23,survey_3DGS_1-23,3DGS,,,,,25.445,0.813,0.234,600.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,1-42,survey_3DGS_1-42,3DGS,,,,,28.403,0.851,0.229,601.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,1-71,survey_3DGS_1-71,3DGS,,,,,27.613,0.855,0.219,602.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,1-73,survey_3DGS_1-73,3DGS,,,,,27.247,0.844,0.220,603.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,1-78,survey_3DGS_1-78,3DGS,,,,,26.064,0.838,0.229,604.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,1-100,survey_3DGS_1-100,3DGS,,,,,28.615,0.891,0.169,605.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,2-6,survey_3DGS_2-6,3DGS,,,,,27.759,0.868,0.174,606.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,2-8,survey_3DGS_2-8,3DGS,,,,,27.734,0.859,0.294,607.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,3-7,survey_3DGS_3-7,3DGS,,,,,27.514,0.810,0.270,608.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,3-11,survey_3DGS_3-11,3DGS,,,,,27.572,0.834,0.231,609.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,4-10,survey_3DGS_4-10,3DGS,,,,,27.024,0.800,0.279,610.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,4-25,survey_3DGS_4-25,3DGS,,,,,27.560,0.921,0.122,611.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,4-28,survey_3DGS_4-28,3DGS,,,,,26.983,0.898,0.281,612.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,5-6,survey_3DGS_5-6,3DGS,,,,,28.008,0.914,0.144,613.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,5-13,survey_3DGS_5-13,3DGS,,,,,29.400,0.902,0.189,614.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,6-7,survey_3DGS_6-7,3DGS,,,,,32.600,0.951,0.127,615.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,6-22,survey_3DGS_6-22,3DGS,,,,,32.457,0.942,0.096,616.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,6-26,survey_3DGS_6-26,3DGS,,,,,26.768,0.831,0.218,617.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,6-31,survey_3DGS_6-31,3DGS,,,,,27.081,0.889,0.162,618.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,6-44,survey_3DGS_6-44,3DGS,,,,,28.248,0.865,0.211,619.000,,,render_metrics,,3DGS compression survey table,allMothod,10.250
+survey,1-23,survey_TC-GS_1-23,TC-GS,,,,,23.718,0.721,0.342,17.948,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,1-42,survey_TC-GS_1-42,TC-GS,,,,,26.813,0.782,0.323,17.257,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,1-71,survey_TC-GS_1-71,TC-GS,,,,,26.317,0.805,0.297,13.906,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,1-73,survey_TC-GS_1-73,TC-GS,,,,,26.330,0.801,0.278,19.160,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,1-78,survey_TC-GS_1-78,TC-GS,,,,,23.412,0.737,0.338,17.707,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,1-100,survey_TC-GS_1-100,TC-GS,,,,,26.431,0.826,0.261,18.429,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,2-6,survey_TC-GS_2-6,TC-GS,,,,,24.845,0.745,0.322,15.670,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,2-8,survey_TC-GS_2-8,TC-GS,,,,,27.284,0.838,0.323,8.773,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,3-7,survey_TC-GS_3-7,TC-GS,,,,,26.117,0.748,0.343,16.243,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,3-11,survey_TC-GS_3-11,TC-GS,,,,,25.058,0.721,0.357,13.574,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,4-10,survey_TC-GS_4-10,TC-GS,,,,,25.988,0.712,0.383,18.599,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,4-25,survey_TC-GS_4-25,TC-GS,,,,,23.229,0.777,0.296,18.699,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,4-28,survey_TC-GS_4-28,TC-GS,,,,,27.304,0.885,0.302,7.327,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,5-6,survey_TC-GS_5-6,TC-GS,,,,,23.180,0.737,0.370,19.758,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,5-13,survey_TC-GS_5-13,TC-GS,,,,,27.101,0.817,0.298,14.579,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,6-7,survey_TC-GS_6-7,TC-GS,,,,,29.056,0.897,0.236,5.601,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,6-22,survey_TC-GS_6-22,TC-GS,,,,,29.067,0.865,0.208,18.771,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,6-26,survey_TC-GS_6-26,TC-GS,,,,,25.655,0.768,0.319,21.651,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,6-31,survey_TC-GS_6-31,TC-GS,,,,,24.147,0.709,0.339,19.725,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,6-44,survey_TC-GS_6-44,TC-GS,,,,,25.231,0.810,0.270,16.613,,,render_metrics,,3DGS compression survey table,allMothod,10.333
+survey,1-23,survey_compact3dgs_1-23,compact3dgs,,,,,24.033,0.763,0.285,66.946,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,1-42,survey_compact3dgs_1-42,compact3dgs,,,,,26.079,0.774,0.326,45.829,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,1-71,survey_compact3dgs_1-71,compact3dgs,,,,,26.132,0.809,0.280,44.641,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,1-73,survey_compact3dgs_1-73,compact3dgs,,,,,25.628,0.800,0.267,56.018,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,1-78,survey_compact3dgs_1-78,compact3dgs,,,,,24.379,0.787,0.281,59.623,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,1-100,survey_compact3dgs_1-100,compact3dgs,,,,,26.519,0.848,0.215,76.307,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,2-6,survey_compact3dgs_2-6,compact3dgs,,,,,25.748,0.816,0.225,86.120,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,2-8,survey_compact3dgs_2-8,compact3dgs,,,,,26.814,0.835,0.322,33.982,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,3-7,survey_compact3dgs_3-7,compact3dgs,,,,,26.088,0.770,0.311,45.810,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,3-11,survey_compact3dgs_3-11,compact3dgs,,,,,25.599,0.769,0.291,55.082,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,4-10,survey_compact3dgs_4-10,compact3dgs,,,,,25.401,0.745,0.319,51.399,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,4-25,survey_compact3dgs_4-25,compact3dgs,,,,,23.719,0.846,0.208,135.339,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,4-28,survey_compact3dgs_4-28,compact3dgs,,,,,25.977,0.875,0.311,32.366,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,5-6,survey_compact3dgs_5-6,compact3dgs,,,,,25.097,0.852,0.217,146.077,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,5-13,survey_compact3dgs_5-13,compact3dgs,,,,,26.906,0.844,0.248,57.836,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,6-7,survey_compact3dgs_6-7,compact3dgs,,,,,29.386,0.916,0.167,50.467,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,6-22,survey_compact3dgs_6-22,compact3dgs,,,,,29.399,0.902,0.142,83.908,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,6-26,survey_compact3dgs_6-26,compact3dgs,,,,,25.766,0.802,0.263,87.527,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,6-31,survey_compact3dgs_6-31,compact3dgs,,,,,24.776,0.765,0.275,68.281,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,6-44,survey_compact3dgs_6-44,compact3dgs,,,,,25.171,0.839,0.210,75.081,,,render_metrics,,3DGS compression survey table,allMothod,11.333
+survey,1-23,survey_Minisplatting_1-23,Minisplatting,,,,,23.428,0.727,0.327,27.773,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,1-42,survey_Minisplatting_1-42,Minisplatting,,,,,26.194,0.783,0.310,24.421,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,1-71,survey_Minisplatting_1-71,Minisplatting,,,,,25.967,0.805,0.278,21.256,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,1-73,survey_Minisplatting_1-73,Minisplatting,,,,,25.186,0.788,0.284,21.838,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,1-78,survey_Minisplatting_1-78,Minisplatting,,,,,23.603,0.756,0.315,21.255,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,1-100,survey_Minisplatting_1-100,Minisplatting,,,,,25.483,0.831,0.237,25.474,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,2-6,survey_Minisplatting_2-6,Minisplatting,,,,,25.106,0.785,0.266,30.305,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,2-8,survey_Minisplatting_2-8,Minisplatting,,,,,26.757,0.835,0.323,13.332,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,3-7,survey_Minisplatting_3-7,Minisplatting,,,,,25.591,0.756,0.333,21.806,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,3-11,survey_Minisplatting_3-11,Minisplatting,,,,,25.399,0.752,0.309,26.107,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,4-10,survey_Minisplatting_4-10,Minisplatting,,,,,25.201,0.735,0.341,28.610,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,4-25,survey_Minisplatting_4-25,Minisplatting,,,,,23.984,0.813,0.248,44.293,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,4-28,survey_Minisplatting_4-28,Minisplatting,,,,,25.959,0.879,0.304,11.910,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,5-6,survey_Minisplatting_5-6,Minisplatting,,,,,23.919,0.778,0.309,44.749,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,5-13,survey_Minisplatting_5-13,Minisplatting,,,,,26.985,0.841,0.244,29.897,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,6-7,survey_Minisplatting_6-7,Minisplatting,,,,,29.787,0.925,0.164,14.122,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,6-22,survey_Minisplatting_6-22,Minisplatting,,,,,28.450,0.879,0.177,32.048,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,6-26,survey_Minisplatting_6-26,Minisplatting,,,,,25.091,0.760,0.324,29.102,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,6-31,survey_Minisplatting_6-31,Minisplatting,,,,,24.051,0.726,0.323,26.158,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,6-44,survey_Minisplatting_6-44,Minisplatting,,,,,24.670,0.814,0.244,25.792,,,render_metrics,,3DGS compression survey table,allMothod,11.667
+survey,1-23,survey_FC-GS_1-23,FC-GS,,,,,19.383,0.669,0.200,54.895,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,1-42,survey_FC-GS_1-42,FC-GS,,,,,21.244,0.711,0.212,32.313,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,1-71,survey_FC-GS_1-71,FC-GS,,,,,21.725,0.740,0.201,30.955,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,1-73,survey_FC-GS_1-73,FC-GS,,,,,19.918,0.704,0.197,33.698,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,1-78,survey_FC-GS_1-78,FC-GS,,,,,19.506,0.677,0.236,47.107,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,1-100,survey_FC-GS_1-100,FC-GS,,,,,21.018,0.764,0.145,47.620,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,2-6,survey_FC-GS_2-6,FC-GS,,,,,20.245,0.700,0.180,59.600,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,2-8,survey_FC-GS_2-8,FC-GS,,,,,21.360,0.784,0.226,34.131,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,3-7,survey_FC-GS_3-7,FC-GS,,,,,20.410,0.672,0.287,27.717,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,3-11,survey_FC-GS_3-11,FC-GS,,,,,22.185,0.744,0.187,51.984,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,4-10,survey_FC-GS_4-10,FC-GS,,,,,21.944,0.679,0.214,59.713,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,4-25,survey_FC-GS_4-25,FC-GS,,,,,18.734,0.676,0.202,77.679,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,4-28,survey_FC-GS_4-28,FC-GS,,,,,20.569,0.815,0.221,38.369,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,5-6,survey_FC-GS_5-6,FC-GS,,,,,19.574,0.635,0.251,98.962,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,5-13,survey_FC-GS_5-13,FC-GS,,,,,22.455,0.761,0.163,41.207,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,6-7,survey_FC-GS_6-7,FC-GS,,,,,22.249,0.805,0.117,20.750,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,6-22,survey_FC-GS_6-22,FC-GS,,,,,22.031,0.770,0.136,41.766,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,6-26,survey_FC-GS_6-26,FC-GS,,,,,21.437,0.724,0.189,57.524,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,6-31,survey_FC-GS_6-31,FC-GS,,,,,20.039,0.668,0.205,57.524,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,6-44,survey_FC-GS_6-44,FC-GS,,,,,19.908,0.718,0.179,48.940,,,render_metrics,,3DGS compression survey table,allMothod,11.833
+survey,1-23,survey_Lightgaussian_1-23,Lightgaussian,,,,,24.320,0.764,0.292,392.138,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,1-42,survey_Lightgaussian_1-42,Lightgaussian,,,,,26.259,0.774,0.340,175.644,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,1-71,survey_Lightgaussian_1-71,Lightgaussian,,,,,26.575,0.819,0.276,264.895,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,1-73,survey_Lightgaussian_1-73,Lightgaussian,,,,,25.488,0.792,0.291,224.205,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,1-78,survey_Lightgaussian_1-78,Lightgaussian,,,,,24.352,0.778,0.310,281.697,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,1-100,survey_Lightgaussian_1-100,Lightgaussian,,,,,26.659,0.850,0.228,361.130,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,2-6,survey_Lightgaussian_2-6,Lightgaussian,,,,,26.216,0.819,0.236,407.525,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,2-8,survey_Lightgaussian_2-8,Lightgaussian,,,,,26.586,0.833,0.331,111.166,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,3-7,survey_Lightgaussian_3-7,Lightgaussian,,,,,25.979,0.750,0.347,165.273,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,3-11,survey_Lightgaussian_3-11,Lightgaussian,,,,,26.066,0.773,0.299,246.503,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,4-10,survey_Lightgaussian_4-10,Lightgaussian,,,,,25.464,0.728,0.351,194.879,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,4-25,survey_Lightgaussian_4-25,Lightgaussian,,,,,26.239,0.887,0.162,654.902,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,4-28,survey_Lightgaussian_4-28,Lightgaussian,,,,,26.044,0.879,0.309,119.238,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,5-6,survey_Lightgaussian_5-6,Lightgaussian,,,,,26.508,0.874,0.195,800.511,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,5-13,survey_Lightgaussian_5-13,Lightgaussian,,,,,27.936,0.863,0.236,282.481,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,6-7,survey_Lightgaussian_6-7,Lightgaussian,,,,,30.644,0.935,0.157,165.865,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,6-22,survey_Lightgaussian_6-22,Lightgaussian,,,,,30.311,0.910,0.143,412.095,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,6-26,survey_Lightgaussian_6-26,Lightgaussian,,,,,26.265,0.799,0.294,385.430,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,6-31,survey_Lightgaussian_6-31,Lightgaussian,,,,,25.039,0.770,0.287,335.331,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,6-44,survey_Lightgaussian_6-44,Lightgaussian,,,,,25.648,0.844,0.221,347.001,,,render_metrics,,3DGS compression survey table,allMothod,12.667
+survey,1-23,survey_gaussianspa_1-23,gaussianspa,,,,,23.443,0.723,0.334,106.796,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,1-42,survey_gaussianspa_1-42,gaussianspa,,,,,26.651,0.790,0.304,101.522,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,1-71,survey_gaussianspa_1-71,gaussianspa,,,,,26.205,0.810,0.274,106.681,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,1-73,survey_gaussianspa_1-73,gaussianspa,,,,,25.849,0.803,0.271,107.060,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,1-78,survey_gaussianspa_1-78,gaussianspa,,,,,24.366,0.776,0.298,106.461,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,1-100,survey_gaussianspa_1-100,gaussianspa,,,,,26.343,0.839,0.237,107.462,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,2-6,survey_gaussianspa_2-6,gaussianspa,,,,,25.129,0.781,0.275,107.190,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,2-8,survey_gaussianspa_2-8,gaussianspa,,,,,27.192,0.843,0.313,105.747,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,3-7,survey_gaussianspa_3-7,gaussianspa,,,,,26.091,0.762,0.325,97.891,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,3-11,survey_gaussianspa_3-11,gaussianspa,,,,,25.572,0.753,0.308,106.949,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,4-10,survey_gaussianspa_4-10,gaussianspa,,,,,25.503,0.728,0.353,99.616,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,4-25,survey_gaussianspa_4-25,gaussianspa,,,,,23.232,0.774,0.298,106.540,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,4-28,survey_gaussianspa_4-28,gaussianspa,,,,,26.490,0.886,0.294,107.086,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,5-6,survey_gaussianspa_5-6,gaussianspa,,,,,23.316,0.739,0.359,107.694,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,5-13,survey_gaussianspa_5-13,gaussianspa,,,,,27.245,0.837,0.259,101.901,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,6-7,survey_gaussianspa_6-7,gaussianspa,,,,,31.167,0.938,0.146,91.718,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,6-22,survey_gaussianspa_6-22,gaussianspa,,,,,29.001,0.881,0.183,106.679,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,6-26,survey_gaussianspa_6-26,gaussianspa,,,,,25.319,0.760,0.327,106.925,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,6-31,survey_gaussianspa_6-31,gaussianspa,,,,,24.483,0.738,0.314,106.536,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,6-44,survey_gaussianspa_6-44,gaussianspa,,,,,25.048,0.825,0.236,107.256,,,render_metrics,,3DGS compression survey table,allMothod,13.333
+survey,1-23,survey_Octree-GS_1-23,Octree-GS,,,,,23.048,0.706,0.339,79.979,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,1-42,survey_Octree-GS_1-42,Octree-GS,,,,,26.623,0.793,0.292,80.002,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,1-71,survey_Octree-GS_1-71,Octree-GS,,,,,26.631,0.831,0.239,114.507,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,1-73,survey_Octree-GS_1-73,Octree-GS,,,,,21.659,0.652,0.427,46.653,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,1-78,survey_Octree-GS_1-78,Octree-GS,,,,,20.328,0.603,0.465,21.491,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,1-100,survey_Octree-GS_1-100,Octree-GS,,,,,21.168,0.654,0.440,13.764,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,2-6,survey_Octree-GS_2-6,Octree-GS,,,,,21.287,0.584,0.453,15.707,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,2-8,survey_Octree-GS_2-8,Octree-GS,,,,,24.323,0.757,0.410,7.028,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,3-7,survey_Octree-GS_3-7,Octree-GS,,,,,23.993,0.683,0.407,33.737,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,3-11,survey_Octree-GS_3-11,Octree-GS,,,,,23.689,0.661,0.401,30.328,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,4-10,survey_Octree-GS_4-10,Octree-GS,,,,,24.550,0.656,0.417,34.681,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,4-25,survey_Octree-GS_4-25,Octree-GS,,,,,20.510,0.625,0.393,26.897,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,4-28,survey_Octree-GS_4-28,Octree-GS,,,,,25.199,0.846,0.348,13.338,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,5-6,survey_Octree-GS_5-6,Octree-GS,,,,,25.085,0.838,0.245,145.552,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,5-13,survey_Octree-GS_5-13,Octree-GS,,,,,22.835,0.619,0.481,8.832,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,6-7,survey_Octree-GS_6-7,Octree-GS,,,,,21.762,0.746,0.399,2.186,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,6-22,survey_Octree-GS_6-22,Octree-GS,,,,,25.606,0.773,0.301,39.751,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,6-26,survey_Octree-GS_6-26,Octree-GS,,,,,22.981,0.653,0.416,32.689,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,6-31,survey_Octree-GS_6-31,Octree-GS,,,,,20.824,0.542,0.496,10.875,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+survey,6-44,survey_Octree-GS_6-44,Octree-GS,,,,,22.034,0.688,0.390,86.941,,,render_metrics,,3DGS compression survey table,allMothod,13.833
+dcca_lyh,,lyh_budget_depth_r052,DCCA MiniSplat depth,,,50,cd8_rest16,29.4752,0.8923,0.305,0.6752,,27055,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,,lyh_budget_depth_r092,DCCA MiniSplat depth,,,50,cd8_rest16,30.4913,0.9065,0.2672,1.5402,,71691,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,,lyh_budget_depth_r097,DCCA MiniSplat depth,,,50,cd8_rest16,30.7345,0.9093,0.2606,1.8884,,88412,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,,lyh_budget_full_r052,DCCA MiniSplat full,,,50,cd8_rest16,28.6549,0.8819,0.3255,0.4711,,16566,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,,lyh_budget_full_r092,DCCA MiniSplat full,,,50,cd8_rest16,30.4878,0.9063,0.2695,1.4177,,66172,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,,lyh_budget_full_r097,DCCA MiniSplat full,,,50,cd8_rest16,30.7222,0.9089,0.2619,1.8635,,88397,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,drjohnson,lyh_depth_drjohnson,DCCA MiniSplat depth,,,50,cd8_rest16,29.5017,0.9001,0.2816,2.0581,,92585,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-bicycle,lyh_depth_mip_bicycle,DCCA MiniSplat depth,,,50,cd8_rest16,24.2562,0.6652,0.3783,4.107,,184056,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-garden,lyh_depth_mip_garden,DCCA MiniSplat depth,,,50,cd8_rest16,26.2912,0.7816,0.2658,5.8915,,240200,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-stump,lyh_depth_mip_stump,DCCA MiniSplat depth,,,50,cd8_rest16,25.7786,0.7066,0.3776,2.8122,,101241,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,playroom,lyh_depth_playroom,DCCA MiniSplat depth,,,50,cd8_rest16,30.2713,0.9039,0.2763,1.255,,54947,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-train,lyh_depth_tandt_train,DCCA MiniSplat depth,,,50,cd8_rest16,22.2771,0.8096,0.276,3.4631,,132832,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-truck,lyh_depth_tandt_truck,DCCA MiniSplat depth,,,50,cd8_rest16,25.3796,0.868,0.2317,3.268,,144914,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,drjohnson,lyh_full_drjohnson,DCCA MiniSplat full,,,50,cd8_rest16,29.4136,0.8987,0.2845,1.912,,85846,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-bicycle,lyh_full_mip_bicycle,DCCA MiniSplat full,,,50,cd8_rest16,24.1711,0.6592,0.3836,3.6615,,161911,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-garden,lyh_full_mip_garden,DCCA MiniSplat full,,,50,cd8_rest16,26.1806,0.7767,0.2733,5.3655,,217735,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-stump,lyh_full_mip_stump,DCCA MiniSplat full,,,50,cd8_rest16,25.6645,0.7011,0.3858,2.4813,,89552,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,playroom,lyh_full_playroom,DCCA MiniSplat full,,,50,cd8_rest16,30.5244,0.9051,0.275,1.1899,,52648,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-train,lyh_full_tandt_train,DCCA MiniSplat full,,,50,cd8_rest16,22.1662,0.8042,0.2813,3.0734,,123619,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-truck,lyh_full_tandt_truck,DCCA MiniSplat full,,,50,cd8_rest16,25.388,0.8665,0.2357,3.0803,,136606,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,Mip-garden,lyh_p0_mip_garden_cell1,DCCA,,,50,cd8_rest16,26.3203,0.7813,0.266,5.8914,,240910,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-train,lyh_p0_tandt_train_cell1,DCCA,,,50,cd8_rest16,21.9187,0.807,0.276,3.3893,,133266,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-train,lyh_p0_tandt_train_cell2,DCCA,,,50,cd8_rest16,22.2468,0.809,0.277,3.3688,,133512,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-truck,lyh_p0_tandt_truck_cell1,DCCA,,,50,cd8_rest16,25.4027,0.8678,nan,3.2865,,140396,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-truck,lyh_p0_tandt_truck_cell2,DCCA,,,50,cd8_rest16,25.3353,0.8678,0.232,3.2974,,140239,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,drjohnson,lyh_seed2026_depth_drjohnson,DCCA MiniSplat depth,,,50,cd8_rest16,29.5918,0.901,0.2794,2.146,,98136,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,playroom,lyh_seed2026_depth_playroom,DCCA MiniSplat depth,,,50,cd8_rest16,30.4601,0.9053,0.2717,1.5807,,77039,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-train,lyh_seed2026_depth_tandt_train,DCCA MiniSplat depth,,,50,cd8_rest16,21.9228,0.8062,0.2777,3.4002,,135359,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,drjohnson,lyh_seed2026_drjohnson_cell2,DCCA,,,50,cd8_rest16,29.5386,0.9007,nan,2.151,,99527,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,drjohnson,lyh_seed2026_full_drjohnson,DCCA MiniSplat full,,,50,cd8_rest16,29.4556,0.8988,0.2838,1.9462,,90991,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,playroom,lyh_seed2026_full_playroom,DCCA MiniSplat full,,,50,cd8_rest16,30.2793,0.904,0.2742,1.3784,,66421,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,T&T-train,lyh_seed2026_full_tandt_train,DCCA MiniSplat full,,,50,cd8_rest16,21.959,0.8032,0.2823,3.1343,,126770,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,1-78,dcca_1-78_nospa_l0002,DCCA no-SPA,110000,0.002,50,cd8_rest16,28.8084,0.8956,0.1449,22.982,,716438,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,1-78,dcca_1-78_nospa_l0004,DCCA no-SPA,110000,0.004,50,cd8_rest16,28.4556,0.8855,0.1608,16.4421,,632225,render_metrics,,LYH run dir,lyh_runs,
+dcca_lyh,1-78,dcca_1-78_nospa_l0005,DCCA no-SPA,110000,0.0005,50,cd8_rest16,29.2424,0.9056,0.1293,38.3277,,879300,render_metrics,,LYH run dir,lyh_runs,
+baseline,1-78,hacpp_1-78_high_l0004,HAC++,30000,0.004,,float32,27.84064483642578,0.882947564125061,0.15973019738992056,20.0265,,,render_metrics,,official HAC++ run,hacpp,
+baseline,1-78,hacpp_1-78_low_l0005,HAC++,30000,0.0005,,float32,28.677997589111328,0.9000715017318726,0.13955286502838135,40.5589,,,render_metrics,,official HAC++ run,hacpp,
+baseline,1-78,hacpp_1-78_mid_l0002,HAC++,30000,0.002,,float32,28.210527420043945,0.8902544975280762,0.15140363777677218,26.2734,,,render_metrics,,official HAC++ run,hacpp,
+dcca_lyh,1-78,lyh_178_baseline_110k,DCCA baseline,110000,0.004,50,cd8_rest16,27.5047,0.8645,0.1882,13.6696,,543572,render_metrics,,LYH run dir,lyh_runs,

@@ -1387,11 +1387,6 @@ class GaussianModel(nn.Module):
             and self.anchor_demon.shape[0] != self._anchor.shape[0]
         ):
             self.anchor_demon = self.anchor_demon[valid_points_mask]
-        if (
-            self.max_radii2D.numel() > 0
-            and self.max_radii2D.shape[0] != self._anchor.shape[0]
-        ):
-            self.max_radii2D = self.max_radii2D[valid_points_mask]
         if self.semantic_target.numel() > 0:
             self.semantic_target = self.semantic_target[valid_points_mask]
             self.semantic_cov = self.semantic_cov[valid_points_mask]
