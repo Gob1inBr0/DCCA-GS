@@ -29,6 +29,25 @@ updated: "2026-08-27"
   ssh -o BatchMode=yes LYH '<command>'
   ```
 - 本机（Mac）公钥已在 LYH；SSH 前缀已获批准。
+
+  `~/.ssh/config` 可直接使用：
+  ```text
+  Host LYH
+      HostName 36.138.63.143
+      Port 65022
+      User root
+      IdentityFile ~/.ssh/id_ed25519
+  ```
+
+  GitHub 当前环境使用：
+  ```text
+  git@github.com:Gob1inBr0/DCCA-GS.git
+  ```
+  `github.com:22` 在本环境被拦截，推送时使用：
+  ```bash
+  git push ssh://git@ssh.github.com:443/Gob1inBr0/DCCA-GS.git \
+    codex/color-asg:codex/color-asg
+  ```
 - 共享目录约定（用户明确指定）：
   - 项目/代码/环境 → `/home/T0ng`
   - 数据集 → `/home/data`（当前为空目录，按需重建）
