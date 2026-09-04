@@ -1,0 +1,59 @@
+{
+  "N_anchors": 85846,
+  "best_mean_corr_non_A": 0.2861,
+  "delta_D_minus_B_feat": -0.001,
+  "input_sets": {
+    "A": {
+      "corr": {
+        "feat": 0.0277,
+        "offsets": 0.0052,
+        "scaling": 0.0163
+      },
+      "mse": 0.191002
+    },
+    "B": {
+      "corr": {
+        "feat": 0.3073,
+        "offsets": 0.1715,
+        "scaling": 0.3643
+      },
+      "mse": 0.174187
+    },
+    "C_k16": {
+      "corr": {
+        "feat": 0.309,
+        "offsets": 0.1727,
+        "scaling": 0.3672
+      },
+      "mse": 0.173953
+    },
+    "C_k32": {
+      "corr": {
+        "feat": 0.3104,
+        "offsets": 0.1762,
+        "scaling": 0.3717
+      },
+      "mse": 0.173706
+    },
+    "C_k8": {
+      "corr": {
+        "feat": 0.3089,
+        "offsets": 0.1764,
+        "scaling": 0.3636
+      },
+      "mse": 0.174099
+    },
+    "D": {
+      "corr": {
+        "feat": 0.3063,
+        "offsets": 0.1706,
+        "scaling": 0.3631
+      },
+      "mse": 0.174285
+    }
+  },
+  "iteration": 30000,
+  "pass": false,
+  "split": "shuffle",
+  "steps": 120
+}
