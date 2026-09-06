@@ -198,6 +198,9 @@ class HACPlusModel(BaseGaussianModel):
         )
         self.core.fusion_prune = bool(cfg.fusion_prune)
         self.core.fusion_sensitivity_weight = float(cfg.fusion_sensitivity_weight)
+        self.core.spa_coverage_constraint = bool(cfg.spa_coverage_constraint)
+        self.core.spa_coverage_cell_size = float(cfg.spa_coverage_cell_size)
+        self.core.spa_coverage_min_per_cell = int(cfg.spa_coverage_min_per_cell)
         if cfg.semantic_enabled:
             if cfg.semantic_proj_head:
                 hidden = self.core.mlp_complexity[0].out_features

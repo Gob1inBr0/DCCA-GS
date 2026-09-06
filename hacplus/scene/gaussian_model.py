@@ -1648,7 +1648,14 @@ class GaussianModel(nn.Module):
                                  + self.sensitivity_offsets.squeeze(-1))
                             s = torch.log1p(s.clamp_min(0.0))
                             s = s / s.max().clamp_min(1e-8)
-                            imp = imp + float(getattr(self, "fusion_sensitivity_weight", 0.5)) * s
+                            # Coverage-dominant fusion: cap sensitivity so high-
+                            # coverage anchors are never over-ridden (fixes low-budget
+                            # collapse). eff = fusion_sensitivity_cap (default 0.3).
+                            cov = imp / imp.max().clamp_min(1e-8)
+                            eff = float(getattr(
+                                self, "fusion_sensitivity_cap", 0.3
+                            ))
+                            imp = (1.0 - eff) * cov + eff * s
 
                     imp = imp / imp.max().clamp_min(1e-8)
                     weight = float(
@@ -1658,8 +1665,39 @@ class GaussianModel(nn.Module):
             kappa = min(kappa, scores.shape[0])
             z = torch.zeros_like(scores, dtype=torch.bool)
             if kappa > 0:
-                keep = torch.topk(scores, kappa).indices
-                z[keep] = True
+                if getattr(self, "spa_coverage_constraint", False):
+                    anchor = self.get_anchor.detach()
+                    cs = float(getattr(self, "spa_coverage_cell_size", 0.01))
+                    cell = (anchor / cs).floor().long()            # [N,3]
+                    _, inverse = torch.unique(
+                        cell, dim=0, return_inverse=True
+                    )                                              # inverse: [N] -> row of unique cell
+                    mn = int(getattr(self, "spa_coverage_min_per_cell", 1))
+                    sidx = torch.argsort(scores, descending=True)
+                    inv_sorted = inverse[sidx]
+                    gstart = torch.zeros_like(inv_sorted, dtype=torch.bool)
+                    gstart[0] = True
+                    gstart[1:] = inv_sorted[1:] != inv_sorted[:-1]
+                    within = (
+                        torch.arange(inv_sorted.numel(), device=scores.device)
+                        - torch.cumsum(gstart.long(), dim=0) + 1
+                    )
+                    mand = sidx[within <= mn]                      # top-mn per cell
+                    if mand.numel() >= kappa:
+                        keep = mand[:kappa]
+                    else:
+                        mand_mask = torch.zeros(
+                            scores.numel(), dtype=torch.bool, device=scores.device
+                        )
+                        mand_mask[mand] = True
+                        fill = sidx[~mand_mask[sidx]][
+                            : kappa - mand.numel()
+                        ]
+                        keep = torch.cat([mand, fill])
+                    z[keep] = True
+                else:
+                    keep = torch.topk(scores, kappa).indices
+                    z[keep] = True
             self.spa_z = z.float().unsqueeze(-1)
             self.spa_u = (self.spa_u + a - self.spa_z).clamp(
                 -self.spa_u_clamp, self.spa_u_clamp

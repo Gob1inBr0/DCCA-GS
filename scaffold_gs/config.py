@@ -188,6 +188,13 @@ class ModelConfig:
     fusion_prune: bool = False
     """Blend render-sensitivity into the SPA prune score (importance-aware pruning)."""
     fusion_sensitivity_weight: float = 0.5
+    """Weight of the sensitivity term inside the fused prune importance."""
+    spa_coverage_constraint: bool = False
+    """ADMM hard-projection coverage constraint: keep >=1 anchor per coarse cell."""
+    spa_coverage_cell_size: float = 0.01
+    """Coarse 3D grid cell size (scene coords) for the coverage constraint."""
+    spa_coverage_min_per_cell: int = 1
+    """Minimum anchors the coverage constraint keeps per occupied cell."""
     importance_weighted_loss: bool = False
     """Weight the reconstruction L1 by rendered opacity (importance-aware loss)."""
     importance_weight_floor: float = 0.2
