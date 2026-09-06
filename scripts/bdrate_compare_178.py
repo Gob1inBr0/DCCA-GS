@@ -11,10 +11,9 @@ Usage:
       --runs dcca_1-78_30k_32dim_l0004:0.004,dcca_1-78_30k_32dim_l0002:0.002,dcca_1-78_30k_32dim_l0005:0.0005 \
       --out /home/project2/runs/bdrate_1-78.json
 
---source controls which volume is used for the rate axis:
-  fp32  -> decoded_eval/metrics_summary.json metrics.codec_total_mb (MLP float32)
-  mlp   -> mlp_quant_cd8_rest16/results.json total_MB (post-MLP-quant, final size)
-Use the SAME source for both methods for a fair comparison.
+Volume uses the FLOAT32 MLP codec size (``compress.log`` ``total_MB``), the same
+口径 as the HAC++ baseline. MLP weight quantization was removed as a claimed
+contribution (it saved only ~0.5% and was口径-inconsistent).
 """
 
 from __future__ import annotations
@@ -37,33 +36,22 @@ HACPP_178_30K = {
 
 def _read_run(root: Path, tag: str, source: str) -> dict | None:
     run = root / tag
-    if source == "mlp":
-        q = run / "mlp_quant_cd8_rest16" / "results.json"
-        if q.exists():
-            d = json.loads(q.read_text())
-            # results.json may nest metrics under "metrics" or be flat.
-            m = d.get("metrics", d)
-            if "total_MB" in m:
-                return {
-                    "psnr": float(m["psnr"]),
-                    "ssim": float(m.get("ssim", 0.0)),
-                    "lpips": float(m.get("lpips", 0.0)),
-                    "mb": float(m["total_MB"]),
-                }
-    # Fallback / fp32 source: decoded_eval metrics_summary.json.
-    ms = run / "decoded_eval" / "metrics_summary.json"
-    if ms.exists():
-        d = json.loads(ms.read_text())
-        met = d["metrics"]
-        mb = float(
-            met.get("codec_total_mb", met.get("method_total_mb", float("nan")))
-        )
-        return {
-            "psnr": float(met["psnr"]),
-            "ssim": float(met["ssim"]),
-            "lpips": float(met["lpips"]),
-            "mb": mb,
-        }
+    import re
+    mb = None
+    comp = (run / "compress.log").read_text(encoding="utf-8", errors="ignore")
+    m = re.search(r"total_MB':\s*([0-9.]+)", comp)
+    if m:
+        mb = float(m.group(1))
+    for mj in (run / "decoded_eval" / "metrics.jsonl", run / "metrics.jsonl"):
+        if mj.exists():
+            line = mj.read_text().strip().splitlines()[-1]
+            d = json.loads(line)
+            return {
+                "psnr": float(d["psnr"]),
+                "ssim": float(d["ssim"]),
+                "lpips": float(d["lpips"]),
+                "mb": (mb if mb is not None else float("nan")),
+            }
     return None
 
 

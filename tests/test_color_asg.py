@@ -15,7 +15,6 @@ import torch
 
 from scaffold_gs.asg import _orthonormal_basis, evaluate_asg, evaluate_asg_rgb
 from scaffold_gs.config import ModelConfig
-from scaffold_gs.mlp_quant import MLP_GROUPS, quantize_core_mlps
 from scaffold_gs.model import AnchorDecoder, AnchorParams
 
 
@@ -121,22 +120,6 @@ def test_asg_determinism_and_roundtrip():
     f2, l2 = evaluate_asg(raw, view, 3, lobes=1, latent_dim=8)
     assert torch.equal(f1, f2)
     assert torch.equal(l1, l2)
-
-
-def test_mlp_quant_groups_for_asg():
-    torch.manual_seed(10)
-    decoder = _decoder(color_mode="asg")
-    meta = quantize_core_mlps(
-        decoder, bits=8, groups=("mlp_asg", "mlp_color2")
-    )
-    names = set(meta)
-    assert any("mlp_asg" in n for n in names)
-    assert any("mlp_color2" in n for n in names)
-    assert all(meta[n]["group"] in ("mlp_asg", "mlp_color2") for n in names)
-    # The group router must not treat mlp_color2 as mlp_color.
-    assert "mlp_color" in MLP_GROUPS
-    assert "mlp_color2" in MLP_GROUPS
-    assert "mlp_asg" in MLP_GROUPS
 
 
 @pytest.mark.skipif(

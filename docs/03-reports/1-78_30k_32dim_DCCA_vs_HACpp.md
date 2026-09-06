@@ -39,24 +39,23 @@
 ## 3. DCCA-GS 1-78 30k（32-dim，seed 42）结果
 
 来源：`/dev/shm/dcca_runs/1-78/dcca_1-78_30k_32dim_l000{4,2,5}/`。指标来自解码后真实 bitstream
-（`decoded_eval/metrics.jsonl`），体积来自 `compress.log` 的 `total_MB`（fp32 口径，`bit_mlp` 为
-float32≈0.16MB）与 `mlp_quant_cd8_rest16/results.json` 的 `total_MB`（MLP 量化后）。三单元均
-`bit_exact_roundtrip=True`。
+（`decoded_eval/metrics.jsonl`），体积来自 `compress.log` 的 `total_MB`（**fp32 口径**，`bit_mlp` 为
+float32≈0.16MB，与 HAC++ 原生一致）。三单元均 `bit_exact_roundtrip=True`。
 
-| λ | run | PSNR | SSIM | LPIPS | total_MB(fp32) | total_MB(MLP量化) | anchors |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.004 | `dcca_1-78_30k_32dim_l0004` | 27.422 | 0.8638 | 0.1814 | 11.7835 | 11.7167 | 506,186 |
-| 0.002 | `dcca_1-78_30k_32dim_l0002` | 27.642 | 0.8703 | 0.1718 | 15.3069 | 15.2408 | 557,363 |
-| 0.0005 | `dcca_1-78_30k_32dim_l0005` | 27.980 | 0.8788 | 0.1605 | 23.7178 | 23.6491 | 796,719 |
+> 口径说明：本报告一律用 **fp32 total_MB**（含 float32 MLP）。MLP 权重量化已移除（只省 ~0.5% 且
+> 口径不自洽，不作为贡献点）。
+
+| λ | run | PSNR | SSIM | LPIPS | total_MB(fp32) | anchors |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 0.004 | `dcca_1-78_30k_32dim_l0004` | 27.422 | 0.8638 | 0.1814 | 11.7835 | 506,186 |
+| 0.002 | `dcca_1-78_30k_32dim_l0002` | 27.642 | 0.8703 | 0.1718 | 15.3069 | 557,363 |
+| 0.0005 | `dcca_1-78_30k_32dim_l0005` | 27.980 | 0.8788 | 0.1605 | 23.7178 | 796,719 |
 
 **对比 HAC++ 参考（§2）**：同 λ 下 DCCA 体积明显更小（≈59%），但 PSNR 也低 0.42–0.70 dB。
 
 **BD-rate**（共享 PSNR 区间 [27.841, 27.980]，很窄）：
 
-| 口径 | BD-rate vs HAC++ |
-| --- | ---: |
-| DCCA fp32 total_MB | **+2.79%** |
-| DCCA MLP 量化 total_MB | **+2.46%** |
+| BD-rate（DCCA fp32 total_MB vs HAC++） | 共享 PSNR 区间 [27.841, 27.980] → **+2.79%** |
 
 > BD-rate 为正=在相同 PSNR 下 DCCA 用了更多码率（略差）。负值才表示更好。
 
@@ -88,8 +87,8 @@ float32≈0.16MB）与 `mlp_quant_cd8_rest16/results.json` 的 `total_MB`（MLP 
 - **同场景、同数据、同 30k、同 λ 集、同 seed**，这是与 HAC++ 公平比较的关键。
 - **体积口径**必须统一：
   - DCCA 的 `total_MB(fp32)` 来自 `compress.log` 的 `total_MB`（`bit_mlp`=float32≈0.16MB），
-    与 HAC++（原生 float32 MLP）口径一致 → **主比较用 fp32**；
-  - DCCA 的 `total_MB(MLP量化)`（含创新点②压 MLP）是"方法最终尺寸"，仅作参考，单独标出，避免口径错配。
+    与 HAC++（原生 float32 MLP）口径一致 → **主比较用 fp32**。
+  - MLP 权重量化**已移除**（不生产 `mlp_quant_cd8_rest16`），避免口径错配；如需其数据请无视。
 - **feat_dim 差异**：DCCA 用 32-dim（用户指定），HAC++ 参考点未注明 feat_dim（默认多为 50）。
   维度差异会小幅偏向 DCCA 的 feat 体积，但本结果 DCCA 仍偏差，因此不改变方向性结论。
 - **PSNR 区间几乎不重叠**：BD-rate 的共享区间仅 0.14 dB，稳健性有限，结论应按"大致相当、略偏差"解读。
