@@ -207,7 +207,16 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
 
         gt = dataset.get_image(cam)
         pred = out.image[0].permute(2, 0, 1)
-        ll1 = l1_loss(pred, gt).mean()
+        if getattr(cfg.model, "importance_weighted_loss", False):
+            w = out.alpha[0, :, :, 0].detach()          # [H,W] rendered opacity
+            w = w / w.max().clamp_min(1e-8)
+            floor = float(getattr(cfg.model, "importance_weight_floor", 0.2))
+            scale = float(getattr(cfg.model, "importance_weight_scale", 1.0))
+            w = floor + (scale - floor) * w
+            diff = (pred - gt).abs().mean(dim=0)        # [H,W]
+            ll1 = (w * diff).sum() / w.sum()
+        else:
+            ll1 = l1_loss(pred, gt).mean()
         ssim = ssim_loss(pred[None], gt[None])
         if out.gaussians.xyz.shape[0] > 0:
             scale_reg = out.gaussians.scales.prod(dim=1).mean()

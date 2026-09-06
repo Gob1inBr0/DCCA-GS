@@ -135,6 +135,7 @@ def _empty_gaussians(model: "HACPlusModel", n_total: int) -> NeuralGaussians:
         selection_mask=empty.clone().bool(),
         visible_mask=torch.zeros(n_total, dtype=torch.bool, device=device),
         anchor_indices=empty.clone().long(),
+        gaussian_anchor_indices=empty.clone().long(),
     )
 
 
@@ -182,16 +183,21 @@ class HACPlusModel(BaseGaussianModel):
             mlp_complexity_layers=cfg.mlp_complexity_layers,
             level_threshold_low=cfg.level_threshold_low,
             level_threshold_high=cfg.level_threshold_high,
-            color_mode=cfg.color_mode,
-            asg_lobes=cfg.asg_lobes,
-            asg_latent_dim=cfg.asg_latent_dim,
-            asg_hidden=cfg.asg_hidden,
         )
         self.core.to(self.device)
         self.core.spa_enabled = bool(cfg.spa_enabled)
         self.core.spa_ratio = float(cfg.spa_ratio)
         self.core.spa_rho = float(cfg.spa_rho)
         self.core.spa_u_clamp = float(cfg.spa_u_clamp)
+        self.core.mini_splat_importance = torch.zeros(
+            0, 1, device=self.device
+        )
+        self.core.mini_splat_full_selected = False
+        self.core.mini_splat_importance_weight = float(
+            cfg.mini_splat_importance_weight
+        )
+        self.core.fusion_prune = bool(cfg.fusion_prune)
+        self.core.fusion_sensitivity_weight = float(cfg.fusion_sensitivity_weight)
         if cfg.semantic_enabled:
             if cfg.semantic_proj_head:
                 hidden = self.core.mlp_complexity[0].out_features
@@ -266,6 +272,10 @@ class HACPlusModel(BaseGaussianModel):
             "spa_final_n": self.core.spa_final_n,
             "spa_ref_n": self.core.spa_ref_n,
         }
+        sd["_mini_splat_state"] = {
+            "importance": self.core.mini_splat_importance,
+            "full_selected": self.core.mini_splat_full_selected,
+        }
         return sd
 
     def load_state_dict(self, *args, **kwargs):
@@ -289,6 +299,14 @@ class HACPlusModel(BaseGaussianModel):
             self.core.spa_u = spa_state["spa_u"].to(self.device)
             self.core.spa_final_n = int(spa_state.get("spa_final_n", 0))
             self.core.spa_ref_n = int(spa_state.get("spa_ref_n", 0))
+        if "_mini_splat_state" in sd:
+            mini_state = sd.pop("_mini_splat_state")
+            self.core.mini_splat_importance = mini_state[
+                "importance"
+            ].to(self.device)
+            self.core.mini_splat_full_selected = bool(
+                mini_state.get("full_selected", False)
+            )
         elif self.core.spa_enabled and self.num_anchors > 0:
             self.core.spa_z = torch.zeros(
                 self.num_anchors, 1, device=self.device
@@ -711,6 +729,7 @@ class HACPlusModel(BaseGaussianModel):
             [],
             [],
         )
+        gaussian_anchor_parts = []
         chunk = 16_384
         for start in range(0, n, chunk):
             end = min(start + chunk, n)
@@ -730,13 +749,14 @@ class HACPlusModel(BaseGaussianModel):
             sel = (no.reshape(-1) > 0.0)
             neural_opacity_parts.append(no)
             selection_parts.append(sel)
+            anchor_rep = (
+                anchor_indices[start:end]
+                .unsqueeze(1)
+                .expand(c, k)
+                .reshape(-1)[sel]
+            )
 
-            if getattr(core, "color_mode", "rgb") == "asg":
-                color = core.decode_asg_color(
-                    cat_local_view, ob_view
-                ).reshape(c * k, 3)[sel]
-            else:
-                color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
+            color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
             scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[sel]
             offsets_c = go.reshape(-1, 3)[sel]
             scaling_repeat = (
@@ -759,12 +779,14 @@ class HACPlusModel(BaseGaussianModel):
                 opacity_c = opacity_c[keep]
                 scales_c = scales_c[keep]
                 quats_c = quats_c[keep]
+                anchor_rep = anchor_rep[keep]
 
             xyz_parts.append(xyz_c)
             color_parts.append(color)
             opacity_parts.append(opacity_c)
             scale_parts.append(scales_c)
             quat_parts.append(quats_c)
+            gaussian_anchor_parts.append(anchor_rep)
 
         neural_opacity = torch.cat(neural_opacity_parts, dim=0)
         selection_mask = torch.cat(selection_parts, dim=0)
@@ -773,6 +795,7 @@ class HACPlusModel(BaseGaussianModel):
         opacity = torch.cat(opacity_parts, dim=0)
         scales = torch.cat(scale_parts, dim=0)
         quats = torch.cat(quat_parts, dim=0)
+        gaussian_anchor_indices = torch.cat(gaussian_anchor_parts, dim=0)
 
         return NeuralGaussians(
             xyz=xyz,
@@ -792,6 +815,7 @@ class HACPlusModel(BaseGaussianModel):
             pre_quant_scaling=grid_scaling if sens_active else None,
             pre_quant_offsets=grid_offsets if sens_active else None,
             complexity_logits=complexity_logits,
+            gaussian_anchor_indices=gaussian_anchor_indices,
         )
 
     def render(self, camera, background, **kwargs):
@@ -835,18 +859,21 @@ class HACPlusModel(BaseGaussianModel):
         dataset,
         background: torch.Tensor,
     ) -> int:
-        """Mini-Splatting depth-reinit densification at the growth-stop point.
+        """Mini-Splatting re-organisation at the growth-stop point.
 
-        Back-projects depth from a sample of training cameras to world-surface
-        points, voxelises them into candidate anchors, and appends them *while
-        pinning the SPA budget to the pre-densification anchor count*.  SPA's
-        top-k projection then only re-allocates *which* anchors survive, so the
-        added surface anchors compete on merit without inflating the budget --
-        this isolates "placement" from "count" (the Mini-Splatting hypothesis).
+        The default ``mini_splat_full=False`` reproduces the previous
+        depth-reinit-only cell. With ``mini_splat_full=True`` it adds blur
+        splitting and a per-pixel contribution-area based
+        intersection-preserving simplification before handing control back to
+        SPA.
         """
         if not self.cfg.mini_splat_enabled:
             return 0
-        from .mini_splat import collect_depth_surface_anchors
+        from .mini_splat import (
+            collect_blur_split_anchors,
+            collect_depth_surface_anchors,
+            compute_contribution_areas,
+        )
 
         cores = self.core
         n_before = int(cores.get_anchor.shape[0])
@@ -867,19 +894,83 @@ class HACPlusModel(BaseGaussianModel):
             idx = [int(i * stride) for i in range(views)]
             idx = sorted(set(i for i in idx if i < len(cams)))
             cams = [cams[i] for i in idx]
-        candidates = collect_depth_surface_anchors(
+        max_new = int(self.cfg.mini_splat_max_new)
+        if not self.cfg.mini_splat_full:
+            candidates = collect_depth_surface_anchors(
+                self,
+                cams,
+                background,
+                voxel,
+                max_new,
+                self.device,
+            )
+            if candidates.shape[0] == 0:
+                print("[MiniSplat] no depth-reinit anchors collected", flush=True)
+                return 0
+            added = cores.append_depth_anchors(
+                candidates, voxel, str(self.device)
+            )
+            return added
+
+        # Full mode: depth reinit + blur split share the same max_new budget.
+        depth_budget = max(1, max_new // 2)
+        depth_candidates = collect_depth_surface_anchors(
             self,
             cams,
             background,
             voxel,
-            int(self.cfg.mini_splat_max_new),
+            depth_budget,
             self.device,
         )
-        if candidates.shape[0] == 0:
-            print("[MiniSplat] no depth-reinit anchors collected", flush=True)
-            return 0
-        added = cores.append_depth_anchors(candidates, voxel, str(self.device))
-        return added
+        depth_added = cores.append_depth_anchors(
+            depth_candidates, voxel, str(self.device)
+        )
+
+        blur_budget = max(0, max_new - depth_added)
+        area = compute_contribution_areas(self, cams, background, self.device)
+        blur_candidates = collect_blur_split_anchors(
+            self,
+            cams,
+            background,
+            area,
+            float(self.cfg.mini_splat_blur_threshold),
+            voxel,
+            blur_budget,
+            self.device,
+        )
+        blur_added = cores.append_depth_anchors(
+            blur_candidates, voxel, str(self.device)
+        )
+
+        # Recompute after all densification, then intersection-preserving
+        # simplification to the same fixed anchor budget.
+        area = compute_contribution_areas(self, cams, background, self.device)
+        scores = area.squeeze(-1)
+        if scores.numel() == 0 or not torch.isfinite(scores).any():
+            scores = cores.get_mask.mean(dim=1).detach().squeeze(-1)
+        n_after = int(cores.get_anchor.shape[0])
+        if cores.spa_enabled:
+            kappa = max(1, int(round(n_before * float(cores.spa_ratio))))
+        else:
+            kappa = max(1, n_before)
+        kappa = min(kappa, n_after)
+        keep = torch.topk(scores, kappa).indices
+        prune_mask = torch.ones(n_after, dtype=torch.bool, device=self.device)
+        prune_mask[keep] = False
+        if prune_mask.any():
+            cores.prune_anchor(prune_mask)
+
+        cores.spa_final_n = kappa
+        cores.spa_ratio = 1.0
+        cores.mini_splat_full_selected = True
+        cores.mini_splat_importance = scores[keep].unsqueeze(-1).contiguous()
+        print(
+            "[MiniSplat-full] depth="
+            f"{depth_added} blur={blur_added} keep={kappa} "
+            f"pruned={int(prune_mask.sum())}",
+            flush=True,
+        )
+        return depth_added + blur_added
 
     def rate_loss_term(self, gaussians: NeuralGaussians, iteration: int) -> torch.Tensor:
         del iteration

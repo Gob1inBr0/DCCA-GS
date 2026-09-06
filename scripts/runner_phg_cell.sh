@@ -13,13 +13,15 @@ MAX_STEPS=${6:-110000}
 UPDATE_UNTIL=${7:-45000}
 shift 7
 EXTRA=("$@")
+WAIT_VRAM_MB=${WAIT_VRAM_MB:-20000}
 
 R=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}
 LOG=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}.log
 RUNROOT=${RUNROOT:-/home/fansonglin/xieliang/chentong/PHG}
-export PATH=/home/fansonglin/miniconda3/envs/HAC_5090_a100/bin:$PATH
+EXPORT_PATH="${CONDA_ENV_BIN:-/home/fansonglin/miniconda3/envs/HAC_5090_a100/bin}"
+export PATH="$EXPORT_PATH:$PATH"
 export PYTHONNOUSERSITE=1
-export PYTHONPATH="$RUNROOT"
+export PYTHONPATH="$RUNROOT:${GSPLAT_ROOT:-/home/project2/gsplat-main}${PYTHONPATH:+:$PYTHONPATH}"
 cd "$RUNROOT"
 
 wait_vram() {
@@ -37,7 +39,7 @@ wait_vram() {
   exit 1
 }
 
-wait_vram 20000
+wait_vram "$WAIT_VRAM_MB"
 for attempt in $(seq 1 40); do
   echo "ATTEMPT $attempt tag=$TAG lambda=$LAMBDA steps=$MAX_STEPS $(date)"
   if CUDA_VISIBLE_DEVICES="$GPU" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
@@ -47,7 +49,7 @@ for attempt in $(seq 1 40); do
     --cfg.data.result-dir "$R" \
     --cfg.data.data-factor 1 --cfg.data.max-width 1600 --cfg.data.test-every 8 \
     --cfg.data.no-preload-images \
-    --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 50 --cfg.model.n-offsets 10 \
+    --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 32 --cfg.model.n-offsets 10 \
     --cfg.model.appearance-dim 0 --cfg.model.ratio 1 \
     --cfg.model.tile-size 32 \
     --cfg.model.content-aware-start-iter 20000 --cfg.model.content-aware-ramp-iters 10000 \
@@ -85,5 +87,6 @@ CUDA_VISIBLE_DEVICES="$GPU" python scripts/eval_decoded.py \
   --result-dir "$R/decoded_eval" \
   --data-factor 1 --max-width 1600 --no-preload-images > "$R/eval.log" 2>&1
 echo "EVAL_BASELINE_DONE tag=$TAG $(date)"
+
 
 echo "ALL_DONE tag=$TAG lambda=$LAMBDA scene=$SCENE steps=$MAX_STEPS $(date)"

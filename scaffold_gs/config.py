@@ -77,16 +77,6 @@ class ModelConfig:
     appearance_dim: int = 32
     """Per-training-camera appearance embedding dim; 0 disables it."""
 
-    color_mode: str = "rgb"
-    """Color decoding mode: ``"rgb"`` (baseline mlp_color) or ``"asg"``
-    (two-stage anisotropic spherical Gaussian color path)."""
-    asg_lobes: int = 1
-    """Number of ASG lobes per neural Gaussian (1 first; higher later)."""
-    asg_latent_dim: int = 8
-    """Latent dimension carried from the ASG evaluator to mlp_color2."""
-    asg_hidden: Optional[int] = None
-    """Hidden width for mlp_asg/mlp_color2; None -> feat_dim (0 also -> feat_dim)."""
-
     ratio: int = 1
     """Sample every ``ratio``-th SfM point before voxelization."""
 
@@ -190,18 +180,24 @@ class ModelConfig:
     """Number of training cameras used to sample the scene surface."""
     mini_splat_voxel: float = 0.0
     """Voxel size for depth-surface anchor sampling; <=0 uses model voxel_size."""
+    mini_splat_full: bool = False
+    """Enable blur split + intersection-preserving simplification (full version)."""
+    mini_splat_blur_threshold: float = 0.01
+    """Max-contribution area fraction above which an anchor is blur-split."""
+    mini_splat_importance_weight: float = 0.25
+    fusion_prune: bool = False
+    """Blend render-sensitivity into the SPA prune score (importance-aware pruning)."""
+    fusion_sensitivity_weight: float = 0.5
+    importance_weighted_loss: bool = False
+    """Weight the reconstruction L1 by rendered opacity (importance-aware loss)."""
+    importance_weight_floor: float = 0.2
+    """Lower clamp of the importance weight (keeps background from being ignored)."""
+    importance_weight_scale: float = 1.0
+    """Upper scale of the importance weight."""
+    """Weight of the sensitivity term inside the fused prune importance."""
+    """Weight of the ADMM score when blended with contribution area."""
 
     def __post_init__(self) -> None:
-        if self.color_mode not in ("rgb", "asg"):
-            raise ValueError(
-                f"color_mode must be 'rgb' or 'asg', got {self.color_mode!r}"
-            )
-        if self.asg_lobes < 1:
-            raise ValueError("asg_lobes must be >= 1")
-        if self.asg_latent_dim < 1:
-            raise ValueError("asg_latent_dim must be >= 1")
-        if self.asg_hidden is not None and self.asg_hidden < 1:
-            raise ValueError("asg_hidden must be None or >= 1")
         if self.content_aware_q_mode != "formula":
             raise ValueError(
                 "content_aware_q_mode must be 'formula' in PHG v1; "
@@ -211,6 +207,12 @@ class ModelConfig:
             raise ValueError("mini_splat_reinit_iter must be >= 1")
         if self.mini_splat_max_new < 0:
             raise ValueError("mini_splat_max_new must be >= 0")
+        if not (0.0 < self.mini_splat_blur_threshold < 1.0):
+            raise ValueError(
+                "mini_splat_blur_threshold must be in (0, 1)"
+            )
+        if self.mini_splat_importance_weight < 0.0:
+            raise ValueError("mini_splat_importance_weight must be >= 0")
         if self.mlp_complexity_layers < 1:
             raise ValueError("mlp_complexity_layers must be >= 1")
         if not (0.0 <= self.level_threshold_low < self.level_threshold_high <= 1.0):
