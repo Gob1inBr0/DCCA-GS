@@ -847,13 +847,32 @@ class HACPlusModel(BaseGaussianModel):
         check_interval: int,
         success_threshold: float,
         grad_threshold: float,
-        min_opacity: float,
+        min_opacity: int,
+        fusion_cams=None,
+        background: Optional[torch.Tensor] = None,
     ) -> None:
+        provider = None
+        if (
+            getattr(self.cfg, "fusion_prune", False)
+            and getattr(self.cfg, "mini_splat_enabled", False)
+            and fusion_cams
+        ):
+            from .mini_splat import compute_contribution_areas
+
+            cams = list(fusion_cams)
+
+            def provider():
+                area = compute_contribution_areas(
+                    self, cams, background, self.device
+                )
+                return area if bool(torch.isfinite(area).any()) else None
+
         self.core.adjust_anchor(
             check_interval=check_interval,
             success_threshold=success_threshold,
             grad_threshold=grad_threshold,
             min_opacity=min_opacity,
+            importance_provider=provider,
         )
 
     @torch.no_grad()

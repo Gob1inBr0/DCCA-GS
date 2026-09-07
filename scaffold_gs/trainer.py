@@ -188,6 +188,28 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
 
     background = dataset.background
     train_cams = list(dataset.train_cameras)
+
+    fusion_cams: list = []
+    if getattr(cfg.model, "fusion_prune", False) and getattr(
+        cfg.model, "mini_splat_enabled", False
+    ):
+        views = int(getattr(cfg.model, "mini_splat_views", 8))
+        if len(train_cams) > views:
+            stride = len(train_cams) / float(views)
+            idx = sorted(
+                set(
+                    int(i * stride)
+                    for i in range(views)
+                    if int(i * stride) < len(train_cams)
+                )
+            )
+        else:
+            idx = list(range(len(train_cams)))
+        fusion_cams = [train_cams[i] for i in idx]
+        print(
+            f"[FusionPrune] coverage refresh enabled: {len(fusion_cams)} cams",
+            flush=True,
+        )
     optim = cfg.optim
 
     pbar = tqdm.tqdm(range(1, optim.max_steps + 1), desc="Scaffold-GS training")
@@ -267,6 +289,8 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 success_threshold=optim.success_threshold,
                 grad_threshold=optim.densify_grad_threshold,
                 min_opacity=optim.min_opacity,
+                fusion_cams=fusion_cams,
+                background=background,
             )
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

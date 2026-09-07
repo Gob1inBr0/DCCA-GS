@@ -187,8 +187,9 @@ class ModelConfig:
     mini_splat_importance_weight: float = 0.25
     fusion_prune: bool = False
     """Blend render-sensitivity into the SPA prune score (importance-aware pruning)."""
-    fusion_sensitivity_weight: float = 0.5
-    """Weight of the sensitivity term inside the fused prune importance."""
+    fusion_sensitivity_weight: float = 0.3
+    """Sensitivity share w in imp=(1-w)*cov+w*sens; hard-capped at 0.3 in the
+    projection so coverage always dominates (low-budget collapse fix)."""
     spa_coverage_constraint: bool = False
     """ADMM hard-projection coverage constraint: keep >=1 anchor per coarse cell."""
     spa_coverage_cell_size: float = 0.01

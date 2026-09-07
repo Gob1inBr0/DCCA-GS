@@ -1576,7 +1576,7 @@ class GaussianModel(nn.Module):
         print(f"[MiniSplat] depth-reinit densified {n} anchors", flush=True)
         return n
 
-    def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005):
+    def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005, importance_provider=None):
         # # adding anchors
         if self.mini_splat_importance.numel() == 0:
             self.mini_splat_importance = torch.zeros(
@@ -1588,6 +1588,22 @@ class GaussianModel(nn.Module):
         offset_mask = (self.offset_denom > check_interval*success_threshold*0.5).squeeze(dim=1)
 
         self.anchor_growing(grads_norm, grad_threshold, offset_mask)
+
+        # Refresh the per-anchor coverage signal AFTER growth so it stays
+        # aligned with the current anchor count used by the projection below.
+        if importance_provider is not None:
+            try:
+                imp = importance_provider()
+            except Exception as exc:  # pragma: no cover - diagnostic path
+                print(f"[FusionPrune] importance_provider failed: {exc}",
+                      flush=True)
+                imp = None
+            if (
+                imp is not None
+                and imp.numel() == self.get_anchor.shape[0]
+                and bool(torch.isfinite(imp).any())
+            ):
+                self.mini_splat_importance = imp.reshape(-1, 1).contiguous()
 
         # update offset_denom
         self.offset_denom[offset_mask] = 0
@@ -1637,31 +1653,72 @@ class GaussianModel(nn.Module):
                 kappa = max(1, int(round(self.spa_ref_n * ratio_t)))
             a = self.get_mask.mean(dim=1).detach()  # [N, 1] soft anchor score
             scores = (a + self.spa_u).squeeze(-1)
-            if getattr(self, "mini_splat_full_selected", False):
-                importance = getattr(self, "mini_splat_importance", None)
-                if importance is not None and importance.numel() == scores.shape[0]:
-                    imp = importance.squeeze(-1).detach()
-                    if getattr(self, "fusion_prune", False):
-                        if self.sensitivity_feat.numel() == scores.shape[0]:
-                            s = (self.sensitivity_feat.squeeze(-1)
-                                 + self.sensitivity_scaling.squeeze(-1)
-                                 + self.sensitivity_offsets.squeeze(-1))
-                            s = torch.log1p(s.clamp_min(0.0))
-                            s = s / s.max().clamp_min(1e-8)
-                            # Coverage-dominant fusion: cap sensitivity so high-
-                            # coverage anchors are never over-ridden (fixes low-budget
-                            # collapse). eff = fusion_sensitivity_cap (default 0.3).
-                            cov = imp / imp.max().clamp_min(1e-8)
-                            eff = float(getattr(
-                                self, "fusion_sensitivity_cap", 0.3
-                            ))
-                            imp = (1.0 - eff) * cov + eff * s
-
-                    imp = imp / imp.max().clamp_min(1e-8)
-                    weight = float(
-                        getattr(self, "mini_splat_importance_weight", 0.25)
-                    )
-                    scores = imp + weight * scores
+            # Importance-guided selection engages in two modes: the full
+            # mini-splat mode (its own snapshot) and fusion pruning (fresh
+            # per-anchor coverage refreshed by the provider above). Base runs
+            # (no fusion flag) keep the plain ADMM score unchanged.
+            use_imp = bool(getattr(self, "mini_splat_full_selected", False)) or bool(
+                getattr(self, "fusion_prune", False)
+            )
+            importance = getattr(self, "mini_splat_importance", None)
+            imp_ready = (
+                use_imp
+                and importance is not None
+                and importance.numel() == scores.shape[0]
+                and bool(torch.isfinite(importance).any())
+            )
+            if imp_ready:
+                imp = importance.squeeze(-1).detach()
+                if getattr(self, "fusion_prune", False):
+                    if self.sensitivity_feat.numel() == scores.shape[0]:
+                        s = (self.sensitivity_feat.squeeze(-1)
+                             + self.sensitivity_scaling.squeeze(-1)
+                             + self.sensitivity_offsets.squeeze(-1))
+                        s = torch.log1p(s.clamp_min(0.0))
+                        s = s / s.max().clamp_min(1e-8)
+                        # Coverage-dominant fusion: the sensitivity share is
+                        # hard-capped at 0.3 so high-coverage anchors are never
+                        # over-ridden (fixes the low-budget collapse).
+                        cov = imp / imp.max().clamp_min(1e-8)
+                        eff = min(
+                            float(getattr(self, "fusion_sensitivity_weight", 0.3)),
+                            0.3,
+                        )
+                        imp = (1.0 - eff) * cov + eff * s
+                        self._fusion_proj_count = (
+                            getattr(self, "_fusion_proj_count", 0) + 1
+                        )
+                        if (
+                            self._fusion_proj_count <= 3
+                            or self._fusion_proj_count % 20 == 0
+                        ):
+                            print(
+                                f"[FusionPrune] step={self.current_step} engaged=1 "
+                                f"N={int(scores.shape[0])} eff={eff:.2f} "
+                                f"cov_mean={cov.mean().item():.3f} "
+                                f"sens_mean={s.mean().item():.3f}",
+                                flush=True,
+                            )
+                    else:
+                        self._fusion_skip_count = (
+                            getattr(self, "_fusion_skip_count", 0) + 1
+                        )
+                        if (
+                            self._fusion_skip_count <= 3
+                            or self._fusion_skip_count % 20 == 0
+                        ):
+                            print(
+                                f"[FusionPrune] step={self.current_step} "
+                                f"SENSITIVITY_UNAVAILABLE N={int(scores.shape[0])} "
+                                f"sens_N={int(self.sensitivity_feat.numel())} "
+                                "-> coverage-only",
+                                flush=True,
+                            )
+                imp = imp / imp.max().clamp_min(1e-8)
+                weight = float(
+                    getattr(self, "mini_splat_importance_weight", 0.25)
+                )
+                scores = imp + weight * scores
             kappa = min(kappa, scores.shape[0])
             z = torch.zeros_like(scores, dtype=torch.bool)
             if kappa > 0:
