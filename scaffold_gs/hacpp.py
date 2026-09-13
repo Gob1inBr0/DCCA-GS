@@ -1648,6 +1648,15 @@ class HACPlusModel(BaseGaussianModel):
             flags_all = bg_codebook.flags_from_npz(
                 self.cfg.bg_flags_path, n_total, self.cfg.bg_area_quantile
             )
+            with np.load(self.cfg.bg_flags_path) as _dump:
+                if "anchor_sha256" not in _dump.files:
+                    print(
+                        "[BGCodebook] WARNING: area dump carries no "
+                        "anchor_sha256 — flag identity is unverified. "
+                        "Regenerate the dump from THIS checkpoint before "
+                        "trusting the bg/fg split.",
+                        flush=True,
+                    )
             flags_kept = torch.from_numpy(flags_all).to(device)[mask_anchor]
             bg_mask_sorted = flags_kept[sorted_indices.to(device)]
             feat, bg_payload = bg_codebook.build_codebook(
@@ -1656,6 +1665,9 @@ class HACPlusModel(BaseGaussianModel):
                 codebook_size=self.cfg.bg_codebook_size,
                 iters=self.cfg.bg_codebook_iters,
             )
+            # Bind the payload to this exact coded anchor set: decode checks
+            # it against the header's anchor_int_sha256.
+            bg_payload["anchor_sorted_sha256"] = _tensor_sha256(anchor_int)
             bg_payload_bytes = bg_codebook.save_payload(
                 bg_payload, out_dir / bg_codebook.BG_CODEBOOK_FILENAME
             )
@@ -1815,7 +1827,16 @@ class HACPlusModel(BaseGaussianModel):
             feat_slice = feat[start:end]
             feat_q_all = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
             if bg_mask_sorted is not None:
-                fg_local = (~bg_mask_sorted[start:end]).nonzero(as_tuple=True)[0]
+                bg_local = bg_mask_sorted[start:end]
+                if bg_local.any():
+                    # The decoded model serves raw centroids for bg rows, so
+                    # the attr_ctx conditioning must see the un-STE'd values
+                    # too (STE would project them onto the Q grid, a value
+                    # the decoder never reconstructs).
+                    feat_q_all = torch.where(
+                        bg_local.unsqueeze(-1), feat_slice, feat_q_all
+                    )
+                fg_local = (~bg_local).nonzero(as_tuple=True)[0]
             else:
                 fg_local = None
             if fg_local is not None:
@@ -1833,11 +1854,12 @@ class HACPlusModel(BaseGaussianModel):
             mean_scale = torch.cat([mean_sel, scale_sel, prob_sel], dim=-1)
             scale_sel = scale_sel.clamp(min=1e-9)
             n_sel = int(feat_q.shape[0])
+            bit_feat = 0
             if n_sel == 0:
                 # All-background batch: the coder file must still exist
                 # (empty), the decoder mirrors with a no-read guard.
                 for cc in range(self.cfg.feat_dim // cg):
-                    Path(feat_b.replace(".b", f"_{cc}.b")).touch()
+                    Path(feat_b.replace(".b", f"_{cc}.b")).write_bytes(b"")
                 bit_feat_list.append(0)
             else:
                 for cc in range(self.cfg.feat_dim // cg):
@@ -2124,6 +2146,24 @@ class HACPlusModel(BaseGaussianModel):
             bg_indices = torch.from_numpy(
                 bg_payload["indices"].astype(np.int64)
             ).to(device)
+            if (
+                bg_indices.numel()
+                and int(bg_indices.max().item()) >= bg_centroids.shape[0]
+            ):
+                raise RuntimeError("bg index out of codebook range")
+            if int(bg_info.get("codebook_size", -1)) != int(
+                bg_centroids.shape[0]
+            ):
+                raise RuntimeError(
+                    "bg_codebook header codebook_size != payload rows"
+                )
+            payload_sha = bg_payload.get("anchor_sorted_sha256")
+            if payload_sha is not None and payload_sha != codec_header.get(
+                "anchor_int_sha256"
+            ):
+                raise RuntimeError(
+                    "bg_codebook payload was built for a different anchor set"
+                )
             print(
                 f"[BGCodebook] decode: {int(bg_mask_sorted.sum().item())}/{N} "
                 "background rows from payload",
@@ -2205,8 +2245,13 @@ class HACPlusModel(BaseGaussianModel):
                 bg_local = bg_mask_sorted[start:end]
                 fg_local = (~bg_local).nonzero(as_tuple=True)[0]
                 if bg_local.any():
+                    # bg_indices is compacted over background rows only —
+                    # address it with the cumulative bg offset of this batch,
+                    # not with global row numbers.
+                    bg_base = int(bg_mask_sorted[:start].sum().item())
+                    n_bg_local = int(bg_local.sum().item())
                     feat_decoded[bg_local] = bg_centroids[
-                        bg_indices[start:end][bg_local]
+                        bg_indices[bg_base : bg_base + n_bg_local]
                     ]
                 feat_fg = feat_decoded[fg_local]
             else:

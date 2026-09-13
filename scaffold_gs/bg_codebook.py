@@ -58,18 +58,25 @@ def flags_from_npz(
     quantile: float,
 ) -> np.ndarray:
     """Load the analysis dump (``anchor_stats.npz``) and derive flags.
-    Accepts either a precomputed ``flags`` key or ``area`` (+``seen``)."""
-    data = np.load(path)
-    if "flags" in data:
-        flags = np.asarray(data["flags"], dtype=bool)
-    elif "area" in data:
-        flags = derive_flags(
-            data["area"],
-            data["seen"] if "seen" in data else None,
-            quantile,
-        )
-    else:
-        raise KeyError(f"{path} has neither 'flags' nor 'area'")
+    Accepts either a precomputed ``flags`` key or ``area`` (+``seen``).
+
+    NOTE on identity: the flags are only meaningful for the exact checkpoint
+    the dump was produced from (row order = that model's anchor order). The
+    codec writes the anchor hash into the payload at encode time; dumps
+    produced by ``dump_anchor_area_opacity.py`` SHOULD also store an
+    ``anchor_sha256`` — when it is absent the codec warns loudly.
+    """
+    with np.load(Path(path)) as data:
+        if "flags" in data:
+            flags = np.asarray(data["flags"], dtype=bool)
+        elif "area" in data:
+            flags = derive_flags(
+                data["area"],
+                data["seen"] if "seen" in data else None,
+                quantile,
+            )
+        else:
+            raise KeyError(f"{path} has neither 'flags' nor 'area'")
     if flags.shape[0] != n_expected:
         raise ValueError(
             f"flags length {flags.shape[0]} != anchor count {n_expected}"
@@ -100,23 +107,29 @@ def kmeans(
     init = torch.randperm(n, generator=gen)[:K]
     centroids = Xc[init].clone()
     assign = torch.zeros(n, dtype=torch.int64)
-    for _ in range(int(iters)):
+    for it in range(int(iters)):
         dists = torch.cdist(Xc, centroids)
         new_assign = dists.argmin(dim=1)
-        if torch.equal(new_assign, assign) and _ > 0:
+        if it > 0 and torch.equal(new_assign, assign):
             assign = new_assign
             break
         assign = new_assign
+        used = torch.zeros(n, dtype=torch.bool)
         for kk in range(K):
             member = assign == kk
             if member.any():
                 centroids[kk] = Xc[member].mean(dim=0)
             else:
-                # Re-seed an empty cluster at the worst-fit point.
-                worst = dists.min(dim=1).values.argmax()
+                # Re-seed at the worst-fit point; skip points already taken
+                # as re-seeds this round (otherwise several empty clusters
+                # all grab the same worst point and duplicate centroids).
+                d = dists.min(dim=1).values.clone()
+                d[used] = -1.0
+                worst = int(d.argmax().item())
+                used[worst] = True
                 centroids[kk] = Xc[worst]
-        dists = torch.cdist(Xc, centroids)
-        assign = dists.argmin(dim=1)
+    # Final assignment against the final centroids (Lloyd invariant).
+    assign = torch.cdist(Xc, centroids).argmin(dim=1)
     return centroids, assign
 
 
@@ -146,7 +159,7 @@ def build_codebook(
             "indices": np.zeros((0,), dtype=np.uint8),
             "flags_packed": np.packbits(bg.detach().to("cpu", torch.uint8).numpy()),
             "n_total": int(feat.shape[0]),
-            "codebook_size": int(codebook_size),
+            "codebook_size": 0,
             "version": 1,
         }
         return feat_out, payload
@@ -181,8 +194,12 @@ def save_payload(payload: Dict[str, Any], path: str | Path) -> int:
 
 
 def load_payload(path: str | Path) -> Dict[str, Any]:
-    data = np.load(Path(path))
-    return {k: data[k] for k in data.files}
+    with np.load(Path(path)) as data:
+        payload = {k: data[k] for k in data.files}
+    version = int(payload.get("version", -1))
+    if version != 1:
+        raise ValueError(f"unsupported bg_codebook payload version {version}")
+    return payload
 
 
 def unpack_flags(payload: Dict[str, Any], device: torch.device) -> torch.Tensor:
@@ -220,32 +237,6 @@ def reconstruct(
     if flags.any():
         feat[flags] = codebook[indices]
     return feat
-
-
-def subset_select(
-    slice_fg: torch.Tensor,
-    *tensors: torch.Tensor,
-) -> Tuple[torch.Tensor, ...]:
-    """Row-select tensors by a local fg mask (helper for the codec batch
-    loops). Empty selection is valid (batch fully background)."""
-    idx = slice_fg.nonzero(as_tuple=True)[0]
-    return tuple(t[idx] for t in tensors)
-
-
-def payload_summary(payload: Dict[str, Any]) -> Dict[str, int]:
-    """Uncompressed logical sizes for diagnostics/CSV (the codec charges
-    the compressed file size; this is the floor)."""
-    return {
-        "num_bg_anchors": int(len(payload["indices"])),
-        "codebook_rows": int(payload["codebook"].shape[0]),
-        "codebook_bytes_uncompressed": int(
-            payload["codebook"].size * payload["codebook"].itemsize
-        ),
-        "indices_bytes_uncompressed": int(
-            payload["indices"].size * payload["indices"].itemsize
-        ),
-        "flags_bytes_uncompressed": int(payload["flags_packed"].size),
-    }
 
 
 def payload_file_bytes(path: str | Path) -> int:

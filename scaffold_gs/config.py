@@ -298,6 +298,21 @@ class ModelConfig:
                 "submodular_mode must be 'off', 'cover' or 'cover_sens'; "
                 f"got {self.submodular_mode!r}"
             )
+        if self.bg_codebook_enabled:
+            if not self.bg_flags_path:
+                raise ValueError(
+                    "bg_codebook_enabled requires bg_flags_path "
+                    "(per-anchor area dump)"
+                )
+        if not 0.0 < self.bg_area_quantile < 1.0:
+            raise ValueError(
+                f"bg_area_quantile must be in (0, 1), got {self.bg_area_quantile}"
+            )
+        if self.bg_codebook_size < 1 or self.bg_codebook_iters < 1:
+            raise ValueError(
+                "bg_codebook_size and bg_codebook_iters must be >= 1, got "
+                f"{self.bg_codebook_size}/{self.bg_codebook_iters}"
+            )
         if self.mini_splat_enabled and self.mini_splat_reinit_iter < 1:
             raise ValueError("mini_splat_reinit_iter must be >= 1")
         if self.mini_splat_max_new < 0:

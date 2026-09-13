@@ -7,13 +7,19 @@ quantization steps, so the naive "10-20% of anchors" prior can be far off —
 this script measures the real number, which decides whether 方案 C (feature
 codebook) / 方案 D (background field) are worth their complexity.
 
-Per-anchor attribution (exact, deterministic — no 5% subsampling, no dither):
-  feat      mixture likelihood, channel-autoregressive (same model the
-            arithmetic coder uses; hard-round quantized values)
-  scaling   diagonal Gaussian entropy model
-  offsets   diagonal Gaussian entropy model, offset-masked
-Global fields (xyz GPCC, hash grid, MLP weights, masks, header) cannot be
-split per anchor and are reported as separate line items.
+Scope of the per-anchor numbers (read before quoting them):
+  - Population: the CODED anchor set only (mask_anchor kept, Morton order —
+    the same rows in the same batches the arithmetic coder processes), so
+    content-aware quantization steps match the real coder exactly.
+  - Quantization: hard decision round(x/Q)*Q — the same grid as the codec's
+    STE; no dither anywhere.
+  - feat: mixture likelihood with the codec's channel-autoregressive
+    context; scaling/offsets: diagonal Gaussian entropy models; masks:
+    per-anchor split of the coder's single-global-probability Bernoulli
+    stream.
+  - NOT included: q_scale_* overrides, attr_ctx conditioning, 方案C codebook
+    row skipping, xyz/hash/MLW/header globals (see hac_meta.json for those).
+  - Anchors dropped by mask_anchor carry zero bits by construction.
 
 Usage (server):
   python scripts/anchor_byte_account.py \
@@ -47,15 +53,20 @@ def _share_of_top(
     bits: np.ndarray,
     area: np.ndarray,
     frac: float,
+    valid: np.ndarray,
 ) -> float:
-    """Share of total bits owned by the top-``frac`` anchors by area."""
-    n = area.shape[0]
-    k = max(1, int(round(n * frac)))
-    idx = np.argsort(area)[-k:]
-    total = float(bits.sum())
+    """Share of the VALID population's bits owned by its top-``frac``
+    anchors by area. Both numerator and denominator are valid-only; k is
+    taken over the valid count so invalid rows can never leak in."""
+    idx_valid = np.nonzero(valid)[0]
+    if idx_valid.size == 0:
+        return 0.0
+    k = max(1, int(round(idx_valid.size * frac)))
+    order = idx_valid[np.argsort(area[idx_valid])][-k:]
+    total = float(bits[order].sum())
     if total <= 0:
         return 0.0
-    return float(bits[idx].sum()) / total
+    return float(bits[order].sum()) / total
 
 
 def aggregate_account(
@@ -66,8 +77,10 @@ def aggregate_account(
 ) -> Dict[str, Any]:
     """Decile table + headline shares, keyed by coverage area.
 
-    per_anchor_bits: arrays of per-anchor bits (feat/scaling/offsets);
-    global (non-splittable) fields go into ``global_bits`` instead.
+    per_anchor_bits: arrays of per-anchor bits (feat/scaling/offsets/masks);
+    global (non-splittable) fields are reported by the caller separately.
+    Bits outside the valid population (unseen / NaN area) are zeroed so
+    every share below uses the same denominator.
     """
     area = np.asarray(area, dtype=np.float64)
     bits_sum = np.zeros_like(area)
@@ -76,8 +89,8 @@ def aggregate_account(
     valid = np.isfinite(area) & np.isfinite(bits_sum)
     if seen is not None:
         valid = valid & np.asarray(seen, dtype=bool)
-    total_anchor_bits = float(bits_sum[valid].sum())
-    total_all_bits = float(bits_sum.sum())
+    bits_sum = np.where(valid, bits_sum, 0.0)
+    total_anchor_bits = float(bits_sum.sum())
 
     order = np.argsort(area[valid])
     decile_rows = []
@@ -104,7 +117,7 @@ def aggregate_account(
 
     headline = {
         f"top_{int(q * 100)}pct_area_bits_share": _share_of_top(
-            bits_sum, np.where(valid, area, -np.inf), q
+            bits_sum, area, q, valid
         )
         for q in HEADLINE_QUANTILES
     }
@@ -112,7 +125,6 @@ def aggregate_account(
         "deciles": decile_rows,
         "headline": headline,
         "total_anchor_bits": total_anchor_bits,
-        "total_all_bits_incl_unseen": total_all_bits,
         "n_valid": n_v,
         "n_total": int(area.shape[0]),
         "n_unseen_or_nan": int((~valid).sum()),
@@ -126,23 +138,25 @@ def flags_share(
     per_anchor_bits: Dict[str, np.ndarray],
 ) -> Dict[str, float]:
     """What the 方案 C flag rule would capture: the bg set's population and
-    bit share (the number that gates C/D investment)."""
+    bit share (the number that gates C/D investment). Same rule as
+    bg_codebook.derive_flags — population share can exceed 1-quantile when
+    the area cut lands on a plateau of tied values."""
+    from scaffold_gs.bg_codebook import derive_flags
+
     area = np.asarray(area, dtype=np.float64)
+    flags = derive_flags(area, seen, quantile)
     valid = np.isfinite(area)
     if seen is not None:
         valid = valid & np.asarray(seen, dtype=bool)
-    flags = np.zeros(area.shape[0], dtype=bool)
-    if valid.any():
-        cut = np.quantile(area[valid], quantile)
-        flags[valid & (area >= cut)] = True
     bits_sum = np.zeros_like(area)
     for v in per_anchor_bits.values():
         bits_sum = bits_sum + np.asarray(v, dtype=np.float64)
-    total = float(bits_sum[valid].sum())
+    bits_sum = np.where(valid, bits_sum, 0.0)
+    total = float(bits_sum.sum())
     return {
         "quantile": quantile,
         "bg_population_share": float(flags[valid].sum()) / max(1, int(valid.sum())),
-        "bg_bits_share": float(bits_sum[flags][valid[flags]].sum()) / total
+        "bg_bits_share": float(bits_sum[flags].sum()) / total
         if total > 0
         else 0.0,
     }
@@ -153,16 +167,18 @@ def flags_share(
 # ---------------------------------------------------------------------------
 
 
-def compute_per_anchor_bits(model, batch: int = 200_000) -> Dict[str, np.ndarray]:
-    """Exact per-anchor bits for feat/scaling/offsets from a trained model.
+def compute_per_anchor_bits(model, batch: int = 3000) -> Dict[str, np.ndarray]:
+    """Per-anchor bits over the CODED anchor set, mirroring
+    ``encode_attributes`` row-for-row: mask_anchor kept set, Morton order,
+    the codec's chunk size (so content-aware Q matches exactly), and
+    hard-decision quantization round(x/Q)*Q (the STE grid; no dither).
 
-    Mirrors ``HACPlusModel._estimate_rate_terms`` but (a) full population,
-    (b) hard-round quantized values instead of uniform dither, (c) returns
-    per-anchor rows instead of means. Global fields are NOT included.
+    Returns feat/scaling/offsets/masks bit arrays in the ORIGINAL anchor
+    order; anchors dropped by mask_anchor carry zero bits (nothing was
+    coded for them). Global fields (xyz GPCC, hash, MLP weights, header)
+    are not per-anchor attributable — read them from hac_meta.json.
     """
     import torch
-
-    from scaffold_gs.model import get_model_class  # noqa: F401  (registration)
 
     core = model.core
     device = model.device
@@ -171,7 +187,22 @@ def compute_per_anchor_bits(model, batch: int = 200_000) -> Dict[str, np.ndarray
     cg = int(core.feat_channel_group)
     n_total = int(core.get_anchor.shape[0])
 
-    mask_anchor = core.get_mask_anchor.detach()
+    mask_anchor = core.get_mask_anchor.detach().to(torch.bool)[:, 0]
+    anchor_all = core.get_anchor.detach()
+    anchor_int = torch.round(anchor_all / model.voxel_size)
+    sorted_indices = _morton_order(anchor_int)
+    kept_order = sorted_indices[mask_anchor[sorted_indices]]  # coded rows
+    n_coded = int(kept_order.numel())
+    print(f"[byte-account] coded anchors: {n_coded}/{n_total}")
+
+    masks_kept = core.get_mask.detach()[kept_order]
+    p1 = float(masks_kept.mean().item())
+    p1 = min(max(p1, 1e-9), 1.0 - 1e-9)
+    mask_bit = (
+        masks_kept.squeeze(-1) * (-np.log2(p1))
+        + (1.0 - masks_kept.squeeze(-1)) * (-np.log2(1.0 - p1))
+    )  # [n_coded, k]
+
     feat_all = model._view.anchor_feat.detach()
     offsets_all = model._view.offset.detach()
     scaling_all = core.get_scaling.detach()
@@ -179,11 +210,13 @@ def compute_per_anchor_bits(model, batch: int = 200_000) -> Dict[str, np.ndarray
     out_feat = np.zeros(n_total, dtype=np.float64)
     out_scaling = np.zeros(n_total, dtype=np.float64)
     out_offsets = np.zeros(n_total, dtype=np.float64)
+    out_masks = np.zeros(n_total, dtype=np.float64)
 
     with torch.no_grad():
-        for start in range(0, n_total, batch):
-            end = min(start + batch, n_total)
-            anchor_slice = core.get_anchor[start:end]
+        for start in range(0, n_coded, batch):
+            end = min(start + batch, n_coded)
+            rows = kept_order[start:end]
+            anchor_slice = anchor_all[rows]
             ctx = core.calc_context_feat(
                 anchor_slice, caller="anchor_byte_account"
             )
@@ -207,32 +240,15 @@ def compute_per_anchor_bits(model, batch: int = 200_000) -> Dict[str, np.ndarray
                 ) = core._codec_apply_content_aware_quant_params(
                     "anchor_byte_account",
                     anchor_slice,
-                    core.get_mask[start:end],
+                    core.get_mask[rows],
                     Q_feat, Q_scaling, Q_offsets, None, None, None,
                     mean_scaling, mean_offsets,
                 )
-            center_feat = feat_all.mean()
-            feat_q = (
-                torch.round((feat_all[start:end] - center_feat) / Q_feat) * Q_feat
-                + center_feat
-            )
-            scaling_q = (
-                torch.round(
-                    (scaling_all[start:end] - core.get_scaling.mean()) / Q_scaling
-                )
-                * Q_scaling
-                + core.get_scaling.mean()
-            )
-            offsets_q = (
-                torch.round((offsets_all[start:end] - offsets_all.mean()) / Q_offsets)
-                * Q_offsets
-                + offsets_all.mean()
-            )
-            mask_flat = (
-                core.get_mask[start:end]
-                .repeat(1, 1, 3)
-                .view(-1, 3 * k)
-            )
+            # The codec's STE grid: hard round, no +center shift.
+            feat_q = torch.round(feat_all[rows] / Q_feat) * Q_feat
+            scaling_q = torch.round(scaling_all[rows] / Q_scaling) * Q_scaling
+            offsets_q = torch.round(offsets_all[rows] / Q_offsets) * Q_offsets
+            mask_flat = core.get_mask[rows].repeat(1, 1, 3).view(-1, 3 * k)
             offsets_q = offsets_q * mask_flat
 
             mean_scale = torch.cat([mean, scale, prob], dim=-1)
@@ -257,7 +273,7 @@ def compute_per_anchor_bits(model, batch: int = 200_000) -> Dict[str, np.ndarray
                     probs[..., 0],
                     probs[..., 1],
                     Q=Q_feat[:, cc * cg : cc * cg + cg],
-                    x_mean=center_feat,
+                    x_mean=feat_all.mean(),
                 )
             scaling_bits = core.entropy_gaussian.forward(
                 scaling_q,
@@ -273,12 +289,25 @@ def compute_per_anchor_bits(model, batch: int = 200_000) -> Dict[str, np.ndarray
                 Q_offsets,
                 offsets_all.mean(),
             )
-            out_feat[start:end] = feat_bits.sum(dim=-1).double().cpu().numpy()
-            out_scaling[start:end] = scaling_bits.sum(dim=-1).double().cpu().numpy()
-            out_offsets[start:end] = (
+            out_feat[rows] = feat_bits.sum(dim=-1).double().cpu().numpy()
+            out_scaling[rows] = scaling_bits.sum(dim=-1).double().cpu().numpy()
+            out_offsets[rows] = (
                 (offsets_bits * mask_flat).sum(dim=-1).double().cpu().numpy()
             )
-    return {"feat": out_feat, "scaling": out_scaling, "offsets": out_offsets}
+            out_masks[rows] = mask_bit.sum(dim=-1).double().cpu().numpy()
+    return {
+        "feat": out_feat,
+        "scaling": out_scaling,
+        "offsets": out_offsets,
+        "masks": out_masks,
+    }
+
+
+def _morton_order(anchor_int: "torch.Tensor") -> "torch.Tensor":
+    """Morton sort exactly as encode_attributes does."""
+    from hacplus.scene.gaussian_model import calculate_morton_order
+
+    return calculate_morton_order(anchor_int)
 
 
 def main() -> None:
@@ -287,7 +316,8 @@ def main() -> None:
     ap.add_argument("--area-npz", required=True)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--batch", type=int, default=200_000)
+    ap.add_argument("--batch", type=int, default=3000,
+                    help="keep at the codec's MAX_batch_size so content-aware Q matches exactly")
     ap.add_argument("--quantile", type=float, default=0.9)
     args = ap.parse_args()
 

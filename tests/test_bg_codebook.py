@@ -95,25 +95,19 @@ def test_codebook_roundtrip():
         nbytes = bc.save_payload(payload, path)
         loaded = bc.load_payload(path)
         check("payload save/load roundtrip", np.array_equal(loaded["codebook"], payload["codebook"]))
-        # Reconstruct from an fg-only matrix (simulating the decoded stream):
-        # fg rows come from 'the stream' (== replaced fg rows), bg rows must
-        # come out as the stored centroids.
+        # Decode-path reconstruction through the module function itself:
+        # fg rows from 'the stream' (== replaced fg rows), bg rows from
+        # codebook lookups — must be bit-identical to the encoder's
+        # replacement (fp16-snapped centroids on both sides).
         feat_fg_t = feat_rep[~flags].clone()
-        payload2 = dict(loaded)
-        payload2["flags_packed"] = loaded["flags_packed"]
         device = torch.device("cpu")
-        flags_back = bc.unpack_flags(payload2, device)
-        check("flags unpack roundtrip", torch.equal(flags_back, flags))
-        full = torch.empty(1000, 32)
-        full[~flags_back] = feat_fg_t
-        codebook = torch.from_numpy(loaded["codebook"].astype(np.float32))
-        full[flags_back] = codebook[
-            torch.from_numpy(loaded["indices"].astype(np.int64))
-        ]
+        full = bc.reconstruct(feat_fg_t, loaded, device, 32)
         check(
             "reconstruct == replaced features (bit-level)",
             torch.equal(full, feat_rep),
         )
+        flags_back = bc.unpack_flags(loaded, device)
+        check("flags unpack roundtrip", torch.equal(flags_back, flags))
         check("payload bytes > 0", nbytes > 0)
     # Zero-background edge: payload valid, features unchanged.
     src = torch.randn(10, 4)
@@ -181,9 +175,14 @@ def test_aggregation_with_real_area_dump():
         account["n_valid"] == int((seen & np.isfinite(area)).sum()),
     )
     fs = flags_share(area, seen, 0.9, per_anchor)
+    # Structural bounds: the >= cut rule keeps at least the top (1-q) valid
+    # mass but ties at the cut (this dump has many area==0 rows) can push
+    # the population share arbitrarily close to 1.0 — so assert the floor,
+    # not a tight ceiling.
     check(
-        "flags share sane",
-        0.0 < fs["bg_population_share"] <= 0.2 and 0.0 < fs["bg_bits_share"] < 1.0,
+        "flags share floor",
+        fs["bg_population_share"] >= 0.1 - 1e-9
+        and 0.0 < fs["bg_bits_share"] < 1.0,
         f"pop={fs['bg_population_share']:.3f} bits={fs['bg_bits_share']:.3f}",
     )
     print(json_table(account))
