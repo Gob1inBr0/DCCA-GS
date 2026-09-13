@@ -1,0 +1,100 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1240' height='800' viewBox='0 0 1240 800' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_1565c0' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#1565c0'/></marker><marker id='ar_607d8b' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#607d8b'/></marker></defs>
+<rect x='8' y='8' width='1224' height='784' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='620.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>锚点 → 神经高斯 → gsplat 渲染（HAC++ 解码路径）</text>
+<text x='620.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>每个锚点派生 K=10 个子高斯候选：三个共享 MLP 从 [feat‖视角信息] 解码不透明度/尺度旋转/颜色；masks 训练时软乘、评估时硬筛</text>
+<rect x='24' y='88' width='292.0' height='560.0' rx='12' fill='#f4f9ff' stroke='#1565c0' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='112' text-anchor='start' font-size='15' fill='#1565c0' font-weight='bold' opacity='1.0'>锚点的编码属性（N 个锚点）</text>
+<rect x='38' y='128' width='264.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='170.0' y='152.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>xyz [N,3]</text>
+<text x='170.0' y='166.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>锚点坐标（G-PCC 编码）</text>
+<rect x='38' y='212' width='264.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='170.0' y='236.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>feat [N,32]</text>
+<text x='170.0' y='250.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>锚点特征（feat_dim=32，默认 50）</text>
+<rect x='38' y='296' width='264.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='170.0' y='320.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>scaling [N,6]</text>
+<text x='170.0' y='334.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>exp 域：前 3 维锚尺度 / 后 3 维子高斯基准</text>
+<rect x='38' y='380' width='264.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='170.0' y='404.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>offsets [N,K=10,3]</text>
+<text x='170.0' y='418.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>子高斯偏移（显式潜变量）</text>
+<rect x='38' y='464' width='264.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='170.0' y='488.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>masks [N,K,1]</text>
+<text x='170.0' y='502.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>偏移掩码（sigmoid STE，阈值 0.01）</text>
+<text x='170' y='554' text-anchor='middle' font-size='11.5' fill='#c62828' font-weight='normal' opacity='1.0'>_opacity 恒为 inverse_sigmoid(0.1)，</text>
+<text x='170' y='572' text-anchor='middle' font-size='11.5' fill='#c62828' font-weight='normal' opacity='1.0'>不编码——神经不透明度由 MLP 解码</text>
+<rect x='340' y='88' width='570.0' height='560.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='354' y='112' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>共享 MLP 解码（generate_gaussians，分块 16,384 锚点）</text>
+<rect x='356' y='128' width='538.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='625.0' y='152.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>视角条件输入 cat = [ feat 32 ‖ ob_view 3 ‖ ob_dist 1 ] = 36 维</text>
+<text x='625.0' y='166.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>ob_view = 归一化(相机中心 − 锚点) · ob_dist = ‖相机中心 − 锚点‖</text>
+<rect x='356' y='224' width='166.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='439.0' y='248.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>mlp_opacity</text>
+<text x='439.0' y='262.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>36→32→K, tanh</text>
+<text x='439.0' y='278.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ 神经不透明度</text>
+<rect x='542' y='224' width='172.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='628.0' y='248.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>mlp_cov</text>
+<text x='628.0' y='262.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>36→32→7K</text>
+<text x='628.0' y='278.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ 尺度 + 四元数</text>
+<rect x='734' y='224' width='160.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='814.0' y='248.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>mlp_color</text>
+<text x='814.0' y='262.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>36→32→3K, sigmoid</text>
+<text x='814.0' y='278.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ RGB</text>
+<path d='M625,186.5L625,204L439,204L439,220' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<path d='M625,204L628,204L628,220' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<path d='M625,204L814,204L814,220' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<rect x='356' y='330' width='166.0' height='74.0' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='439.0' y='354' text-anchor='middle' font-size='13' fill='#263238' font-weight='bold' opacity='1.0'>候选筛选</text>
+<text x='439.0' y='367.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>神经不透明度 &gt; 0</text>
+<text x='439.0' y='383.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>才生成该子高斯</text>
+<rect x='542' y='330' width='172.0' height='74.0' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='628.0' y='354' text-anchor='middle' font-size='13' fill='#263238' font-weight='bold' opacity='1.0'>子高斯属性</text>
+<text x='628.0' y='367.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>尺度 = s[:,3:]·sigmoid(o)</text>
+<text x='628.0' y='383.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>旋转 = normalize(o[3:7])</text>
+<rect x='734' y='330' width='160.0' height='58.0' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='814.0' y='354' text-anchor='middle' font-size='13' fill='#263238' font-weight='bold' opacity='1.0'>颜色</text>
+<text x='814.0' y='367.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>RGB ∈ (0,1)</text>
+<line x1='439.0' y1='298.5' x2='439.0' y2='327' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='628.0' y1='298.5' x2='628.0' y2='327' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='814.0' y1='298.5' x2='814.0' y2='327' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<rect x='356' y='438' width='538.0' height='74.5' rx='10' fill='grey_bg' stroke='grey' stroke-width='1.8' stroke-dasharray='7,4' opacity='1.0'/>
+<text x='625.0' y='462.5' text-anchor='middle' font-size='13.5' fill='grey' font-weight='bold' opacity='1.0'>masks 的作用</text>
+<text x='625.0' y='476.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>训练：软乘——opacity ← opacity·m，尺度 ← 尺度·m（可导，推动掩码稀疏化）</text>
+<text x='625.0' y='492.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>评估/编码：硬筛——只保留二值化后 m=1 的子高斯（offsets 也仅对 m=1 编码）</text>
+<rect x='356' y='546' width='538.0' height='58.5' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='625.0' y='570.5' text-anchor='middle' font-size='13.5' fill='#263238' font-weight='bold' opacity='1.0'>子高斯位置  xyz = 锚点 + offsets · scaling[:,:3]</text>
+<text x='625.0' y='584.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>锚尺度前 3 维调制偏移幅度：锚尺度大 → 子高斯散布更开</text>
+<rect x='934' y='88' width='282.0' height='560.0' rx='12' fill='#f4f9ff' stroke='#1565c0' stroke-width='1.4' opacity='1.0'/>
+<text x='948' y='112' text-anchor='start' font-size='15' fill='#1565c0' font-weight='bold' opacity='1.0'>组装与渲染</text>
+<rect x='948' y='128' width='254.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1075.0' y='152.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>有效神经高斯集合</text>
+<text x='1075.0' y='166.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>≈ N × K × 活跃 mask</text>
+<text x='1075.0' y='182.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>× 不透明度筛选</text>
+<rect x='948' y='226' width='254.0' height='90.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1075.0' y='250.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>gsplat rasterization</text>
+<text x='1075.0' y='264.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>packed 模式</text>
+<text x='1075.0' y='280.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>means2d.retain_grad</text>
+<text x='1075.0' y='296.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>（生长统计用）</text>
+<rect x='948' y='340' width='254.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1075.0' y='364.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>渲染图像</text>
+<text x='1075.0' y='378.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ L_render（fig01）</text>
+<text x='1075.0' y='394.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ 深度图（fig09 再初始化）</text>
+<line x1='1075' y1='202.5' x2='1075' y2='223' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='1075' y1='316.5' x2='1075' y2='337' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<rect x='948' y='452' width='254.0' height='74.0' rx='10' fill='grey_bg' stroke='grey' stroke-width='1.8' stroke-dasharray='7,4' opacity='1.0'/>
+<text x='1075.0' y='476' text-anchor='middle' font-size='13' fill='grey' font-weight='bold' opacity='1.0'>反传信息流</text>
+<text x='1075.0' y='489.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>means2d 梯度 → 生长统计（每 100 步）</text>
+<text x='1075.0' y='505.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>pre_quant 属性梯度 → 敏感度 EMA（fig05）</text>
+<rect x='948' y='566' width='254.0' height='74.0' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='1075.0' y='590' text-anchor='middle' font-size='13' fill='#263238' font-weight='bold' opacity='1.0'>工程细节</text>
+<text x='1075.0' y='603.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>锚点分块 16,384，峰值显存与总锚数无关</text>
+<text x='1075.0' y='619.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>packed 光栅化：只保留有效子高斯</text>
+<line x1='1075' y1='414.5' x2='1075' y2='449' stroke='#1565c0' stroke-width='2.0' stroke-dasharray='7,4' marker-end='url(#ar_1565c0)'/>
+<line x1='1075' y1='526.0' x2='1075' y2='563' stroke='#607d8b' stroke-width='2.0' stroke-dasharray='7,4' marker-end='url(#ar_607d8b)'/>
+<path d='M302,268L322,268L322,170L352,170' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<path d='M894,467L920,467L920,165L942,165' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<path d='M894,575L928,575L928,190L942,190' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<text x='620' y='692' text-anchor='middle' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>要点：颜色/不透明度/尺度旋转全部由共享 MLP 从量化后的 feat + 视角信息即时解码——因此码流只需存锚点属性，不需存每个子高斯</text>
+<text x='620' y='714' text-anchor='middle' font-size='12.5' fill='#546e7a' font-weight='normal' opacity='1.0'>量化发生在锚点属性上（feat / scaling / offsets，Q 见 fig04），MLP 输入用的就是量化-重建后的属性</text>
+<line x1='16' y1='766' x2='1224' y2='766' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='780' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: scaffold_gs/hacpp.py:522–822（generate_gaussians） · hacplus/scene/gaussian_model.py:407–448（MLP 定义） · renderer.py:105–168</text>
+<text x='1222' y='780' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>K = n_offsets = 10</text>
+</svg>

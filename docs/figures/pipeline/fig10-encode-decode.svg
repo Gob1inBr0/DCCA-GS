@@ -1,0 +1,94 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1420' height='900' viewBox='0 0 1420 900' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_1565c0' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#1565c0'/></marker><marker id='ar_6a1b9a' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#6a1b9a'/></marker></defs>
+<rect x='8' y='8' width='1404' height='884' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='710.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>编码 ↔ 解码：同一条 Q 路径跑两端，bit-exact 回传校验</text>
+<text x='710.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>编码端先把坐标 voxel 对齐 + Morton 排序再算上下文（与训练一致）；解码端从码流重算 ctx → mlp_grid → Q → 反量化；整数锚与 masks 的 SHA-256 两端一致 → mismatch=0</text>
+<rect x='24' y='88' width='1372.0' height='96.0' rx='12' fill='#f2f8f2' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='112' text-anchor='start' font-size='15' fill='#2e7d32' font-weight='bold' opacity='1.0'>共享 Q 路径（绿色 = 两端逐位一致的前提）</text>
+<text x='40' y='122' text-anchor='start' font-size='13' fill='#263238' font-weight='normal' opacity='1.0'>round(x/voxel)·voxel → Morton 排序 → 哈希 ctx → mlp_grid → (qa,qs,qo) 与熵参数 → x=[ρ, 各向异性, 偏移能量, 掩码率] → mlp_complexity → m → Q</text>
+<text x='40' y='150' text-anchor='start' font-size='12.5' fill='#2e7d32' font-weight='normal' opacity='1.0'>编码端在量化前跑这一整条；解码端在反量化前原样再跑一遍（mlp 权重与 strength=0.35 都由码流/头文件携带）→ 两端 Q 逐位相同</text>
+<rect x='24' y='206' width='430.0' height='540.0' rx='12' fill='#f4f9ff' stroke='#1565c0' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='230' text-anchor='start' font-size='15' fill='#1565c0' font-weight='bold' opacity='1.0'>编码端（encode_attributes）</text>
+<rect x='40' y='246' width='398.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='239.0' y='270.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>训练完成模型</text>
+<text x='239.0' y='284.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>活锚属性 · 哈希网格 · 全部 mlp_* 权重</text>
+<rect x='40' y='330' width='398.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='239.0' y='354.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>坐标 voxel 对齐 + Morton 排序</text>
+<text x='239.0' y='368.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>round(x/v)·v（关键：先做这步，上下文才与训练/解码一致）</text>
+<rect x='40' y='428' width='398.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='239.0' y='452.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>STE_multistep 硬量化</text>
+<text x='239.0' y='466.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>x_q = Q·round((x−均值)/Q)，均值取锚点均值</text>
+<text x='239.0' y='482.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>得整数残差 → 算术编码</text>
+<rect x='40' y='540' width='398.0' height='58.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='239.0' y='564.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>逐字段熵编码（fig03）</text>
+<text x='239.0' y='578.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>feat 混合熵 · scaling/offsets 高斯熵 · offsets 只编码 mask=1</text>
+<rect x='40' y='638' width='398.0' height='58.5' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='239.0' y='662.5' text-anchor='middle' font-size='13.5' fill='purple' font-weight='bold' opacity='1.0'>体积核算 hac_meta.json</text>
+<text x='239.0' y='676.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>bit_anchor/feat/scaling/offsets/hash/masks/mlp/bounds/header</text>
+<line x1='239' y1='304.5' x2='239' y2='327' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='239' y1='388.5' x2='239' y2='425' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='239' y1='502.5' x2='239' y2='537' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='239' y1='598.5' x2='239' y2='635' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<rect x='478' y='206' width='380.0' height='540.0' rx='12' fill='#faf3fc' stroke='#6a1b9a' stroke-width='1.4' opacity='1.0'/>
+<text x='492' y='230' text-anchor='start' font-size='15' fill='#6a1b9a' font-weight='bold' opacity='1.0'>码流（全部文件）</text>
+<rect x='494' y='242' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='263.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>xyz_gpcc.npz</text>
+<text x='668.0' y='276.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>G-PCC 八树坐标</text>
+<rect x='494' y='306' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='327.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>hash.b</text>
+<text x='668.0' y='340.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>哈希网格 1bit 参数</text>
+<rect x='494' y='370' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='391.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>masks.b</text>
+<text x='668.0' y='404.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>偏移掩码</text>
+<rect x='494' y='434' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='455.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>feat / scaling / offsets 码流</text>
+<text x='668.0' y='468.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>算术编码整数</text>
+<rect x='494' y='498' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='519.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>attributes.pth</text>
+<text x='668.0' y='532.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>锚点属性与状态</text>
+<rect x='494' y='562' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='583.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>hac_meta.json</text>
+<text x='668.0' y='596.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>体积分解 + 配置</text>
+<rect x='494' y='626' width='348.0' height='53.0' rx='10' fill='purple_bg' stroke='purple' stroke-width='1.8' opacity='1.0'/>
+<text x='668.0' y='647.5' text-anchor='middle' font-size='12.5' fill='purple' font-weight='bold' opacity='1.0'>content_aware_q.json · header</text>
+<text x='668.0' y='660.5' text-anchor='middle' font-size='11' fill='#546e7a' font-weight='normal' opacity='1.0'>strength/格式/公式版本</text>
+<text x='668' y='700' text-anchor='middle' font-size='12' fill='#c62828' font-weight='normal' opacity='1.0'>✗ 敏感度 EMA · 覆盖面积 · 融合分数</text>
+<text x='668' y='720' text-anchor='middle' font-size='12' fill='#c62828' font-weight='normal' opacity='1.0'>✗ spa_u/z · 语义 · 优化器状态（一律不进码流）</text>
+<rect x='882' y='206' width='514.0' height='540.0' rx='12' fill='#f4f9ff' stroke='#1565c0' stroke-width='1.4' opacity='1.0'/>
+<text x='896' y='230' text-anchor='start' font-size='15' fill='#1565c0' font-weight='bold' opacity='1.0'>解码端（decode_attributes，无需预训练模型）</text>
+<rect x='898' y='246' width='482.0' height='42.0' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='270' text-anchor='middle' font-size='13' fill='blue' font-weight='bold' opacity='1.0'>读 header：codec / 公式版本 / strength 一致性校验</text>
+<rect x='898' y='310' width='482.0' height='58.0' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='334' text-anchor='middle' font-size='13' fill='blue' font-weight='bold' opacity='1.0'>GPCC 解坐标 → 整数锚 SHA-256 校验</text>
+<text x='1139.0' y='347.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>masks 解码后同样校验</text>
+<rect x='898' y='374' width='482.0' height='58.0' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='398' text-anchor='middle' font-size='13' fill='blue' font-weight='bold' opacity='1.0'>重算哈希 ctx → mlp_grid → 熵参数</text>
+<text x='1139.0' y='411.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>网格参数来自 hash.b</text>
+<rect x='898' y='438' width='482.0' height='58.0' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='462' text-anchor='middle' font-size='13' fill='blue' font-weight='bold' opacity='1.0'>逐字段算术解码</text>
+<text x='1139.0' y='475.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>feat 通道组上下文用已解码通道组即时重建（mlp_deform）</text>
+<rect x='898' y='502' width='482.0' height='58.0' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='526' text-anchor='middle' font-size='13' fill='green' font-weight='bold' opacity='1.0'>Q 同式重算 → 反量化</text>
+<text x='1139.0' y='539.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>m = 1+tanh(mlp_complexity(x))·0.35 与编码端逐位一致</text>
+<rect x='898' y='566' width='482.0' height='58.0' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='590' text-anchor='middle' font-size='13' fill='blue' font-weight='bold' opacity='1.0'>generate_gaussians(decoded=True)</text>
+<text x='1139.0' y='603.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>跳过一切量化仿真，直接组装神经高斯</text>
+<rect x='898' y='630' width='482.0' height='42.0' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1139.0' y='654' text-anchor='middle' font-size='13' fill='blue' font-weight='bold' opacity='1.0'>gsplat 渲染 → 评估（fig11）</text>
+<line x1='1139' y1='288' x2='1139' y2='307' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='1139' y1='368.0' x2='1139' y2='371' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='1139' y1='432.0' x2='1139' y2='435' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='1139' y1='496.0' x2='1139' y2='499' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='1139' y1='560.0' x2='1139' y2='563' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='1139' y1='624.0' x2='1139' y2='627' stroke='#1565c0' stroke-width='2.0' marker-end='url(#ar_1565c0)'/>
+<line x1='862' y1='470' x2='896' y2='470' stroke='#6a1b9a' stroke-width='2.0' marker-end='url(#ar_6a1b9a)'/>
+<text x='879.0' y='462.0' text-anchor='middle' font-size='11' fill='#6a1b9a' font-weight='normal' opacity='1.0'>读码流</text>
+<line x1='462' y1='470' x2='476' y2='470' stroke='#6a1b9a' stroke-width='2.0' marker-end='url(#ar_6a1b9a)'/>
+<text x='469.0' y='463.0' text-anchor='middle' font-size='11' fill='#6a1b9a' font-weight='normal' opacity='1.0'>写</text>
+<rect x='24' y='766' width='1372.0' height='96.0' rx='12' fill='#f2f8f2' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='790' text-anchor='start' font-size='15' fill='#2e7d32' font-weight='bold' opacity='1.0'>bit-exact 回传诊断（每个上报的码率点都跑）</text>
+<text x='40' y='806' text-anchor='start' font-size='13' fill='#263238' font-weight='normal' opacity='1.0'>校验点：① 整数锚坐标 GPCC 往返 SHA-256 一致 ② masks 算术往返 SHA-256 一致 ③ header 的 codec/公式版本/strength 与编码端一致</text>
+<text x='40' y='834' text-anchor='start' font-size='13' fill='#263238' font-weight='normal' opacity='1.0'>产物 codec_roundtrip_diagnostics.json：bit_exact_roundtrip=true · mismatch=0 —— 编码端量到的体积/画质就是解码端实际得到的（论文协议的硬性前提）</text>
+<line x1='16' y1='866' x2='1404' y2='866' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='880' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: scaffold_gs/hacpp.py:1344–1711（encode） · 1745–1993（decode+诊断） · hacplus/utils/codec_consistency.py · scripts/rd_sweep.py</text>
+<text x='1402' y='880' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>评估 → fig11</text>
+</svg>

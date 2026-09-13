@@ -1,0 +1,75 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1380' height='830' viewBox='0 0 1380 830' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_c62828' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#c62828'/></marker></defs>
+<rect x='8' y='8' width='1364' height='814' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='690.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>过程资产：静默门控审计 + 负结果清单（论文贡献③：记录塑造设计的负结果）</text>
+<text x='690.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>“融合剪枝无效”曾是错误结论——机制根本没有启用；修复后所有机制改动都必须带 engaged 日志；负结果同样构成方法的一部分</text>
+<rect x='24' y='92' width='660.0' height='640.0' rx='12' fill='#fff5f4' stroke='#c62828' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='116' text-anchor='start' font-size='15' fill='#c62828' font-weight='bold' opacity='1.0'>静默门控审计（fusion silent-gate）</text>
+<rect x='40' y='132' width='628.0' height='74.0' rx='10' fill='red_bg' stroke='red' stroke-width='1.8' opacity='1.0'/>
+<text x='354.0' y='156' text-anchor='middle' font-size='13' fill='red' font-weight='bold' opacity='1.0'>现象</text>
+<text x='354.0' y='169.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>早期 RD 图：融合剪枝 vs 基线几乎无差异</text>
+<text x='354.0' y='185.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ 一度得出“融合分数无效”的错误结论</text>
+<rect x='40' y='232' width='628.0' height='121.5' rx='10' fill='red_bg' stroke='red' stroke-width='1.8' opacity='1.0'/>
+<text x='354.0' y='255.5' text-anchor='middle' font-size='12.5' fill='red' font-weight='bold' opacity='1.0'>根因链</text>
+<text x='354.0' y='269.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>① 覆盖 provider 只在 mini_splat_enabled 时由 trainer 接线，</text>
+<text x='354.0' y='285.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>   实验配置未启用 → 融合分支从未执行</text>
+<text x='354.0' y='301.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>② 融合分数曾被 mini_splat_full_selected 静默门控</text>
+<text x='354.0' y='317.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>   （commit d3b4f49 修复）</text>
+<text x='354.0' y='333.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>③ 当时无 engaged 日志 → 投影静默走普通 a+u，曲线看起来“正常”</text>
+<rect x='40' y='400' width='628.0' height='105.5' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='354.0' y='423.5' text-anchor='middle' font-size='12.5' fill='green' font-weight='bold' opacity='1.0'>修复</text>
+<text x='354.0' y='437.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>· 显式接线（fusion_prune &amp;&amp; mini_splat 时注册 provider）</text>
+<text x='354.0' y='453.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>· 每次投影打印 [FusionPrune] engaged=1 eff=… cov/sens 均值</text>
+<text x='354.0' y='469.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>· engaged=0 的运行一律视为无效；RD 图与跨场景报告附撤回声明</text>
+<text x='354.0' y='485.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>· 旧 BD-rate −11.1% 作废 → 重验证矩阵（gen-matrix / 60k）</text>
+<rect x='40' y='560' width='628.0' height='73.5' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='354.0' y='583.5' text-anchor='middle' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>教训（写进实验纪律）</text>
+<text x='354.0' y='597.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>“无效果的实验”必须先证明机制真的 engaged，再谈结论；</text>
+<text x='354.0' y='613.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>对照实验的每一档都保留 engaged 日志与配置快照</text>
+<line x1='354' y1='206.0' x2='354' y2='229' stroke='#c62828' stroke-width='2.0' marker-end='url(#ar_c62828)'/>
+<line x1='354' y1='353.5' x2='354' y2='397' stroke='#c62828' stroke-width='2.0' marker-end='url(#ar_c62828)'/>
+<line x1='354' y1='505.5' x2='354' y2='557' stroke='#c62828' stroke-width='2.0' marker-end='url(#ar_c62828)'/>
+<rect x='704' y='92' width='652.0' height='640.0' rx='12' fill='#f5f7f8' stroke='#607d8b' stroke-width='1.4' opacity='1.0'/>
+<text x='718' y='116' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>负结果 / 改道清单（判定 + 一句话原因）</text>
+<rect x='720' y='132' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='158' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>语义先验门控（DINO，方向一）</text>
+<text x='734' y='180' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>语义特征对 RD 无稳定增益，训练/缓存开销大</text>
+<rect x='1236' y='142' width='37.0' height='20.5' rx='10.25' fill='red_bg' stroke='#c62828' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='158.5' text-anchor='middle' font-size='11.5' fill='#c62828' font-weight='normal' opacity='1.0'>判负</text>
+<rect x='720' y='208' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='234' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>重要性加权重建损失</text>
+<text x='734' y='256' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>逐像素加权未带来稳定增益</text>
+<rect x='1236' y='218' width='37.0' height='20.5' rx='10.25' fill='red_bg' stroke='#c62828' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='234.5' text-anchor='middle' font-size='11.5' fill='#c62828' font-weight='normal' opacity='1.0'>判负</text>
+<rect x='720' y='284' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='310' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>MLP 权重量化</text>
+<text x='734' y='332' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>精度损失 &gt; 体积收益，保留 32bit/参数口径</text>
+<rect x='1236' y='294' width='37.0' height='20.5' rx='10.25' fill='red_bg' stroke='#c62828' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='310.5' text-anchor='middle' font-size='11.5' fill='#c62828' font-weight='normal' opacity='1.0'>判负</text>
+<rect x='720' y='360' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='386' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>敏感度方差 z-score 归一</text>
+<text x='734' y='408' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>α=0.99 下方差 EMA 不收敛、信号压平 → 改相对归一化（保留）</text>
+<rect x='1236' y='370' width='37.0' height='20.5' rx='10.25' fill='amber_bg' stroke='#b26a00' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='386.5' text-anchor='middle' font-size='11.5' fill='#b26a00' font-weight='normal' opacity='1.0'>改道</text>
+<rect x='720' y='436' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='462' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>融合 w=0.5 无帽</text>
+<text x='734' y='484' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>1.62 dB 低码率塌缩 → w≤0.3 硬帽 + 覆盖约束（保留）</text>
+<rect x='1236' y='446' width='37.0' height='20.5' rx='10.25' fill='amber_bg' stroke='#b26a00' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='462.5' text-anchor='middle' font-size='11.5' fill='#b26a00' font-weight='normal' opacity='1.0'>改道</text>
+<rect x='720' y='512' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='538' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>mlp_complexity 8 维输入</text>
+<text x='734' y='560' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>4 个图像统计恒为零 → 删除，8 维旧检查点切片兼容</text>
+<rect x='1236' y='522' width='37.0' height='20.5' rx='10.25' fill='amber_bg' stroke='#b26a00' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='538.5' text-anchor='middle' font-size='11.5' fill='#b26a00' font-weight='normal' opacity='1.0'>改道</text>
+<rect x='720' y='588' width='620.0' height='64.0' rx='8' fill='#ffffff' stroke='#607d8b' stroke-width='1.2' opacity='1.0'/>
+<text x='734' y='614' text-anchor='start' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>feat_dim=50（默认）</text>
+<text x='734' y='636' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>扫描定 32 最优（隐藏层 16）</text>
+<rect x='1236' y='598' width='37.0' height='20.5' rx='10.25' fill='amber_bg' stroke='#b26a00' stroke-width='1.1' opacity='1.0'/>
+<text x='1254.5' y='614.5' text-anchor='middle' font-size='11.5' fill='#b26a00' font-weight='normal' opacity='1.0'>改道</text>
+<text x='720' y='672' text-anchor='start' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>判负 = 移出方法主线；改道 = 保留修正后的版本（修正即当前代码默认行为）</text>
+<rect x='24' y='752' width='1332.0' height='46.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='776' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'></text>
+<text x='40' y='780' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>这些内容写进论文实验节的“negative results”与附录：读者复现时能避开同样的坑，也让“为什么是这四个统计量 / 为什么是 0.3 / 为什么有覆盖约束”有出处。</text>
+<line x1='16' y1='796' x2='1364' y2='796' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='810' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: commit d3b4f49（silent-gate 修复） · f4f389e（审计报告+撤回声明） · docs/03-reports/ · docs/02-design/（融合剪枝锚点体积设计提案）</text>
+<text x='1362' y='810' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>DCCA-GS 过程资产图 · 2026-09-08</text>
+</svg>

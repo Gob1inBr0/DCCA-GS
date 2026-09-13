@@ -150,3 +150,12 @@ WAIT_VRAM_MB=35000 bash scripts/runner_phg_cell.sh <gpu> 1-78 /dev/shm/dcca_data
 base 复跑**，融合归因不成立，**撤回**。该曲线保留作为 run-to-run 方差参考；
 真实融合（带 `engaged=1` 日志）的复验正在跑（`…_fusionfix_s0` / 60k full 重启），
 结果出来后本记录将更新。§3 中"基线（I2+I6）"三点与 HAC++ 原生三点不受影响。
+
+### ⚠️ 锚点数更正（2026-09-08）
+
+§3 表中 1-78 的"锚点数"列（505,992 / 503,270 / 507,813）属于**同步前旧代码纪元**的
+运行，与表中 PSNR/体积对应的当前 run 不符。实测当前 base_s0 三个 λ 的
+Final anchors = 807,634 / ~808k / 809,119（covfix 808,065）。另查明 30k 协议下
+SPA 预算的实际行为：增长期温和压缩（889k→803k，约 −10%），MiniSplat 深度重初始化
+把 κ 冻结为重初始化前数量（`spa_ratio=1.0`），后半程不再剪枝——"ratio 0.85"的
+字面语义与实际预算轨迹不一致。PSNR/SSIM/LPIPS/total_MB 各列不受影响。

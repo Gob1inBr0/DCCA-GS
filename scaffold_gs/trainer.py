@@ -155,6 +155,13 @@ def evaluate(
 
 
 def run_training(cfg: TrainConfig) -> Dict[str, float]:
+    print(
+        "[TrainerVer] post_branch=loaded "
+        f"spa_post_ratio={getattr(cfg.model, 'spa_post_ratio', 'MISSING')} "
+        f"spa_post_window={getattr(cfg.model, 'spa_post_window', 'MISSING')} "
+        f"mini_splat_enabled={cfg.model.mini_splat_enabled}",
+        flush=True,
+    )
     set_random_seed(cfg.seed)
     device = cfg.device
     result_dir = Path(cfg.data.result_dir)
@@ -189,25 +196,18 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
     background = dataset.background
     train_cams = list(dataset.train_cameras)
 
-    fusion_cams: list = []
+    fusion_pool: list = []
+    fusion_views = int(getattr(cfg.model, "mini_splat_views", 8))
     if getattr(cfg.model, "fusion_prune", False) and getattr(
         cfg.model, "mini_splat_enabled", False
     ):
-        views = int(getattr(cfg.model, "mini_splat_views", 8))
-        if len(train_cams) > views:
-            stride = len(train_cams) / float(views)
-            idx = sorted(
-                set(
-                    int(i * stride)
-                    for i in range(views)
-                    if int(i * stride) < len(train_cams)
-                )
-            )
-        else:
-            idx = list(range(len(train_cams)))
-        fusion_cams = [train_cams[i] for i in idx]
+        # Pass the FULL camera pool: hacpp.adjust_anchor rotates an 8-view
+        # window every projection, so coverage accumulates over the whole
+        # training set instead of 8 fixed (never-rotating) views.
+        fusion_pool = list(train_cams)
         print(
-            f"[FusionPrune] coverage refresh enabled: {len(fusion_cams)} cams",
+            f"[FusionPrune] rotating coverage pool: {len(fusion_pool)} cams "
+            f"x {fusion_views} views/cycle",
             flush=True,
         )
     optim = cfg.optim
@@ -280,6 +280,39 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 out.meta["gaussian_ids"],
                 out.meta["height"],
             )
+        if iteration % 250 == 0:
+            print(
+                f"[PostDebug] iter={iteration} post_ratio="
+                f"{getattr(cfg.model, 'spa_post_ratio', None)} "
+                f"ms_enabled={getattr(cfg.model, 'mini_splat_enabled', None)} "
+                f"ms_done={getattr(model.core, 'mini_splat_done', None)}",
+                flush=True,
+            )
+        if iteration % 250 == 0:
+            print(
+                f"[PostDebug] iter={iteration} post_ratio="
+                f"{getattr(cfg.model, 'spa_post_ratio', None)} "
+                f"ms_enabled={getattr(cfg.model, 'mini_splat_enabled', None)} "
+                f"ms_done={getattr(model.core, 'mini_splat_done', None)}",
+                flush=True,
+            )
+        if (
+            iteration > int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            and iteration <= int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            + int(getattr(cfg.model, "spa_post_window", 2000)) + 300
+            and iteration % optim.update_interval == 0
+        ):
+            c1 = float(getattr(cfg.model, "spa_post_ratio", 1.0)) < 1.0
+            c2 = (
+                getattr(model.core, "mini_splat_done", False)
+                or not getattr(cfg.model, "mini_splat_enabled", False)
+            )
+            c3 = iteration % optim.update_interval == 0
+            print(
+                f"[PostDebug2] iter={iteration} c1_ratio={c1} c2_doneorenabled={c2} "
+                f"c3_interval={c3} fire={c1 and c2 and c3}",
+                flush=True,
+            )
         if (
             optim.update_from < iteration < optim.update_until
             and iteration % optim.update_interval == 0
@@ -289,8 +322,36 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 success_threshold=optim.success_threshold,
                 grad_threshold=optim.densify_grad_threshold,
                 min_opacity=optim.min_opacity,
-                fusion_cams=fusion_cams,
+                fusion_pool=fusion_pool,
+                fusion_views=fusion_views,
                 background=background,
+                post_phase=False,
+            )
+        elif (
+            float(getattr(cfg.model, "spa_post_ratio", 1.0)) < 1.0
+            and (
+                getattr(model.core, "mini_splat_done", False)
+                or not getattr(cfg.model, "mini_splat_enabled", False)
+            )
+            and iteration > int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            and iteration <= int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            + int(getattr(cfg.model, "spa_post_window", 2000))
+            and iteration % optim.update_interval == 0
+        ):
+            # Phase 0 post-reinit selection: pure selection (no growth) while
+            # kappa ramps down to spa_post_ratio of the post-reinit count.
+            # With mini-splat disabled there is no reinit event; the window
+            # still anchors at reinit_iter so ±depth-reinit arms share the
+            # schedule (core falls back to kappa = spa_final_n * spa_ratio).
+            model.adjust_anchor(
+                check_interval=optim.update_interval,
+                success_threshold=optim.success_threshold,
+                grad_threshold=optim.densify_grad_threshold,
+                min_opacity=optim.min_opacity,
+                fusion_pool=fusion_pool,
+                fusion_views=fusion_views,
+                background=background,
+                post_phase=True,
             )
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

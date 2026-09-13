@@ -1,0 +1,67 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1340' height='800' viewBox='0 0 1340 800' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_e65100' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#e65100'/></marker></defs>
+<rect x='8' y='8' width='1324' height='784' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='670.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>创新②（硬的部分）：ADMM 覆盖约束——每个被占用粗胞至少留 1 锚</text>
+<text x='670.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>在 TopK 之前先“保护”每个被占用胞的最高分锚：无论融合分数说什么，场景任何区域都不会失去代表；解码零成本</text>
+<rect x='24' y='92' width='640.0' height='560.0' rx='12' fill='#fff6ec' stroke='#e65100' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='116' text-anchor='start' font-size='15' fill='#e65100' font-weight='bold' opacity='1.0'>投影步的修改（对照 fig06 的 z = TopK）</text>
+<rect x='40' y='132' width='608.0' height='58.5' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='344.0' y='156.5' text-anchor='middle' font-size='13.5' fill='orange' font-weight='bold' opacity='1.0'>① 粗胞划分：cell = floor(anchor_xyz / 0.01) [N,3]</text>
+<text x='344.0' y='170.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>0.01 为场景单位的胞尺寸（spa_coverage_cell_size）</text>
+<rect x='40' y='224' width='608.0' height='42.5' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='344.0' y='248.5' text-anchor='middle' font-size='13.5' fill='orange' font-weight='bold' opacity='1.0'>② unique(cell) → 被占用胞集合</text>
+<rect x='40' y='300' width='608.0' height='58.5' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='344.0' y='324.5' text-anchor='middle' font-size='13.5' fill='orange' font-weight='bold' opacity='1.0'>③ scores 降序排序，每个占用胞保前 mn=1 名 → mandated 集合</text>
+<text x='344.0' y='338.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>“胞内最优”而不是“全局最优”</text>
+<rect x='40' y='388' width='608.0' height='58.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='344.0' y='412' text-anchor='middle' font-size='13' fill='orange' font-weight='bold' opacity='1.0'>④ keep = |mandated| ≥ κ ? mandated 前 κ : mandated ∪ 按分数补齐到 κ</text>
+<text x='344.0' y='425.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>补齐（fill）仍然按全局分数从高到低</text>
+<rect x='40' y='476' width='608.0' height='42.5' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='344.0' y='500.5' text-anchor='middle' font-size='13.5' fill='orange' font-weight='bold' opacity='1.0'>⑤ z[keep]=1 → 对偶更新 / 切片 / 生长统计照旧（fig06）</text>
+<line x1='344' y1='190.5' x2='344' y2='221' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='344' y1='266.5' x2='344' y2='297' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='344' y1='358.5' x2='344' y2='385' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='344' y1='446.0' x2='344' y2='473' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<rect x='688' y='92' width='628.0' height='340.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='702' y='116' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>2D 示意（实际为 3D 粗胞；圆点=锚，大小示意覆盖/分数）</text>
+<rect x='716' y='132' width='138.0' height='150.0' rx='6' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.2' opacity='1.0'/>
+<text x='785.0' y='300' text-anchor='middle' font-size='11.5' fill='#263238' font-weight='bold' opacity='1.0'>高分聚集胞</text>
+<text x='785.0' y='318' text-anchor='middle' font-size='10' fill='#546e7a' font-weight='normal' opacity='1.0'>也只强制保 1（胞内最高分）</text>
+<rect x='862' y='132' width='138.0' height='150.0' rx='6' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.2' opacity='1.0'/>
+<text x='931.0' y='300' text-anchor='middle' font-size='11.5' fill='#263238' font-weight='bold' opacity='1.0'>普通胞</text>
+<text x='931.0' y='318' text-anchor='middle' font-size='10' fill='#546e7a' font-weight='normal' opacity='1.0'>按分数正常参与 TopK</text>
+<rect x='1008' y='132' width='138.0' height='150.0' rx='6' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.2' opacity='1.0'/>
+<text x='1077.0' y='300' text-anchor='middle' font-size='11.5' fill='#263238' font-weight='bold' opacity='1.0'>独占胞</text>
+<text x='1077.0' y='318' text-anchor='middle' font-size='10' fill='#546e7a' font-weight='normal' opacity='1.0'>低分但被 mandated 保护</text>
+<rect x='1154' y='132' width='138.0' height='150.0' rx='6' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.2' opacity='1.0'/>
+<text x='1223.0' y='300' text-anchor='middle' font-size='11.5' fill='#263238' font-weight='bold' opacity='1.0'>若被删（无保护）</text>
+<text x='1223.0' y='318' text-anchor='middle' font-size='10' fill='#546e7a' font-weight='normal' opacity='1.0'>该区域再无代表 → 覆盖洞</text>
+<circle cx='750' cy='170' r='7' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='780' cy='196' r='7' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='816' cy='168' r='7' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='760' cy='236' r='7' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='808' cy='240' r='7' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='750' cy='170' r='11.5' fill='none' stroke='#2e7d32' stroke-width='2.2'/>
+<circle cx='900' cy='176' r='5.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.4'/>
+<circle cx='944' cy='204' r='5.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.4'/>
+<circle cx='896' cy='234' r='5.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.4'/>
+<circle cx='962' cy='236' r='5.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.4'/>
+<circle cx='1077.0' cy='210' r='7' fill='#eceff1' stroke='#607d8b' stroke-width='1.6'/>
+<path d='M1077.0,184 L1083.0,196 L1096.0,198 L1087.0,208 L1089.0,221 L1077.0,215 L1065.0,221 L1067.0,208 L1058.0,198 L1071.0,196 Z' fill='#c62828'/>
+<circle cx='1223.0' cy='210' r='13' fill='#fdecea' stroke='#c62828' stroke-width='1.8' stroke-dasharray='5,4'/>
+<text x='1223.0' y='214' text-anchor='middle' font-size='16' fill='#c62828' font-weight='bold' opacity='1.0'>✗</text>
+<rect x='688' y='452' width='628.0' height='200.0' rx='12' fill='#f2f8f2' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='702' y='476' text-anchor='start' font-size='15' fill='#2e7d32' font-weight='bold' opacity='1.0'>特性</text>
+<text x='704' y='486' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 无条件：不依赖分数是否合理——失败模式在构造上不可能</text>
+<text x='704' y='512' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 解码零成本：纯训练侧投影规则，码流不变</text>
+<text x='704' y='538' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 单独启用时锚点数几乎不变（4-10：671,570 vs 671,497）——它是保险，不是旋钮</text>
+<text x='704' y='564' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 与 fig07 软帽互补：软帽防分数失衡，硬约束兜底任何残余风险；</text>
+<text x='716' y='586' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>正是有了它，融合剪枝才敢在低码率档位启用</text>
+<text x='704' y='614' text-anchor='start' font-size='11.5' fill='#c62828' font-weight='normal' opacity='1.0'>注：论文正文 δ=0.05 为旧值，代码/config 实际默认 0.01 · mn=1</text>
+<rect x='24' y='672' width='1292.0' height='80.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='696' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>与 fig06/fig07 的关系</text>
+<text x='40' y='712' text-anchor='start' font-size='13' fill='#263238' font-weight='normal' opacity='1.0'>fig06 ADMM 决定“留多少”（κ）；fig07 融合分数决定“按什么排序”；本图决定“无论怎么排，每个区域都有人留守”。三者叠加 = 覆盖感知融合剪枝</text>
+<text x='40' y='736' text-anchor='start' font-size='12' fill='#546e7a' font-weight='normal' opacity='1.0'>默认关闭（spa_coverage_constraint=False），低码率档位与融合剪枝一起启用</text>
+<line x1='16' y1='766' x2='1324' y2='766' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='780' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: hacplus/scene/gaussian_model.py:1725–1757（胞划分/mandated/fill） · config.py:193–198</text>
+<text x='1322' y='780' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>cell=0.01 · min_per_cell=1</text>
+</svg>

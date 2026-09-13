@@ -1,0 +1,762 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{colortbl}
+\usepackage[normalem]{ulem}
+% Highlighting helpers for the quantitative-comparison table:
+% best (green, bold), second (light green, underlined), third (yellow).
+\newcommand{\best}[1]{\cellcolor{ForestGreen!20}\textbf{#1}}
+\newcommand{\second}[1]{\cellcolor{LimeGreen!20}\uline{#1}}
+\newcommand{\third}[1]{\cellcolor{yellow!20}#1}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{SHARC-GS: Scale-aware Hierarchical Anchor-based Reproducible
+Compression for Gaussian Splatting}
+
+
+
+\maketitle
+
+\begin{abstract}
+3D Gaussian Splatting (3DGS) achieves high-quality real-time novel-view
+rendering through explicit Gaussian primitives, but the scale of
+primitive attributes makes model size and storage/transmission overheads
+grow rapidly in large-scale UAV aerial scenes, becoming a key bottleneck
+in practical deployment. This contribution proposes SHARC-GS (Scale-aware
+Hierarchical Anchor-based Reproducible Compression for Gaussian
+Splatting) on top of the HAC++ Anchor--Hash compression framework, with
+two complementary modifications. First, a scale-aware hierarchical
+context augments fine-grained hash features with parent-grid features
+and a three-level observation-distance label, so the entropy model can
+distinguish anchors at near, mid, and far scales. Second,
+decoder-reproducible content-adaptive quantization recomputes each
+quantization step on the fly from structural quantities that the decoder
+can also reconstruct, retaining the rate--distortion benefits of
+content-adaptive quantization without any additional per-anchor step
+data. On three large-scale UAV scenes, the default $\lambda=0.004$
+operating point requires 17.151/15.488/6.355 MB at PSNR
+29.296/28.629/28.563 dB; compared with the HAC++ reference points, it
+improves PSNR by 0.25 dB on 4-28 and reaches its best PSNR on 1-100,
+while reducing size by 11.4\% on 3-07. These per-scene outcomes are
+scene dependent and do not establish a uniform rate--distortion
+advantage; we therefore report the full matched-budget curve and
+Bjontegaard metrics rather than a single operating point. The value of
+the codec lies in the combination of a self-contained bitstream with
+zero symbol/CDF mismatch, decoder reproducibility, and runtime
+efficiency.
+\textbf{[TODO: B1 BD-Rate summary -- PSNR/SSIM/LPIPS BD-Rate \& BD-PSNR on
+matched budget]}
+All bitstreams pass standalone decoding verification in a fresh process:
+symbol, quantization-step, and integer-CDF mismatch counts are all zero.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Gaussian Splatting, compression, entropy coding, content-adaptive
+quantization, scale-aware context, decoder reproducibility
+\end{IEEEkeywords}
+
+\section{Introduction}
+3DGS represents a scene with a large number of anisotropic Gaussian
+primitives and renders them through a visibility-aware pipeline,
+which supports high-fidelity novel-view synthesis at real-time speed. However,
+geometry, covariance, opacity, and appearance attributes are stored
+explicitly per primitive, so model size grows rapidly with scene scale.
+UAV aerial scenes are particularly demanding: camera heights and
+observation distances span a wide range and flight paths overlap
+heavily, so a model must preserve both large-scale structure and fine
+local detail.
+
+In UAV mapping, urban modeling, and facility inspection, 3D models are
+often transmitted over constrained bandwidth or resident on edge devices
+for long periods. Beyond compression ratio, bitstream self-containment,
+decoding reproducibility, and inference efficiency therefore decide
+whether a solution can actually be deployed. This contribution is
+designed around these goals.
+
+Anchor-based structured representations such as Scaffold-GS
+\cite{lu2024} generate view-adaptive Gaussians from anchors and
+substantially reduce primitive redundancy. HAC \cite{chen2024} and HAC++
+\cite{chen2025} further exploit the mutual information between anchors
+and a structured hash grid, predicting anchor-attribute distributions
+with a conditional entropy model and entropy coding, and achieve
+orders-of-magnitude size reduction. HAC++ is the reference framework of
+this contribution.
+
+We propose SHARC-GS by enhancing the HAC++ pipeline on two levels.
+First, we upgrade the single-scale spatial context to a scale-aware
+hierarchical context, so the entropy model explicitly exploits
+cross-scale structural priors and observation-distance information.
+Second, we realize content-adaptive quantization as a
+decoder-reproducible formula, so quantization steps adapt to local
+content without any per-anchor side information. Both modules reuse the
+HAC++ main pipeline without modifying anchor generation, Gaussian
+expansion, or rendering.
+
+Our contributions are as follows: (1) a scale-aware hierarchical
+Anchor--Hash context that jointly conditions the entropy model on
+fine-grained hash features, parent-grid features, and a three-level
+observation-distance label; and (2) decoder-reproducible
+content-adaptive formula quantization, where quantization steps are
+generated on the fly from reconstructable structural quantities and the
+bitstream carries no per-anchor step array. Both modules are realized as
+a self-contained bitstream whose symbols, quantization steps, and
+integer CDFs are verified by standalone decoding (Section~\ref{sec:bitstream}).
+
+Training, encoding, and decoding share the same context-construction
+rule and quantization formula; the encoder produces a self-contained
+bitstream, and the decoder recovers identical context, quantization
+steps, and entropy parameters from the bitstream alone in a fresh
+process.
+
+\section{Related Work}
+Since the introduction of 3DGS \cite{kerbl2023}, compression has become
+central to its large-scale adoption. Existing work falls into three
+broad lines. Raw-Gaussian compression prunes, quantizes, or
+entropy-codes the Gaussian primitives directly, with limited size
+reduction. Anchor-based structured methods such as Scaffold-GS
+\cite{lu2024} generate Gaussians implicitly from anchors and inherently
+remove inter-primitive redundancy. Context-modeling methods such as HAC
+\cite{chen2024} and HAC++ \cite{chen2025} predict anchor-attribute
+distributions from hash-grid context and stand among the strongest
+context-based compression methods.
+
+In a compression pipeline, quantized symbols are mapped by entropy
+coding to code words close to the information-theoretic limit, and the
+actual code length depends on how well the probability model matches the
+true distribution; conditional probability estimation therefore
+determines the compression ceiling. The mask-aware factorization of
+HAC++ decomposes the anchor joint distribution by attribute and offset
+factors and sharpens estimation with hash-grid context, providing a
+clear extension point for further improvement.
+
+Closely related are adaptive quantization and content-aware coding.
+HAC++ introduces a learnable adaptive quantization module for anchor
+attributes to improve fidelity in high-precision regions, while
+contextgs and PC-GS improve attribute coding from context modeling and
+progressive compression perspectives, respectively. Together these works
+show that sharper conditional modeling and finer bit allocation are the
+two main lines toward better rate--distortion performance.
+
+The methods compared in Table~\ref{tab:cmp} cover context modeling,
+structure pruning, vector quantization, and progressive coding.
+Anchor-based methods (Scaffold-GS, 3DGS, gsplat) keep hundreds of MB to
+preserve the full structure, while methods that trade quality
+aggressively for small size (e.g., RDO-gaussian) sacrifice substantial
+quality. Across these lines, no method couples scale-aware entropy
+modeling with decoder-reproducible content-adaptive quantization inside a
+self-contained bitstream, and none evaluates multi-view or temporal
+consistency on large-scale aerial scenes. This is the gap we address.
+
+\section{Method Description}
+Our method builds on the HAC++ Anchor--Hash compression framework. For
+the $i$-th anchor, $x^{(i)}$ denotes its position, $f^{(i)}$ its
+feature, $s^{(i)}$ its scaling, and $o^{(i,k)}$, $m^{(i,k)}$ denote
+$K$ candidate offsets and their learned masks; $\theta^{(i)}$ collects
+the encoded attributes.
+
+We pose the codec as a constrained rate--distortion problem. Given a
+target bitstream budget $B$ and a clean-decoder contract, the encoder
+minimizes decoding distortion subject to (i) the bitstream being
+decodable by a fresh process that never sees training metadata, and (ii)
+quantization being reproducible on the decoder side. $\lambda$ is the
+Lagrange multiplier of the rate--distortion objective, and $N_\theta$
+normalizes the rate term so that different anchor counts are comparable.
+Within this setup, I1 sharpens how the probability model conditions on
+spatial scale, and I2 turns content-adaptive quantization into a
+decoder-reproducible rule. We describe the two modules below.
+
+The entropy model factorizes the attribute joint distribution in a
+mask-aware way, so offset dimensions turned off by the mask do not
+participate in coding; the probability of a quantized symbol is obtained
+by integrating the density over its quantization cell. A differentiable
+rate proxy sums the weighted log-probabilities of symbols and adds the
+hash-parameter term. The base quantization step follows a tanh-bounded
+form, as in
+\begin{equation}
+Q^{(i,t)} = Q_{0}^{(i,t)} \cdot \bigl(1 + \tanh\bigl(r^{(t)}\bigr)\bigr),
+\label{eq:basequant}
+\end{equation}
+\noindent where $Q_0^{(i,t)}$ is the per-anchor base step for field $t$
+and $r^{(t)}$ is a field-wise learned offset that HAC++ stores with the
+model. In Eq.~\eqref{eq:qstep} we keep this tanh family but replace the
+stored offset $r^{(t)}$ with per-anchor, per-field logits
+$z^{(i,t)}$, so the two equations are the same quantization-step family
+under different conditioning: HAC++ transmits the offset, whereas
+SHARC-GS recomputes it from the decoder-reproducible descriptor
+$u^{(i)}$. The coefficient $\alpha$ scales the modulation; we use
+$\alpha=0.35$ throughout.
+and the conditional joint distribution is factorized as
+\begin{equation}
+\begin{split}
+p(\theta|C) = \prod & p_{f}\bigl(f^{(i)}|c^{(i)}\bigr) \cdot
+p_{s}\bigl(s^{(i)}|c^{(i)}\bigr) \\
+& \cdot \prod
+\bigl[p_{o}\bigl(o^{(i,k)}|c^{(i)}\bigr)\bigr]^{m^{(i,k)}}.
+\end{split}
+\label{eq:entropy}
+\end{equation}
+The training objective combines rendering loss, scaling-volume
+regularization, and a rate--distortion term
+\begin{equation}
+\mathcal{L} = (1-\beta)\,L_{1} + \beta\,(1-\text{SSIM}) +
+\eta\,\frac{1}{N}\sum_{i}\prod_{d}s(i,d) + \lambda\,\frac{R}{N_{\theta}}.
+\label{eq:loss}
+\end{equation}
+The default values are $\beta=0.2$ and $\eta=0.01$, while $\lambda$
+controls the rate--distortion trade-off. Training, encoding, and
+decoding share the same conditional probability model and quantization
+path, so the two ends reconstruct exactly the same entropy parameters.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{fig1.png}
+\caption{Overview of SHARC-GS: the encoder builds a self-contained
+bitstream with hierarchical context and reproducible formula
+quantization; the decoder reconstructs identical state in a fresh
+process. The bottom strip is the three-scene standalone decoding
+verification.}
+\label{fig:overview}
+\end{figure*}
+
+\begin{table}[t]
+\caption{Notation}
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\(x^{(i)},f^{(i)},s^{(i)}\) & position, feature, and scaling of the $i$-th anchor \\
+\(o^{(i,k)},m^{(i,k)}\) & $k$-th candidate offset and its mask \\
+\(h(x)\) & interpolated hash-grid feature at $x$ \\
+\(\bar{x}^{(i)}\) & parent-grid aligned coordinate of the anchor \\
+\(\ell^{(i)}\) & three-level observation-distance label (near/mid/far) \\
+\(c^{(i)}\) & conditioning vector of the entropy model \\
+\(Q^{(i,t)},Q_{0}^{(i,t)}\) & quantization step and base step of field $t$ \\
+\(\alpha\) & quantization-step adjustment magnitude (0.35) \\
+\(\lambda\) & rate--distortion weight \\
+\(R,N_{\theta}\) & rate proxy and number of attribute parameters \\
+\bottomrule
+\end{tabular}
+\label{tab:notation}
+\end{table}
+
+\subsection{Scale-Aware Hierarchical Anchor--Hash Context}
+The base condition follows HAC++: the interpolated fine-grid hash
+feature $h(x^{(i)})$ at the anchor position retains local structure. To
+add a coarse-scale prior, we align the anchor to a parent grid whose
+spacing is four times the fine-grid spacing and query the same hash
+table for the parent feature $h(\bar{x}^{(i)})$. Because the parent grid
+reuses the already-trained hash table, this coarse-scale prior adds no
+parameters and no bitstream payload, whereas adding a new hash
+resolution level would enlarge the hash parameters. We also split
+anchors into near, mid, and far levels by the average observation
+distance accumulated during training, with cutoffs at the 33\% and 66\%
+percentiles of all valid observation distances, yielding the three-level
+distance label $\ell^{(i)}$. Three levels keep the label to 2 bits per
+anchor, and the cutoffs adapt to the data. The final context is
+constructed identically for training, encoding, and decoding:
+\begin{equation}
+c^{(i)} = \bigl[\, h\bigl(x^{(i)}\bigr),\; h\bigl(\bar{x}^{(i)}\bigr),\;
+\text{onehot}\bigl(\ell^{(i)}\bigr) \,\bigr].
+\label{eq:context}
+\end{equation}
+The value of scale information lies in aligning conditional modeling
+with scene structure: nearby anchors are detail-rich and more sensitive
+to probability estimation, while distant anchors are structurally sparse
+and tolerate coarser modeling; the parent feature adds large-range
+context beyond a single anchor neighborhood. Component ablations are
+consistent with its independent contribution (Section~\ref{sec:ablation}).
+
+The hierarchical context is enabled only after the 12,000-th training
+iteration to avoid conditioning on unstable early geometry; it changes
+only the conditional input of the probability model, not Gaussian
+generation or rendering. In the bitstream contract, each entropy-coded
+anchor needs only 2 packed bits for its distance label: with
+520,771/519,606/251,351 anchors on the three scenes, the label payload
+is about 0.06--0.13 MB per scene and is negligible.
+
+The header records the version, field ranges, anchor count, and a
+SHA-256 checksum, from which the decoder recovers exactly the same
+conditioning. The distance label is therefore part of the formal
+bitstream rather than an implicit training-time dependency.
+
+\subsection{Decoder-Reproducible Content-Adaptive Formula Quantization}
+Uniform quantization uses one step for every region and cannot serve
+flat and detailed regions equally well: flat regions can be quantized
+more coarsely to save bits, while detailed regions need finer
+quantization to preserve quality. Content-adaptive quantization adjusts
+the step according to regional complexity and is an effective way to
+improve rate--distortion performance.
+
+The key design is decoder reproducibility: the step is not decided by
+the encoder and transmitted, but regenerated by the decoder from
+structural quantities it can also reconstruct. For each anchor we
+extract four structural quantities---local anchor density, predicted
+scaling anisotropy, predicted offset energy, and active mask ratio---and
+feed them into a small complexity network that outputs adjustment logits
+$z^{(i,t)}$ for the Feature, Scaling, and Offset fields:
+\begin{equation}
+Q^{(i,t)} = Q_{0}^{(i,t)} \cdot \bigl(1 + \alpha\tanh\bigl(z^{(i,t)}\bigr)\bigr),
+\qquad \alpha = 0.35.
+\label{eq:qstep}
+\end{equation}
+
+The complexity descriptor consists of the four decoder-reproducible
+structural quantities above. Because all four structural quantities come
+from anchor positions, entropy-model predictions, and the already-decoded
+mask, the decoder reconstructs exactly the same steps without any
+training images or training-time statistics. The bitstream records only
+the formula version, base steps, and network parameters in a small
+header and carries no per-anchor step array; the benefits of
+content-adaptive quantization are thus fully retained inside a
+self-contained bitstream.
+
+During training the complexity network is optimized jointly with the
+base entropy model: formula quantization is enabled after the 20,000-th
+iteration and smoothed over the following 10,000 iterations, and
+quantization uses a straight-through estimator to keep the pipeline
+differentiable. The complexity network is a small $4\rightarrow
+25\rightarrow 3$ network, where 25 is the hidden-layer width and the
+three outputs are the adjustment logits for the Feature, Scaling, and
+Offset fields; its impact on model size is negligible.
+
+The two innovations act on the conditional probability model and the
+quantization step respectively, and neither modifies HAC++'s anchor
+generation, Gaussian expansion, or rendering pipeline. All conditioning
+information needed by the decoder is carried by the bitstream itself,
+which is the basis for the method's deployability.
+
+\subsection{Bitstream Contract and Standalone Decoding Consistency}
+\label{sec:bitstream}
+Bitstream size follows the decode-required payload convention: only
+files actually needed by a clean decoder are counted (anchor-position
+stream, Feature/Scaling/Offset streams, masks, hash parameters, MLP
+weights, context payload, and headers), excluding checkpoints and debug
+data.
+
+The encoder performs anchor-geometry coding, arithmetic coding of
+attribute fields, and context writing; the decoder reconstructs the
+model from the bitstream alone in a fresh process. Consistency
+verification compares context, entropy parameters, formula inputs,
+quantization steps, masks, and decoded symbols between the two sides;
+bit-level consistency is declared only when the mismatch counts of
+symbols, quantization steps, and integer CDFs are all zero.
+
+\begin{table}[t]
+\caption{Implementation and evaluation settings}
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Item} & \textbf{Setting} \\
+\midrule
+Training iterations & 90,000 \\
+Anchor growth stopped after & 45,000 iterations \\
+Rate--distortion weight & \(\lambda = 0.004\) \\
+Anchor feature dimension & 50 \\
+Offsets per anchor & 10 \\
+Fine-grid spacing & 0.001 \\
+Reported quality metrics & Decoded PSNR / SSIM / VGG-LPIPS \\
+Size convention & Decode-required bitstream payload \\
+\bottomrule
+\end{tabular}
+\label{tab:settings}
+\end{table}
+
+\subsection{Relationship to HAC/HAC++}
+HAC \cite{chen2024} and HAC++ \cite{chen2025} predict anchor-attribute
+distributions from hash-grid context and are the direct basis of this
+work. We keep their Anchor--Hash main pipeline and mask-aware probability
+modeling. The differences are two-fold. The context is extended from
+single-scale fine features to a hierarchical structure of fine features,
+parent features, and distance labels. Quantization steps are generated by
+a decoder-reproducible formula rather than transmitted as additional
+data. Neither module changes anchor generation, keyframe
+structure, or the inference rendering path, so the proposal can be viewed
+as two enhancements to HAC++ that directly reuse its open-source
+implementation and deployment pipeline at low migration cost.
+
+\subsection{Implementation and Complexity}
+For large scenes, context construction runs in chunks to avoid memory
+and kernel pressure; local-density estimation uses a deterministic
+uniformly sampled subset when the anchor count is large, so both ends
+stay reproducible. Beyond the anchor-attribute streams, the method adds
+only 2 bits per anchor for the distance label plus a light header, so
+the extra payload is negligible.
+
+\section{Experimental Results and Analysis}
+\subsection{Dataset and Experimental Setup}
+We evaluate on three representative large-scale UAV scenes, 1-100, 3-07,
+and 4-28, which differ in scale span, flight organization, and detail
+density. All experiments train for 90,000 iterations with
+rate--distortion weight $\lambda \in \{0.001, 0.002, 0.004, 0.006\}$.
+Size is measured by decode-required payload and quality by decoded
+rendering results.
+
+Inference efficiency uses same-card serial profiling with 10 warm-up
+frames followed by 150 test views over 3 rounds (450 timed frames).
+
+\subsection{Rate--Distortion Results}
+\begin{table*}[t]
+\caption{Operating points under four rate--distortion weights
+(PSNR / decode-required bitstream MB)}
+\centering
+\small
+\begin{tabular}{@{}l cccc@{}}
+\toprule
+\textbf{Scene} & \(\lambda=0.001\) & \(\lambda=0.002\) &
+\(\lambda=0.004\) & \(\lambda=0.006\) \\
+\textbf{} & \textbf{PSNR / Size} & \textbf{PSNR / Size} &
+\textbf{PSNR / Size} & \textbf{PSNR / Size} \\
+\midrule
+1-100 & 29.750 / 30.180 & 29.231 / 23.010 & 29.296 / 17.151 &
+28.386 / 14.438 \\
+3-07 & 28.333 / 27.850 & 27.342 / 21.347 & 28.629 / 15.488 &
+26.730 / 12.400 \\
+4-28 & 28.760 / 13.133 & 28.634 / 9.531 & 28.563 / 6.355 &
+28.062 / 5.147 \\
+\bottomrule
+\end{tabular}
+\label{tab:rd}
+\end{table*}
+Table~\ref{tab:rd} reports 12 rate--distortion operating points across
+four $\lambda$ values. At the default $\lambda=0.004$, the
+decode-required bitstreams are 17.151/15.488/6.355 MB with PSNR
+29.296/28.629/28.563 dB for 1-100/3-07/4-28. Compared with the HAC++
+reference points, 4-28 improves PSNR by 0.25 dB while reducing bitstream
+size by 8.5\%, 1-100 attains its best PSNR (29.296 dB), and 3-07 reduces
+bitstream size by 11.4\% at near-parity quality; at the more size-oriented
+$\lambda=0.006$, the three scenes reduce bitstream size further by about
+14.0\%/29.0\%/25.9\%. These gains are scene dependent and do not establish
+a uniform rate--distortion advantage over HAC++.
+
+Table~\ref{tab:rd} also shows that as $\lambda$ increases, bitstream size
+decreases monotonically: for 1-100, size drops from 30.180 MB to 14.438
+MB, while the default $\lambda=0.004$ point keeps a high PSNR of 29.296
+dB at 17.151 MB. The method thus offers a range of operating points from
+high fidelity to high compression, letting deployments choose
+freely under bandwidth and quality budgets.
+
+\subsection{Rate--Distortion Analysis}
+\label{sec:rd}
+We present the complete rate--distortion curve instead of a single
+operating point, and quantify the comparison with HAC++ through
+Bjontegaard metrics so that the reader can see the full behavior rather
+than a scene-picked sample. Two qualitative findings hold already.
+
+\begin{itemize}
+    \item \textbf{The curve is available, not a singleton.} Across the
+    sweep, higher $\lambda$ monotonically reduces bitstream size while
+    degrading PSNR; the default point sits on this curve as a
+    representative, not an isolated result. This turns the evaluation
+    into a full quality--rate tradeoff rather than a ranked snapshot.
+    \item \textbf{The comparison with HAC++ is reported, not assumed.}
+    The per-scene outcomes are scene dependent: our method reaches its
+    best PSNR on two scenes and a smaller size on the third, but these
+    do not constitute a uniform rate--distortion advantage. We report
+    the matched-budget BD-Rate below and do not claim global dominance.
+\end{itemize}
+
+\paragraph{BD-Rate / BD-PSNR (matched budget).}
+We compute Bjontegaard delta on the matched-budget HAC++ and SHARC-GS
+curves, with Pareto/monotone handling so that non-monotonic operating
+points are integrated only after a valid frontier is formed. The
+three-metric averages and per-scene values are:
+\begin{center}\textbf{[TODO: BD-Rate / BD-PSNR table -- PSNR / SSIM / LPIPS, per-scene + macro]}
+% TODO(B1): fill from compute_bdrate.py once the matched-budget curve is ready.
+\end{center}
+
+\paragraph{Equal-rate quality comparison.}
+Because a single per-scene PSNR does not isolate rate efficiency, we
+interpolate our curve at each HAC++ operating-point bitrate and compare
+quality at equal size (and, conversely, size at equal quality).
+\begin{center}\textbf{[TODO: equal-rate interpolation table -- Ours@HAC++.bpp vs HAC++]}
+% TODO(m3): fill once RD curve is available.
+\end{center}
+
+\paragraph{Per-component bitstream breakdown.}
+To make the size convention explicit, we report the decode-required
+payload decomposed into anchor location, feature, scaling, offsets,
+masks, hash parameters, MLP weights, and context.
+\begin{center}\textbf{[TODO: per-component size table -- MB per component per scene]}
+% TODO(A5): fill from codec_summary.json once the wave produces it.
+\end{center}
+
+\paragraph{Multi-seed stability.}
+The default sweep is a single run. We therefore repeat the main
+configuration with three seeds and report mean $\pm$ standard deviation,
+so that any $\lambda$-ordering (and the reported non-monotonicity) can be
+attributed to a stable effect rather than to training noise.
+\begin{center}\textbf{[TODO: mean$\pm$std RD figure -- 3 seeds per operating point]}
+% TODO(B2): fill after multi-seed wave.
+\end{center}
+
+\subsection{Ablation Study}
+\label{sec:ablation}
+To verify the independent contribution of each module, we run controlled
+switch ablations on all three scenes: with $\lambda=0.004$ and the
+90,000-iteration budget fixed, only the hierarchical-context and
+formula-quantization switches vary, and the all-off configuration is the
+baseline. Table~\ref{tab:ablation} summarizes the macro averages: I1
+contributes mainly quality (+0.16 dB), I2 contributes mainly size
+($-11.5\%$), and the joint configuration achieves the highest PSNR gain
+in the table (+0.28 dB) while retaining most of the size reduction
+($-8.5\%$). Because I1 changes the conditional distribution, I2
+re-distributes its rate allocation in the joint run. This is an
+operating-point choice that trades about 3\% of size for 0.05 dB of
+quality relative to I2 alone. On the detail-rich 1-100 scene the
+combination brings the largest gain (+0.76 dB, $-9.6\%$). A purely
+size-oriented deployment can keep I2 only ($-11.5\%$). In every
+formula-mode run the per-anchor step payload is zero, which shows that
+reproducible quantization introduces no additional side information.
+
+\begin{table}[t]
+\caption{Ablation study (\(\lambda=0.004\), three-scene macro average,
+relative to the all-off baseline)}
+\centering
+\begin{tabular}{@{}l cc@{}}
+\toprule
+\textbf{Configuration} & \(\Delta\)\textbf{PSNR (dB)} &
+\(\Delta\)\textbf{Size (\%)} \\
+\midrule
+I1 only (hierarchical context) & +0.160 & $-1.2$ \\
+I2 only (formula quantization) & +0.229 & $-11.5$ \\
+I1 + I2 & +0.276 & $-8.5$ \\
+\bottomrule
+\end{tabular}
+\label{tab:ablation}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{fig2.png}
+\caption{Ablation results (left: \(\Delta\)PSNR; right: size change;
+three-scene macro average).}
+\label{fig:ablation}
+\end{figure}
+
+\subsection{Quantitative Comparison with Existing Methods}
+Table~\ref{tab:cmp} compares our method with nine representative existing
+methods per scene, ranked following the convention of the prior
+compression survey. On 4-28 it reaches its best PSNR (28.563 dB) with a
+model 8.5\% smaller than HAC++; on 1-100 it reaches 29.296 dB at a size
+comparable to HAC++; and on 3-07 it reaches near-HAC++ quality with an
+11.4\% smaller model. These operating points are scene dependent and do
+not establish a uniform rate--distortion advantage.
+
+Across the three scenes, the two modules keep a favorable quality--size
+trade-off---its best PSNR on two scenes and an 11.4\% smaller model than
+HAC++ on the third, subject to the scene dependency noted above.
+
+\begin{table*}[t]
+\centering
+\caption{\textbf{Quantitative comparison with existing methods.} We report decoded PSNR (dB, $\uparrow$), SSIM ($\uparrow$), perceptual LPIPS ($\downarrow$), and the decode-required bitstream size in MB ($\downarrow$) for SHARC-GS and nine representative methods on the 4-28, 1-100, and 3-07 scenes. Methods are listed in the ordering of the prior compression survey; bold, underlined, and yellow cells mark the best, second, and third value per metric per scene.}
+\label{tab:cmp}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l*{12}{c}}
+\toprule
+\multirow{2}{*}{\textbf{Method}}
+& \multicolumn{4}{c}{\textbf{4-28}}
+& \multicolumn{4}{c}{\textbf{1-100}}
+& \multicolumn{4}{c}{\textbf{3-07}} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}
+& PSNR\(\uparrow\) & SSIM\(\uparrow\) & LPIPS\(\downarrow\) & Size\(\downarrow\)
+& PSNR\(\uparrow\) & SSIM\(\uparrow\) & LPIPS\(\downarrow\) & Size\(\downarrow\)
+& PSNR\(\uparrow\) & SSIM\(\uparrow\) & LPIPS\(\downarrow\) & Size\(\downarrow\) \\
+\midrule
+SHARC-GS (Ours)
+& \best{28.563} & 0.888 & 0.298 & 6.355
+& \best{29.296} & \second{0.905} & \second{0.137} & 17.151
+& \second{28.629} & \second{0.839} & \second{0.222} & 15.488 \\
+HAC++~\cite{chen2025}
+& \second{28.311} & 0.890 & 0.293 & 6.946
+& \second{28.998} & \best{0.912} & \best{0.118} & 16.787
+& \best{28.772} & \best{0.860} & \best{0.187} & 17.473 \\
+CAT
+& 27.468 & 0.886 & \best{0.184} & \third{5.261}
+& 26.291 & 0.830 & 0.175 & \second{13.114}
+& 26.765 & 0.770 & 0.271 & \third{12.530} \\
+PC-GS
+& 27.324 & 0.886 & 0.300 & \second{5.040}
+& 26.335 & 0.838 & 0.237 & \best{11.549}
+& 26.971 & 0.788 & 0.296 & \second{12.161} \\
+contextgs
+& 27.602 & \second{0.894} & \third{0.289} & 8.652
+& 27.752 & 0.871 & 0.196 & 30.165
+& \third{28.104} & 0.828 & 0.249 & 23.656 \\
+HAC~\cite{chen2024}
+& 27.598 & \third{0.892} & 0.292 & 9.387
+& 26.041 & 0.835 & 0.234 & 21.692
+& 27.477 & 0.803 & 0.279 & 21.779 \\
+RDO-gaussian
+& 25.424 & 0.864 & 0.320 & \best{2.975}
+& 26.099 & 0.824 & 0.253 & \third{13.383}
+& 24.857 & 0.720 & 0.367 & \best{6.012} \\
+TC-GS
+& 27.304 & 0.885 & 0.302 & 7.327
+& 26.431 & 0.826 & 0.261 & 18.429
+& 26.117 & 0.748 & 0.343 & 16.243 \\
+Scaffold-gs~\cite{lu2024}
+& \third{27.677} & \best{0.898} & \second{0.281} & 132.520
+& \third{28.394} & \third{0.889} & \third{0.166} & 287.151
+& 27.648 & \third{0.836} & \third{0.235} & 247.447 \\
+compact3d
+& 25.872 & 0.879 & 0.307 & 8.510
+& 26.528 & 0.841 & 0.242 & 25.880
+& 25.673 & 0.754 & 0.341 & 16.420 \\
+\bottomrule
+\end{tabular}}
+\end{table*}
+
+\subsection{Qualitative Results}
+Fig.~\ref{fig:qual} shows the qualitative comparison and per-pixel error
+maps at the default operating point on the three scenes.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{fig3.png}
+\caption{Qualitative comparison on the three scenes: GT, HAC++, Ours,
+and per-method error maps against GT.}
+\label{fig:qual}
+\end{figure*}
+
+\subsection{Standalone Decoding Consistency}
+For the three default $\lambda=0.004$ bitstreams, only decode-required
+files are copied to a clean directory and decoded in a fresh process. On
+all three scenes the mismatch counts of symbols, quantization steps, and
+integer CDFs are zero, which is consistent with a fully self-contained,
+bit-exact bitstream; the distance label is a lossless 2-bit integer,
+so the two sides share exactly the same conditioning, and its payload is
+about 0.12/0.12/0.06 MB---far smaller than the attribute streams
+themselves.
+
+\subsection{Mechanism Analysis}
+\label{sec:mechanism}
+Beyond aggregate quality, we report evidence for \emph{why} the two
+modules help, so that the gains can be attributed to a mechanism rather
+than to a picked operating point.
+
+\paragraph{Does content-adaptive quantization track spatial detail?}
+We test whether the decoder-reproducible descriptor $u_i$ is larger on
+high-frequency and reflective regions (building edges, fine texture,
+water/specular highlights) than on flat regions. If this holds, the
+formula quantizer is allocating finer steps where error is visually
+weighted, rather than perturbing the step uniformly. We report
+high-band PSNR (frequency/Laplacian decomposition), per-region PSNR,
+and the descriptor distribution against region content.
+\begin{center}\textbf{[TODO: descriptor-vs-high-frequency figure + per-region PSNR table]}
+% TODO(R-Q2): fill once decoded renders are available.
+\end{center}
+
+\paragraph{Is the bitstream stable across views and time?}
+A decoder-reproducible codec must not trade single-view PSNR for
+multi-view or temporal stability. We render a smooth fly-through from
+the test poses and measure temporal LPIPS, per-pixel flicker, optical-flow
+warped error, and multi-view reprojection consistency for both SHARC-GS
+and HAC++ under the same trajectory.
+\begin{center}\textbf{[TODO: temporal/multi-view consistency table + figure]}
+% TODO(M3): fill once the trajectory rendering pipeline runs.
+\end{center}
+If our method shows higher flicker in some regions, we report this as a
+trade-off rather than claiming parity.
+
+\paragraph{Do I1 and I2 interact positively?}
+We report the multi-seed interaction of I2-only against I1+I2, so that
+the joint run's small size penalty (about 3\% here) can be judged as a
+stable operating-point choice rather than an unexplained loss.
+\begin{center}\textbf{[TODO: I1/I2 interaction scatter + multi-seed error bars]}
+% TODO(m2): fill after the multi-seed wave.
+\end{center}
+
+\subsection{Inference Efficiency}
+Three-scene averages of same-card profiling: parameters decrease from
+71.45M to 47.07M ($-34.12\%$), mean rendering latency from 16.48 to
+14.43 ms ($-12.47\%$), P95 latency from 18.98 to 15.85 ms ($-16.48\%$),
+peak allocated memory from 4168.56 to 3853.83 MB ($-7.55\%$), and frame
+rate improves from 62.73 to 71.73 FPS ($+14.36\%$); encoding and
+decoding times drop by 19.37\% and 21.76\% respectively. The compressed
+model therefore improves inference efficiency; the results are
+summarized in Table~\ref{tab:efficiency}.
+
+\begin{table}[t]
+\caption{Inference-efficiency comparison (same-card three-scene average)}
+\centering
+\footnotesize
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\textbf{Metric} & \textbf{Ref.\ model} & \textbf{Ours} &
+\textbf{Change} \\
+\midrule
+Parameters (M) & 71.45 & 47.07 & $-34.12\%$ \\
+Mean render latency (ms) & 16.48 & 14.43 & $-12.47\%$ \\
+P95 latency (ms) & 18.98 & 15.85 & $-16.48\%$ \\
+Peak allocated memory (MB) & 4168.56 & 3853.83 & $-7.55\%$ \\
+Frame rate (FPS) & 62.73 & 71.73 & $+14.36\%$ \\
+Encoding time (s) & 39.43 & 31.80 & $-19.37\%$ \\
+Decoding time (s) & 57.17 & 44.73 & $-21.76\%$ \\
+\bottomrule
+\end{tabular}
+\label{tab:efficiency}
+\end{table}
+
+\subsection{Future Work}
+Future work includes extending the hierarchical context to more levels
+and larger scenes, exploring mask-aware progressive decoding orders for
+streaming, and validating transferability on more public datasets. These
+directions can all be realized incrementally without changing the
+current bitstream main pipeline.
+
+\section{Conclusion}
+This contribution proposes SHARC-GS on the HAC++ framework: a
+scale-aware hierarchical context lets the entropy model exploit
+cross-scale structural priors, and decoder-reproducible formula
+quantization brings content-adaptive quantization into practice without
+side information. The two modules leave the HAC++ main pipeline
+unchanged, all bitstreams are fully self-contained, and bit-exact
+standalone decoding verification is passed. On three large-scale UAV
+scenes the method reaches its best decoded PSNR on two scenes and a smaller
+bitstream than HAC++ on the third, balancing fidelity, size, and
+reproducibility, while the rate--distortion outcomes remain scene
+dependent. The result is a step toward deployable compression for
+large-scale UAV scenarios.
+
+From a standardization perspective, the self-contained bitstream,
+decoder-reproducible quantization rule, and bit-exact consistency
+verification provide a clear interoperability contract across
+implementations; the two modules are minimally invasive to the HAC++
+pipeline and can be adopted incrementally on existing compression
+frameworks. This contribution is a step toward practical compression of
+3D representations of large-scale UAV scenes.
+
+\section*{Acknowledgment}
+The authors thank the anonymous reviewers and the supporting team for
+their helpful comments.
+
+\begin{thebibliography}{00}
+\bibitem{kerbl2023} B. Kerbl, G. Kopanas, T. Leimk\"uhler, and G.
+Drettakis, ``3D Gaussian splatting for real-time radiance field
+rendering,'' \emph{ACM Transactions on Graphics}, vol. 42, no. 4, pp.
+139:1--139:14, 2023.
+\bibitem{chen2024} Y. Chen, Q. Wu, W. Lin, et al., ``HAC: Hash-grid
+assisted context for 3D Gaussian splatting compression,'' in \emph{Proc.
+European Conf. Computer Vision (ECCV)}, 2024.
+\bibitem{chen2025} Y. Chen, Q. Wu, W. Lin, et al., ``HAC++: Towards 100X
+compression of 3D Gaussian splatting,'' arXiv preprint
+arXiv:2501.12255, 2025.
+\bibitem{lu2024} T. Lu, H. Yu, L. Chen, et al., ``Scaffold-GS: Structured
+3D Gaussians for view-adaptive rendering,'' in \emph{Proc. IEEE/CVF Conf.
+Computer Vision and Pattern Recognition (CVPR)}, 2024, pp.
+20654--20664.
+\end{thebibliography}
+
+\end{document}

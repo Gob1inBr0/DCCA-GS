@@ -166,6 +166,13 @@ class ModelConfig:
     """ADMM augmented-Lagrange weight for ||a - z + u||^2."""
     spa_u_clamp: float = 1.0
     """Clamp bound for the ADMM multiplier u."""
+    spa_post_ratio: float = 1.0
+    """Post-reinit budget ratio (Phase 0): after depth-reinit, kappa ramps
+    from the post-reinit anchor count down to post_base * spa_post_ratio over
+    spa_post_window steps (selection-only, growth disabled). 1.0 reproduces
+    the legacy protocol exactly (no post-reinit selection)."""
+    spa_post_window: int = 2000
+    """Soft-start ramp length (steps) for the post-reinit budget."""
 
     # Mini-Splatting anchor spatial re-organization (depth reinitialization).
     # ON by default (primary path with SPA): depth-reinit re-places anchors onto
@@ -190,6 +197,21 @@ class ModelConfig:
     fusion_sensitivity_weight: float = 0.3
     """Sensitivity share w in imp=(1-w)*cov+w*sens; hard-capped at 0.3 in the
     projection so coverage always dominates (low-budget collapse fix)."""
+    fusion_gamma: float = 0.25
+    """Multiplicative importance modulation: score=(a+u)*(1+gamma*imp_norm),
+    gamma hard-capped at 1.0 (keeps the calibrated ADMM ranking dominant)."""
+    fusion_uncap: bool = False
+    """0d safety-regression arm: lift the 0.3 coverage-dominance cap so the
+    uncapped fusion (expected collapse) can be measured. Never enable in any
+    reported configuration."""
+    submodular_mode: str = "off"
+    """Phase 1 selection operator: 'off' = linear ADMM score top-k;
+    'cover' = submodular set-cover greedy (v1, pure block mass);
+    'cover_sens' = v2, block mass weighted by anchor sensitivity."""
+    submodular_sens_weighted: bool = False
+    """v2: weight each (anchor, block) edge by 1+sens[anchor] inside the greedy."""
+    coverage_ema_decay: float = 0.95
+    """EMA decay for rotating-view coverage accumulation across projections."""
     spa_coverage_constraint: bool = False
     """ADMM hard-projection coverage constraint: keep >=1 anchor per coarse cell."""
     spa_coverage_cell_size: float = 0.01

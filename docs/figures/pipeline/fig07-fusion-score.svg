@@ -1,0 +1,88 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1380' height='900' viewBox='0 0 1380 900' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_e65100' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#e65100'/></marker><marker id='ar_607d8b' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#607d8b'/></marker><marker id='ar_1565c0' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#1565c0'/></marker></defs>
+<rect x='8' y='8' width='1364' height='884' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='690.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>创新②（软的部分）：覆盖主导的融合剪枝分数——决定“留哪些锚”</text>
+<text x='690.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>覆盖面积为主、敏感度为辅（份额硬帽 ≤0.3）、ADMM 分数为 tiebreaker：scores = imp/max + 0.25·(a+u)，其中 imp = (1−eff)·cov + eff·s</text>
+<rect x='24' y='92' width='1332.0' height='190.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='116' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>三个信号源（训练侧，每 100 步投影前刷新）</text>
+<rect x='40' y='130' width='400.0' height='90.5' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='240.0' y='154.5' text-anchor='middle' font-size='13.5' fill='orange' font-weight='bold' opacity='1.0'>覆盖 c_i（主力）</text>
+<text x='240.0' y='168.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>8 个均匀采样训练视角 · 每像素 argmax 贡献者权重</text>
+<text x='240.0' y='184.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>逐锚取最大贡献像素面积 / (H·W) → cov = c / c_max</text>
+<text x='240.0' y='200.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>“这个锚替画面撑了多大一块地盘”</text>
+<rect x='476' y='130' width='396.0' height='74.5' rx='10' fill='grey_bg' stroke='grey' stroke-width='1.8' stroke-dasharray='7,4' opacity='1.0'/>
+<text x='674.0' y='154.5' text-anchor='middle' font-size='13.5' fill='grey' font-weight='bold' opacity='1.0'>敏感度 s_i（辅助，硬帽 ≤0.3）</text>
+<text x='674.0' y='168.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>s = log1p(s_f+s_s+s_o) / max（EMA 状态，→ fig05）</text>
+<text x='674.0' y='184.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>“这个锚一动，画面变多少”</text>
+<rect x='908' y='130' width='432.0' height='74.5' rx='10' fill='blue_bg' stroke='blue' stroke-width='1.8' opacity='1.0'/>
+<text x='1124.0' y='154.5' text-anchor='middle' font-size='13.5' fill='blue' font-weight='bold' opacity='1.0'>ADMM 分数 a + u（tiebreaker）</text>
+<text x='1124.0' y='168.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>软掩码分数 + 对偶（→ fig06）</text>
+<text x='1124.0' y='184.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>保留原有 SPA 行为的连续性</text>
+<rect x='24' y='302' width='1332.0' height='210.0' rx='12' fill='#fff6ec' stroke='#e65100' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='326' text-anchor='start' font-size='15' fill='#e65100' font-weight='bold' opacity='1.0'>融合（在 fig06 的 TopK 之前替换排序分数）</text>
+<rect x='40' y='344' width='300.0' height='75.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='190.0' y='369' text-anchor='middle' font-size='14' fill='orange' font-weight='bold' opacity='1.0'>eff = min(w, 0.3)</text>
+<text x='190.0' y='382.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>硬帽！无论配置 w 多大</text>
+<text x='190.0' y='398.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>敏感度份额不得超过 0.3</text>
+<rect x='376' y='344' width='380.0' height='59.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='566.0' y='369' text-anchor='middle' font-size='14' fill='orange' font-weight='bold' opacity='1.0'>imp = (1−eff)·cov + eff·s</text>
+<text x='566.0' y='382.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>覆盖恒为主导项（≥0.7）</text>
+<rect x='792' y='344' width='300.0' height='59.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='942.0' y='369' text-anchor='middle' font-size='14' fill='orange' font-weight='bold' opacity='1.0'>imp ← imp / imp.max()</text>
+<text x='942.0' y='382.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>归一化到 [0,1]</text>
+<rect x='40' y='442' width='700.0' height='59.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='390.0' y='467' text-anchor='middle' font-size='14' fill='orange' font-weight='bold' opacity='1.0'>最终排序分数  scores = imp + 0.25 · (a + u)</text>
+<text x='390.0' y='480.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>mini_splat_importance_weight = 0.25：ADMM 分数只作次级调节</text>
+<rect x='776' y='442' width='564.0' height='59.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='1058.0' y='467' text-anchor='middle' font-size='14' fill='orange' font-weight='bold' opacity='1.0'>→ 送入 TopK / 覆盖约束投影（fig08）</text>
+<text x='1058.0' y='480.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>“先别把地盘拆了，再谈省比特”</text>
+<line x1='340' y1='388' x2='372' y2='388' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='756' y1='388' x2='788' y2='388' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<path d='M942,396L942,420L744,420L744,438' fill='none' stroke='#e65100' stroke-width='2' marker-end='url(#ar_e65100)'/>
+<line x1='744' y1='486' x2='772' y2='486' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<path d='M240,282L240,296L566,296L566,340' fill='none' stroke='#e65100' stroke-width='2' marker-end='url(#ar_e65100)'/>
+<path d='M674,282L674,340' fill='none' stroke='#607d8b' stroke-width='2' stroke-dasharray='7,4' marker-end='url(#ar_607d8b)'/>
+<path d='M1124,282L1124,428L712,428L712,438' fill='none' stroke='#1565c0' stroke-width='2' marker-end='url(#ar_1565c0)'/>
+<text x='690' y='298' text-anchor='start' font-size='11.5' fill='#607d8b' font-weight='normal' opacity='1.0'>s</text>
+<rect x='24' y='532' width='700.0' height='268.0' rx='12' fill='#fff5f4' stroke='#c62828' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='556' text-anchor='start' font-size='15' fill='#c62828' font-weight='bold' opacity='1.0'>为什么必须有硬帽：实测的失败模式</text>
+<text x='40' y='566' text-anchor='start' font-size='13' fill='#c62828' font-weight='bold' opacity='1.0'>w = 0.5（无帽）@ 1-78 · λ=0.004：</text>
+<text x='40' y='590' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>解码 PSNR 27.51 → 25.95 dB；锚点数几乎不变（507.8k vs 506.0k）</text>
+<text x='40' y='612' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>低码率段塌缩幅度 1.62 dB（1-78，论文口径）</text>
+<text x='40' y='638' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>机理：敏感度主导 → 留高敏感“细节锚”、删大覆盖背景锚</text>
+<text x='40' y='660' text-anchor='start' font-size='12.5' fill='#c62828' font-weight='bold' opacity='1.0'>→ 覆盖洞——不是“剪多了”，是“剪错了”</text>
+<rect x='46' y='676' width='300.0' height='86.0' rx='8' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.2' opacity='1.0'/>
+<text x='196' y='692' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>w ≤ 0.3（覆盖主导）：大覆盖锚都在</text>
+<circle cx='91' cy='718' r='14' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='151' cy='714' r='12' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='211' cy='722' r='13' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='291' cy='716' r='13' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='111' cy='744' r='3.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='171' cy='746' r='3.2' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='231' cy='744' r='3.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='271' cy='748' r='3.2' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='308' cy='744' r='3.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<rect x='376' y='676' width='300.0' height='86.0' rx='8' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.2' opacity='1.0'/>
+<text x='526' y='692' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>w = 0.5（敏感度主导）：大覆盖锚被删</text>
+<circle cx='421' cy='718' r='14' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='541' cy='722' r='13' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='621' cy='716' r='13' fill='#fdeede' stroke='#e65100' stroke-width='1.6'/>
+<circle cx='481' cy='714' r='12' fill='none' stroke='#c62828' stroke-width='1.6' stroke-dasharray='4,3'/>
+<text x='481' y='742' text-anchor='middle' font-size='10.5' fill='#c62828' font-weight='bold' opacity='1.0'>覆盖洞!</text>
+<circle cx='441' cy='744' r='3.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='501' cy='746' r='3.2' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='561' cy='744' r='3.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='601' cy='748' r='3.2' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<circle cx='638' cy='744' r='3.5' fill='#eceff1' stroke='#607d8b' stroke-width='1.2'/>
+<text x='366' y='786' text-anchor='middle' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>大圆 = 大覆盖锚 · 小点 = 高敏感细节锚</text>
+<rect x='748' y='532' width='608.0' height='268.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='762' y='556' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>接线条件与降级（审计后加固）</text>
+<text x='764' y='566' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· fusion_prune 需同时启用 mini_splat：覆盖 provider 才会在 trainer 接线</text>
+<text x='764' y='592' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 敏感度状态长度不符（如刚生长后）→ 自动降级 coverage-only，</text>
+<text x='776' y='614' text-anchor='start' font-size='12' fill='#546e7a' font-weight='normal' opacity='1.0'>打印 [FusionPrune] SENSITIVITY_UNAVAILABLE（不再静默）</text>
+<text x='764' y='640' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 每次投影打印 [FusionPrune] engaged=1 eff=… cov_mean=… sens_mean=…，</text>
+<text x='776' y='662' text-anchor='start' font-size='12' fill='#546e7a' font-weight='normal' opacity='1.0'>engaged=0 即视为无效运行（→ fig12 静默门控审计）</text>
+<text x='764' y='692' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>· 默认 fusion_sensitivity_weight = 0.3（正好在帽上）</text>
+<line x1='16' y1='866' x2='1364' y2='866' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='880' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: hacplus/scene/gaussian_model.py:1670–1721（融合分数） · scaffold_gs/mini_splat.py:282–305（覆盖 provider） · trainer.py:192–208（接线）</text>
+<text x='1362' y='880' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>覆盖约束（硬保证）→ fig08</text>
+</svg>

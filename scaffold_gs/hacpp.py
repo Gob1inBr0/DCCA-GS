@@ -198,6 +198,18 @@ class HACPlusModel(BaseGaussianModel):
         )
         self.core.fusion_prune = bool(cfg.fusion_prune)
         self.core.fusion_sensitivity_weight = float(cfg.fusion_sensitivity_weight)
+        self.core.fusion_gamma = float(getattr(cfg, "fusion_gamma", 0.25))
+        self.core.coverage_ema_decay = float(
+            getattr(cfg, "coverage_ema_decay", 0.95)
+        )
+        # 0d safety-regression switch: lift the 0.3 coverage-dominance cap so
+        # the uncapped fusion arm (expected collapse) can be measured.
+        self.core.fusion_uncap = bool(getattr(cfg, "fusion_uncap", False))
+        # Phase 0 post-reinit budget: MUST be copied onto the core — the
+        # projection reads these via getattr with no-op defaults (1.0/2000),
+        # and a missing copy silently reproduces the legacy protocol.
+        self.core.spa_post_ratio = float(getattr(cfg, "spa_post_ratio", 1.0))
+        self.core.spa_post_window = int(getattr(cfg, "spa_post_window", 2000))
         self.core.spa_coverage_constraint = bool(cfg.spa_coverage_constraint)
         self.core.spa_coverage_cell_size = float(cfg.spa_coverage_cell_size)
         self.core.spa_coverage_min_per_cell = int(cfg.spa_coverage_min_per_cell)
@@ -848,24 +860,70 @@ class HACPlusModel(BaseGaussianModel):
         success_threshold: float,
         grad_threshold: float,
         min_opacity: int,
-        fusion_cams=None,
+        fusion_pool=None,
+        fusion_views: int = 8,
         background: Optional[torch.Tensor] = None,
+        post_phase: bool = False,
     ) -> None:
         provider = None
+        sub_edges_box = []
+        sub_select = None
         if (
             getattr(self.cfg, "fusion_prune", False)
             and getattr(self.cfg, "mini_splat_enabled", False)
-            and fusion_cams
+            and fusion_pool
         ):
             from .mini_splat import compute_contribution_areas
 
-            cams = list(fusion_cams)
+            pool = list(fusion_pool)
+            views = max(1, min(int(fusion_views), len(pool)))
+            stride = max(1, len(pool) // views)
+            # Deterministic rotation: cycle k samples a different 8-view
+            # window, so ~N/8 cycles cover every training camera once.
+            self._fusion_cycle = getattr(self, "_fusion_cycle", 0) + 1
+            start = (self._fusion_cycle * views) % len(pool)
+            cams = [pool[(start + i * stride) % len(pool)] for i in range(views)]
+
+            submod_mode = str(getattr(self.cfg, "submodular_mode", "off"))
 
             def provider():
-                area = compute_contribution_areas(
+                if submod_mode != "off":
+                    from .mini_splat import (
+                        render_scene_depth,
+                        _intersection_weights,
+                    )
+                    from .submodular import view_edges
+
+                    n = int(self.num_anchors)
+                    edges = []
+                    area = torch.zeros(n, device=self.device)
+                    for cam in cams:
+                        _, _, gaussians, gids, meta = render_scene_depth(
+                            self, cam, background, self.device
+                        )
+                        if gaussians is None or gids is None or meta is None:
+                            continue
+                        e = view_edges(self, cam, background, self.device, gids, meta)
+                        if e is not None:
+                            edges.append(e)
+                        counts = _intersection_weights(meta, self.device)
+                        if counts is not None:
+                            gi = meta.get("gaussian_ids")
+                            if gi is not None and gi.numel() > 0:
+                                anchor_gids = gids.long()[gi.long()]
+                                area.scatter_add_(0, anchor_gids, counts)
+                    sub_edges_box.clear()
+                    sub_edges_box.append(edges)
+                    return area
+
+                return compute_contribution_areas(
                     self, cams, background, self.device
                 )
-                return area if bool(torch.isfinite(area).any()) else None
+
+            if submod_mode != "off":
+                from .submodular import submodular_greedy_select
+
+                sub_select = submodular_greedy_select
 
         self.core.adjust_anchor(
             check_interval=check_interval,
@@ -873,6 +931,9 @@ class HACPlusModel(BaseGaussianModel):
             grad_threshold=grad_threshold,
             min_opacity=min_opacity,
             importance_provider=provider,
+            post_phase=post_phase,
+            submodular_edges=sub_edges_box[0] if sub_edges_box else None,
+            submodular_select=sub_select,
         )
 
     @torch.no_grad()
@@ -932,6 +993,10 @@ class HACPlusModel(BaseGaussianModel):
             added = cores.append_depth_anchors(
                 candidates, voxel, str(self.device)
             )
+            # Post-reinit selection baseline (Phase 0): kappa ramps from this
+            # count down to spa_post_base * spa_post_ratio after reinit.
+            cores.spa_post_base = int(cores.get_anchor.shape[0])
+            cores.spa_reinit_step = int(cores.current_step)
             return added
 
         # Full mode: depth reinit + blur split share the same max_new budget.
