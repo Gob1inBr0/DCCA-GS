@@ -255,6 +255,22 @@ class ModelConfig:
     spa_holdout_max_triggers: int = 5
     """Lifetime trigger cap (anti-loop)."""
 
+    # 方案 C: background-feature codebook (design doc 背景场 §2.3). Encoder
+    # measures background flags from the coverage-area dump; background
+    # anchors' features are replaced by k-means centroids and skipped by the
+    # feat arithmetic coder — the bitstream carries indices + fp16 codebook
+    # + packed flags instead.
+    bg_codebook_enabled: bool = False
+    bg_codebook_size: int = 256
+    """Codebook entries (K); indices cost 1 byte per anchor while K<=256."""
+    bg_area_quantile: float = 0.9
+    """Anchors above the (1-q) area cut count as background."""
+    bg_codebook_iters: int = 25
+    """Lloyd iterations for the encoder-side clustering."""
+    bg_flags_path: Optional[str] = None
+    """Path to the per-anchor area dump (anchor_stats.npz: 'area'+'seen', or
+    a precomputed 'flags'). Required when bg_codebook_enabled."""
+
     importance_weighted_loss: bool = False
     """Weight the reconstruction L1 by rendered opacity (importance-aware loss)."""
     importance_weight_floor: float = 0.2

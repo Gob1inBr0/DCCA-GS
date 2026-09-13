@@ -1630,6 +1630,41 @@ class HACPlusModel(BaseGaussianModel):
         offsets = offsets[sorted_indices]
         scaling = scaling[sorted_indices]
         masks = masks[sorted_indices]
+        # 方案 C: background-feature codebook. Applied AFTER the Morton sort
+        # so the payload's row order matches the coded row order. Background
+        # rows are replaced by centroids and excluded from the feat
+        # arithmetic coder; the payload (indices + fp16 codebook + packed
+        # flags) travels alongside the bitstream.
+        bg_mask_sorted: Optional[torch.Tensor] = None
+        bg_payload_bytes = 0
+        if self.cfg.bg_codebook_enabled:
+            from . import bg_codebook
+
+            if not self.cfg.bg_flags_path:
+                raise ValueError(
+                    "bg_codebook_enabled requires cfg.bg_flags_path "
+                    "(per-anchor area dump)"
+                )
+            flags_all = bg_codebook.flags_from_npz(
+                self.cfg.bg_flags_path, n_total, self.cfg.bg_area_quantile
+            )
+            flags_kept = torch.from_numpy(flags_all).to(device)[mask_anchor]
+            bg_mask_sorted = flags_kept[sorted_indices.to(device)]
+            feat, bg_payload = bg_codebook.build_codebook(
+                feat,
+                bg_mask_sorted,
+                codebook_size=self.cfg.bg_codebook_size,
+                iters=self.cfg.bg_codebook_iters,
+            )
+            bg_payload_bytes = bg_codebook.save_payload(
+                bg_payload, out_dir / bg_codebook.BG_CODEBOOK_FILENAME
+            )
+            print(
+                f"[BGCodebook] {int(bg_mask_sorted.sum().item())}/{N} "
+                f"background anchors, K={bg_payload['codebook'].shape[0]}, "
+                f"payload {bg_payload_bytes} B",
+                flush=True,
+            )
         ov_feat = _load_override(q_override_feat, N, device)
         ov_scaling = _load_override(q_override_scaling, N, device)
         ov_offsets = _load_override(q_override_offsets, N, device)
@@ -1677,6 +1712,13 @@ class HACPlusModel(BaseGaussianModel):
             "anchor_int_sha256": _tensor_sha256(anchor_int),
             "masks_sha256": _tensor_sha256(masks),
         }
+        if bg_mask_sorted is not None:
+            codec_header[bg_codebook.BG_CODEBOOK_HEADER_KEY] = {
+                "enabled": True,
+                "codebook_size": int(bg_payload["codebook"].shape[0]),
+                "num_bg_anchors": int(bg_mask_sorted.sum().item()),
+                "payload_file": bg_codebook.BG_CODEBOOK_FILENAME,
+            }
         with open(out_dir / CODEC_HEADER_FILENAME, "w") as f:
             json.dump(codec_header, f, indent=2, sort_keys=True)
 
@@ -1764,38 +1806,66 @@ class HACPlusModel(BaseGaussianModel):
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
-            # features (channel-context, cg channels per step)
+            # features (channel-context, cg channels per step). Background
+            # rows are codebook lookups — not coded; both sides restrict the
+            # channel-autoregressive coding to the foreground rows of the
+            # slice. feat_q_all (bg rows = centroids) stays full-length for
+            # the attr_ctx conditioning path, whose output must cover all
+            # rows of the scaling coder.
             feat_slice = feat[start:end]
-            feat_q = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
-            mean_scale = torch.cat([mean, scale, prob], dim=-1)
-            scale = scale.clamp(min=1e-9)
-            bit_feat = 0
-            for cc in range(self.cfg.feat_dim // cg):
-                mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
-                    feat_q, mean_scale, to_dec=cc
-                )
-                probs = torch.softmax(
-                    torch.stack([prob[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
-                    dim=-1,
-                )
-                feat_tmp = feat_q[:, cc * cg : cc * cg + cg].contiguous().view(-1)
-                Q_tmp = Q_feat[:, cc * cg : cc * cg + cg].contiguous().view(-1)
-                bit_feat += encoder_gaussian_mixed_chunk(
-                    feat_tmp,
-                    [
-                        mean[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        mean_adj.contiguous().view(-1),
-                    ],
-                    [
-                        scale[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        scale_adj.contiguous().view(-1),
-                    ],
-                    [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
-                    Q_tmp,
-                    file_name=feat_b.replace(".b", f"_{cc}.b"),
-                    chunk_size=500_000,
-                )
-            bit_feat_list.append(bit_feat)
+            feat_q_all = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
+            if bg_mask_sorted is not None:
+                fg_local = (~bg_mask_sorted[start:end]).nonzero(as_tuple=True)[0]
+            else:
+                fg_local = None
+            if fg_local is not None:
+                feat_q = feat_q_all[fg_local]
+                Q_feat_sel = Q_feat[fg_local]
+                mean_sel = mean[fg_local]
+                scale_sel = scale[fg_local]
+                prob_sel = prob[fg_local]
+            else:
+                feat_q = feat_q_all
+                Q_feat_sel = Q_feat
+                mean_sel = mean
+                scale_sel = scale
+                prob_sel = prob
+            mean_scale = torch.cat([mean_sel, scale_sel, prob_sel], dim=-1)
+            scale_sel = scale_sel.clamp(min=1e-9)
+            n_sel = int(feat_q.shape[0])
+            if n_sel == 0:
+                # All-background batch: the coder file must still exist
+                # (empty), the decoder mirrors with a no-read guard.
+                for cc in range(self.cfg.feat_dim // cg):
+                    Path(feat_b.replace(".b", f"_{cc}.b")).touch()
+                bit_feat_list.append(0)
+            else:
+                for cc in range(self.cfg.feat_dim // cg):
+                    mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
+                        feat_q, mean_scale, to_dec=cc
+                    )
+                    probs = torch.softmax(
+                        torch.stack([prob_sel[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
+                        dim=-1,
+                    )
+                    feat_tmp = feat_q[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                    Q_tmp = Q_feat_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                    bit_feat += encoder_gaussian_mixed_chunk(
+                        feat_tmp,
+                        [
+                            mean_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            mean_adj.contiguous().view(-1),
+                        ],
+                        [
+                            scale_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            scale_adj.contiguous().view(-1),
+                        ],
+                        [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
+                        Q_tmp,
+                        file_name=feat_b.replace(".b", f"_{cc}.b"),
+                        chunk_size=500_000,
+                    )
+                bit_feat_list.append(bit_feat)
 
             # scaling
             scaling_slice = scaling[start:end].view(-1)
@@ -1809,7 +1879,7 @@ class HACPlusModel(BaseGaussianModel):
                     attr_pred,
                     mean_scaling.view(-1, 6).detach(),
                     scale_scaling.view(-1, 6).detach(),
-                    feat_q.detach(),
+                    feat_q_all.detach(),
                     ctx.detach(),
                 )
                 mean_scaling = m_adj.reshape(-1)
@@ -1839,7 +1909,7 @@ class HACPlusModel(BaseGaussianModel):
                     attr_pred,
                     mean_offsets.view(-1, 3 * k).detach(),
                     scale_offsets.view(-1, 3 * k).detach(),
-                    feat_q.detach(),
+                    feat_q_all.detach(),
                     scaling_q.detach(),
                     masks_slice.reshape(-1, k).detach(),
                     ctx.detach(),
@@ -1878,6 +1948,7 @@ class HACPlusModel(BaseGaussianModel):
             * 32
         )
         bit_bounds = 32 * 3 * 2
+        bit_bg_codebook = int(bg_payload_bytes) * 8
         total_bits = (
             bits_xyz
             + sum(bit_feat_list)
@@ -1888,6 +1959,7 @@ class HACPlusModel(BaseGaussianModel):
             + attr_ctx_bits
             + bit_mlp
             + bit_bounds
+            + bit_bg_codebook
         )
         aux_bytes = (out_dir / CODEC_HEADER_FILENAME).stat().st_size
         if (out_dir / CONTENT_AWARE_Q_META_FILENAME).exists():
@@ -1912,6 +1984,12 @@ class HACPlusModel(BaseGaussianModel):
             "bit_mlp": int(bit_mlp),
             "bit_bounds": int(bit_bounds),
             "bit_header": int(aux_bytes * 8),
+            "bit_bg_codebook": int(bit_bg_codebook),
+            "num_bg_anchors": (
+                int(bg_mask_sorted.sum().item())
+                if bg_mask_sorted is not None
+                else 0
+            ),
             "total_bits": int(total_bits),
             "total_MB": round(total_bits / bit2MB_scale, 4),
         }
@@ -2015,6 +2093,43 @@ class HACPlusModel(BaseGaussianModel):
         ).float()
         hash_decoded = (hash_decoded * 2 - 1).view(-1, core.n_features_per_level)
 
+        # 方案 C payload: bg rows are codebook lookups, never arithmetic-
+        # coded. The deform-MLP context is row-wise, so pre-filling bg rows
+        # with (fp16) centroids keeps the fg autoregression identical to the
+        # encoder's fg-only pass.
+        bg_mask_sorted: Optional[torch.Tensor] = None
+        bg_centroids: Optional[torch.Tensor] = None
+        bg_indices: Optional[torch.Tensor] = None
+        bg_info = codec_header.get("bg_codebook")
+        if bg_info and bg_info.get("enabled"):
+            from . import bg_codebook
+
+            bg_payload = bg_codebook.load_payload(
+                artifact_dir / bg_info["payload_file"]
+            )
+            bg_mask_sorted = bg_codebook.unpack_flags(bg_payload, device)
+            if bg_mask_sorted.shape[0] != N:
+                raise RuntimeError(
+                    f"bg flags length {bg_mask_sorted.shape[0]} != N {N}"
+                )
+            if int(bg_info.get("num_bg_anchors", -1)) != int(
+                bg_mask_sorted.sum().item()
+            ):
+                raise RuntimeError(
+                    "bg_codebook header/payload anchor-count mismatch"
+                )
+            bg_centroids = torch.from_numpy(
+                bg_payload["codebook"].astype(np.float32)
+            ).to(device)
+            bg_indices = torch.from_numpy(
+                bg_payload["indices"].astype(np.int64)
+            ).to(device)
+            print(
+                f"[BGCodebook] decode: {int(bg_mask_sorted.sum().item())}/{N} "
+                "background rows from payload",
+                flush=True,
+            )
+
         steps = math.ceil(N / MAX_batch_size)
         feat_list, scaling_list, offsets_list = [], [], []
         for s in range(steps):
@@ -2086,32 +2201,57 @@ class HACPlusModel(BaseGaussianModel):
 
             n_num = end - start
             feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
-            mean_scale = torch.cat([mean, scale, prob], dim=-1)
-            scale = scale.clamp(min=1e-9)
-            for cc in range(self.cfg.feat_dim // cg):
-                mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
-                    feat_decoded, mean_scale, to_dec=cc
-                )
-                probs = torch.softmax(
-                    torch.stack([prob[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
-                    dim=-1,
-                )
-                Q_tmp = Q_feat[:, cc * cg : cc * cg + cg].contiguous().view(-1)
-                dec = decoder_gaussian_mixed_chunk(
-                    [
-                        mean[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        mean_adj.contiguous().view(-1),
-                    ],
-                    [
-                        scale[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        scale_adj.contiguous().view(-1),
-                    ],
-                    [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
-                    Q_tmp,
-                    file_name=feat_b.replace(".b", f"_{cc}.b"),
-                    chunk_size=500_000,
-                )
-                feat_decoded[:, cc * cg : cc * cg + cg] = dec.view(n_num, cg)
+            if bg_mask_sorted is not None:
+                bg_local = bg_mask_sorted[start:end]
+                fg_local = (~bg_local).nonzero(as_tuple=True)[0]
+                if bg_local.any():
+                    feat_decoded[bg_local] = bg_centroids[
+                        bg_indices[start:end][bg_local]
+                    ]
+                feat_fg = feat_decoded[fg_local]
+            else:
+                fg_local = None
+                feat_fg = feat_decoded
+            if fg_local is not None:
+                Q_feat_sel = Q_feat[fg_local]
+                mean_sel = mean[fg_local]
+                scale_sel = scale[fg_local]
+                prob_sel = prob[fg_local]
+            else:
+                Q_feat_sel = Q_feat
+                mean_sel = mean
+                scale_sel = scale
+                prob_sel = prob
+            mean_scale = torch.cat([mean_sel, scale_sel, prob_sel], dim=-1)
+            scale_sel = scale_sel.clamp(min=1e-9)
+            n_sel = int(feat_fg.shape[0])
+            if n_sel > 0:
+                for cc in range(self.cfg.feat_dim // cg):
+                    mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
+                        feat_fg, mean_scale, to_dec=cc
+                    )
+                    probs = torch.softmax(
+                        torch.stack([prob_sel[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
+                        dim=-1,
+                    )
+                    Q_tmp = Q_feat_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                    dec = decoder_gaussian_mixed_chunk(
+                        [
+                            mean_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            mean_adj.contiguous().view(-1),
+                        ],
+                        [
+                            scale_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            scale_adj.contiguous().view(-1),
+                        ],
+                        [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
+                        Q_tmp,
+                        file_name=feat_b.replace(".b", f"_{cc}.b"),
+                        chunk_size=500_000,
+                    )
+                    feat_fg[:, cc * cg : cc * cg + cg] = dec.view(n_sel, cg)
+            if fg_local is not None:
+                feat_decoded[fg_local] = feat_fg
 
             if attr_pred is not None:
                 from .attr_ctx import adjust_scaling
