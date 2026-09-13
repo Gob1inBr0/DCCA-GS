@@ -218,6 +218,43 @@ class ModelConfig:
     """Coarse 3D grid cell size (scene coords) for the coverage constraint."""
     spa_coverage_min_per_cell: int = 1
     """Minimum anchors the coverage constraint keeps per occupied cell."""
+
+    # Journal round 2 (docs/02-design/期刊版第二轮_四方向设计与查新.md).
+    # D1: rate-aware selection. The budget currency changes from anchor count
+    # to estimated coded bits; bits come from the entropy-model 5% subsample
+    # (same estimate the RD loss uses) accumulated into a per-anchor EMA.
+    spa_rate_aware: bool = False
+    """Rank the projection score by rate-discounted importance
+    scores / bits^tau; anchors without a bits estimate yet rank neutrally."""
+    spa_rate_tau: float = 1.0
+    """Rate-discount exponent tau (0 disables the discount, 2 is the cap)."""
+    spa_bit_budget: bool = False
+    """Full arm: convert the anchor-count budget into a bit budget
+    B = kappa * median(bits) and greedily keep top-score anchors until the
+    cumulative estimated bits reach B. Exclusive with submodular_mode."""
+    sensitivity_second_order: bool = False
+    """D4a: accumulate E[g^2] EMA buffers alongside the first-order EMA
+    (empirical-Fisher material; zero extra backward passes)."""
+    sensitivity_use_fisher: bool = False
+    """D4a: the sensitivity vector consumed by selection scores switches from
+    log1p(E|g|) to log1p(E[g^2]) (OBD-style significance)."""
+    sensitivity_target_mode: str = "sens"
+    """D3: complexity-multiplier supervision target. 'sens' = I6 unchanged;
+    'sens_per_bit' = sensitivity divided by the per-anchor estimated bits, so
+    fine steps concentrate where importance per coded bit is highest."""
+    spa_holdout_gate: bool = False
+    """D4b (Phase 2a): per-projection holdout PSNR; a drop beyond
+    max(3*sigma_recent, spa_holdout_gate_eps) freezes the post-reinit kappa
+    ramp for spa_holdout_freeze_window cycles."""
+    spa_holdout_views: int = 8
+    """Fixed training cameras used by the holdout gate."""
+    spa_holdout_gate_eps: float = 0.05
+    """Gate threshold floor in dB (above run-to-run noise, below real damage)."""
+    spa_holdout_freeze_window: int = 2
+    """Projection cycles the kappa ramp stays frozen after one trigger."""
+    spa_holdout_max_triggers: int = 5
+    """Lifetime trigger cap (anti-loop)."""
+
     importance_weighted_loss: bool = False
     """Weight the reconstruction L1 by rendered opacity (importance-aware loss)."""
     importance_weight_floor: float = 0.2
@@ -232,6 +269,18 @@ class ModelConfig:
             raise ValueError(
                 "content_aware_q_mode must be 'formula' in PHG v1; "
                 f"got {self.content_aware_q_mode!r}"
+            )
+        # Enum-valued switches must fail loudly on typos: a misspelled value
+        # would otherwise silently run the baseline arm (audit lesson 3).
+        if self.sensitivity_target_mode not in ("sens", "sens_per_bit"):
+            raise ValueError(
+                "sensitivity_target_mode must be 'sens' or 'sens_per_bit'; "
+                f"got {self.sensitivity_target_mode!r}"
+            )
+        if self.submodular_mode not in ("off", "cover", "cover_sens"):
+            raise ValueError(
+                "submodular_mode must be 'off', 'cover' or 'cover_sens'; "
+                f"got {self.submodular_mode!r}"
             )
         if self.mini_splat_enabled and self.mini_splat_reinit_iter < 1:
             raise ValueError("mini_splat_reinit_iter must be >= 1")

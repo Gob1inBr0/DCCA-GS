@@ -357,6 +357,25 @@ class GaussianModel(nn.Module):
         self.coverage_ema_decay = 0.95
         self.fusion_gamma = 0.25
 
+        # Journal round 2 state (training-only, never coded).
+        # bits_ema: per-anchor estimated coded bits from the entropy-model
+        # 5% subsample (same estimate as the RD loss), EMA-accumulated so
+        # every anchor is covered within ~100 steps. Powers rate-aware
+        # selection (spa_rate_aware / spa_bit_budget) and the sens_per_bit
+        # supervision target.
+        self.bits_ema = torch.empty(0)
+        self.bits_ema_decay = 0.995
+        # Fisher E[g^2] EMA buffers (sensitivity_second_order).
+        self.sensitivity_sq_feat = torch.empty(0)
+        self.sensitivity_sq_scaling = torch.empty(0)
+        self.sensitivity_sq_offsets = torch.empty(0)
+        # Holdout-gate state, written by the trainer when the gate fires:
+        # freeze the post-reinit kappa ramp at the captured progress for
+        # spa_gate_freeze_cycles projection cycles.
+        self.spa_gate_freeze_cycles = 0
+        self.spa_gate_frozen_progress = 0.0
+        self.spa_gate_fired = 0
+
         self.offset_gradient_accum = torch.empty(0)
         self.offset_denom = torch.empty(0)
 
@@ -1265,7 +1284,9 @@ class GaussianModel(nn.Module):
         self._sync_semantic_state()
         for name in (
             "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+            "sensitivity_sq_feat", "sensitivity_sq_scaling", "sensitivity_sq_offsets",
             "spa_z", "spa_u", "mini_splat_importance", "coverage_ema",
+            "bits_ema",
         ):
             tensor = getattr(self, name)
             if tensor.numel() == 0:
@@ -1303,7 +1324,9 @@ class GaussianModel(nn.Module):
 
         for name in (
             "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+            "sensitivity_sq_feat", "sensitivity_sq_scaling", "sensitivity_sq_offsets",
             "spa_z", "spa_u", "mini_splat_importance", "coverage_ema",
+            "bits_ema",
         ):
             tensor = getattr(self, name)
             if tensor.numel() > 0:
@@ -1427,7 +1450,9 @@ class GaussianModel(nn.Module):
                     )
                 for name in (
                     "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
+                    "sensitivity_sq_feat", "sensitivity_sq_scaling", "sensitivity_sq_offsets",
                     "spa_z", "spa_u", "mini_splat_importance", "coverage_ema",
+                    "bits_ema",
                 ):
                     if name.startswith("spa_") and not self.spa_enabled:
                         continue
@@ -1543,10 +1568,14 @@ class GaussianModel(nn.Module):
             "sensitivity_feat",
             "sensitivity_scaling",
             "sensitivity_offsets",
+            "sensitivity_sq_feat",
+            "sensitivity_sq_scaling",
+            "sensitivity_sq_offsets",
             "spa_z",
             "spa_u",
             "mini_splat_importance",
             "coverage_ema",
+            "bits_ema",
         ):
             tensor = getattr(self, name, None)
             if tensor is None or tensor.numel() == 0:
@@ -1580,6 +1609,48 @@ class GaussianModel(nn.Module):
         self._sync_semantic_state()
         print(f"[MiniSplat] depth-reinit densified {n} anchors", flush=True)
         return n
+
+    def sensitivity_score_vector(self):
+        """Per-anchor sensitivity score for selection (fusion score and the
+        submodular v2 weighting). First-order: log1p(E|g|) summed over the
+        three coded groups; Fisher mode (sensitivity_use_fisher) switches to
+        log1p(E[g^2]), the empirical-Fisher significance (survey §8.4)."""
+        if (
+            bool(getattr(self, "sensitivity_use_fisher", False))
+            and getattr(self, "sensitivity_sq_feat", None) is not None
+            and self.sensitivity_sq_feat.numel() == self.get_anchor.shape[0]
+        ):
+            s = (
+                self.sensitivity_sq_feat.squeeze(-1)
+                + self.sensitivity_sq_scaling.squeeze(-1)
+                + self.sensitivity_sq_offsets.squeeze(-1)
+            )
+            if not getattr(self, "_fisher_cycle_engaged", False):
+                # Count projection cycles, not calls: the fusion score and
+                # the submodular weighting can both invoke this within one
+                # projection cycle.
+                self._fisher_engaged = getattr(self, "_fisher_engaged", 0) + 1
+                self._fisher_cycle_engaged = True
+            return torch.log1p(s.clamp_min(0.0))
+        if bool(getattr(self, "sensitivity_use_fisher", False)) and not getattr(
+            self, "_fisher_warned", False
+        ):
+            # Audit rule (fusion-gate lesson): a requested mechanism falling
+            # back must never be silent. Count the fallback in PruneLog.
+            self._fisher_warned = True
+            print(
+                "[Fisher] requested but sq buffers misaligned "
+                f"(sq_N={int(getattr(self, 'sensitivity_sq_feat', torch.empty(0)).numel())} "
+                f"vs N={int(self.get_anchor.shape[0])}); "
+                "falling back to first-order",
+                flush=True,
+            )
+        s = (
+            self.sensitivity_feat.squeeze(-1)
+            + self.sensitivity_scaling.squeeze(-1)
+            + self.sensitivity_offsets.squeeze(-1)
+        )
+        return torch.log1p(s.clamp_min(0.0))
 
     def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005, importance_provider=None, post_phase=False, submodular_edges=None, submodular_select=None):
         # # adding anchors
@@ -1667,6 +1738,14 @@ class GaussianModel(nn.Module):
                         / float(w),
                     ),
                 )
+                if getattr(self, "spa_gate_freeze_cycles", 0) > 0:
+                    # D4b holdout gate fired: hold the ramp at the progress
+                    # captured when the trigger fired (quality floor first,
+                    # size budget resumes after the freeze window).
+                    progress = float(
+                        getattr(self, "spa_gate_frozen_progress", progress)
+                    )
+                    self.spa_gate_freeze_cycles -= 1
                 kappa = max(
                     1,
                     int(round(base_n * (1.0 - (1.0 - r_post) * progress))),
@@ -1699,6 +1778,7 @@ class GaussianModel(nn.Module):
             a = self.get_mask.mean(dim=1).detach()  # [N, 1] soft anchor score
             admm_score = (a + self.spa_u).squeeze(-1)
             scores = admm_score.clone()
+            self._fisher_cycle_engaged = False
             # Importance-guided selection: full mode uses its static snapshot,
             # fusion mode uses the rotating-view coverage EMA. Base runs (no
             # fusion flag) keep the plain ADMM score unchanged.
@@ -1737,10 +1817,7 @@ class GaussianModel(nn.Module):
                 if getattr(self, "fusion_prune", False):
                     gamma = min(float(getattr(self, "fusion_gamma", 0.25)), 1.0)
                     if self.sensitivity_feat.numel() == scores.shape[0]:
-                        s = (self.sensitivity_feat.squeeze(-1)
-                             + self.sensitivity_scaling.squeeze(-1)
-                             + self.sensitivity_offsets.squeeze(-1))
-                        s = torch.log1p(s.clamp_min(0.0))
+                        s = self.sensitivity_score_vector()
                         s = s / s.max().clamp_min(1e-8)
                         # (b) percentile normalization: robust to the single
                         # max-area anchor; zero-coverage stays exactly zero.
@@ -1814,6 +1891,68 @@ class GaussianModel(nn.Module):
                         getattr(self, "mini_splat_importance_weight", 0.25)
                     )
                     scores = imp + weight * scores
+            # D1 rate-aware selection: discount the projection score by the
+            # entropy-model per-anchor bits estimate (bits_ema). Anchors
+            # without an estimate yet rank neutrally (discount 1). The bit
+            # budget converts the count budget into estimated bits and is
+            # skipped in the submodular path (the greedy owns kappa there).
+            bits = getattr(self, "bits_ema", None)
+            rate_wanted = bool(getattr(self, "spa_rate_aware", False)) or bool(
+                getattr(self, "spa_bit_budget", False)
+            )
+            self._rate_info = ""
+            if (
+                rate_wanted
+                and bits is not None
+                and bits.numel() == scores.shape[0]
+            ):
+                b_all = bits.squeeze(-1).float().detach()
+                pos_b = b_all[b_all > 0]
+                # Engage only once the EMA has enough coverage for a stable
+                # median (>=10% of anchors, floor 1000); before that the
+                # projection runs exactly like the base arm.
+                if pos_b.numel() >= max(1000, scores.shape[0] // 10):
+                    b_med = float(pos_b.median())
+                    self._rate_info = f"bits_med={b_med:.2f}"
+                    # Anchors excluded by the anchor mask (stale EMA value)
+                    # and anchors without an estimate yet are both neutral:
+                    # the discount ignores them, the budget charges median.
+                    dead = self.get_mask_anchor.squeeze(-1).detach() <= 0.5
+                    b_eff = torch.where(
+                        (b_all > 0) & ~dead,
+                        b_all,
+                        torch.full_like(b_all, b_med),
+                    )
+                    if bool(getattr(self, "spa_rate_aware", False)):
+                        tau = min(
+                            max(float(getattr(self, "spa_rate_tau", 1.0)), 0.0),
+                            2.0,
+                        )
+                        b_rel = (b_eff / max(b_med, 1e-8)).clamp(0.25, 4.0)
+                        # Shift to non-negative before dividing: the ADMM
+                        # score can be negative, and dividing a negative
+                        # score by a <1 discount would invert the
+                        # keep-cheap-anchors ranking.
+                        s_shift = scores - scores.detach().min()
+                        scores = s_shift / b_rel.pow(tau)
+                        self._rate_info += f" tau={tau:.2f} discount=on"
+                    if bool(getattr(self, "spa_bit_budget", False)) and (
+                        submodular_edges is None
+                    ):
+                        # Budget B = kappa * median(bits): keep greedily by
+                        # score until the cumulative estimated bits reach B.
+                        # Floor at kappa//2 so a degenerate estimate cannot
+                        # collapse the model; the ceiling is inherent in B.
+                        budget = float(kappa) * b_med
+                        order_b = torch.argsort(scores, descending=True)
+                        cum_b = torch.cumsum(b_eff[order_b], dim=0)
+                        keep_n = int((cum_b <= budget).sum().item())
+                        keep_n = min(
+                            max(keep_n, max(1, kappa // 2)),
+                            int(scores.shape[0]),
+                        )
+                        kappa = keep_n
+                        self._rate_info += f" bit_budget=kappa->{int(kappa)}"
             kappa = min(kappa, scores.shape[0])
             z = torch.zeros_like(scores, dtype=torch.bool)
             submod_stats = None
@@ -1826,12 +1965,10 @@ class GaussianModel(nn.Module):
                         self.sensitivity_feat.numel() == scores.shape[0]
                         and bool(getattr(self, "submodular_sens_weighted", False))
                     ):
-                        s = (self.sensitivity_feat.squeeze(-1)
-                             + self.sensitivity_scaling.squeeze(-1)
-                             + self.sensitivity_offsets.squeeze(-1))
-                        sens_vec = torch.log1p(s.clamp_min(0.0))
+                        sens_vec = self.sensitivity_score_vector()
                     keep, gms = submodular_select(
-                        submodular_edges, kappa, sens_vec, scores.detach()
+                        submodular_edges, kappa, sens_vec,
+                        base_scores=scores.detach(),
                     )
                     z[keep] = True
                     submod_stats = (len(keep), gms)
@@ -1901,7 +2038,18 @@ class GaussianModel(nn.Module):
                 f"decisions={int(scores.shape[0]) - int(kappa)} "
                 f"engaged={getattr(self, '_fusion_proj_count', 0)} "
                 f"cov_p50/p90/p99={cov_s} "
-                f"provider_fail={getattr(self, '_prune_provider_fail', 0)}"
+                f"provider_fail={getattr(self, '_prune_provider_fail', 0)} "
+                f"gate_fired={getattr(self, 'spa_gate_fired', 0)}"
+                + (
+                    f" {getattr(self, '_rate_info', '')}"
+                    if getattr(self, "_rate_info", "")
+                    else ""
+                )
+                + (
+                    f" fisher_engaged={getattr(self, '_fisher_engaged', 0)}"
+                    if getattr(self, "sensitivity_use_fisher", False)
+                    else ""
+                )
                 + (
                     f" submod_keep={submod_stats[0]} greedy_ms={submod_stats[1]:.0f}"
                     if submod_stats is not None else ""
@@ -1936,18 +2084,12 @@ class GaussianModel(nn.Module):
         del self.anchor_demon
         self.anchor_demon = temp_anchor_demon
 
-        for name in (
-            "sensitivity_feat", "sensitivity_scaling", "sensitivity_offsets",
-            "spa_z", "spa_u", "mini_splat_importance", "coverage_ema",
-        ):
-            tensor = getattr(self, name)
-            if tensor.numel() > 0:
-                setattr(self, name, tensor[~prune_mask])
-        self._sync_semantic_state()
-        if self.semantic_target.numel() > 0:
-            self.semantic_target = self.semantic_target[~prune_mask]
-            self.semantic_cov = self.semantic_cov[~prune_mask]
-
+        # Per-anchor buffers (sensitivity/EMA/z/u/coverage/bits) and the
+        # semantic tensors are sliced by prune_anchor below — and ONLY there.
+        # Slicing here as well made prune_anchor pad the shortened buffers
+        # back to N with zeros and then re-select with the same mask, silently
+        # replacing some survivors' values with zeros (pre-existing corruption
+        # that also hit spa_z / coverage_ema / sensitivity_feat).
         if prune_mask.shape[0]>0:
             self.prune_anchor(prune_mask)
 

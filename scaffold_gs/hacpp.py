@@ -213,6 +213,26 @@ class HACPlusModel(BaseGaussianModel):
         self.core.spa_coverage_constraint = bool(cfg.spa_coverage_constraint)
         self.core.spa_coverage_cell_size = float(cfg.spa_coverage_cell_size)
         self.core.spa_coverage_min_per_cell = int(cfg.spa_coverage_min_per_cell)
+        # Journal round 2 (rate-aware selection / Fisher / sens_per_bit).
+        # Same discipline as spa_post_ratio above: every core-consumed flag is
+        # copied explicitly — a missing copy silently disables the mechanism.
+        self.core.spa_rate_aware = bool(getattr(cfg, "spa_rate_aware", False))
+        self.core.spa_rate_tau = float(getattr(cfg, "spa_rate_tau", 1.0))
+        self.core.spa_bit_budget = bool(getattr(cfg, "spa_bit_budget", False))
+        self.core.sensitivity_second_order = bool(
+            getattr(cfg, "sensitivity_second_order", False)
+        )
+        self.core.sensitivity_use_fisher = bool(
+            getattr(cfg, "sensitivity_use_fisher", False)
+        )
+        self.core.sensitivity_target_mode = str(
+            getattr(cfg, "sensitivity_target_mode", "sens")
+        )
+        self.core.bits_ema_enabled = bool(
+            getattr(cfg, "spa_rate_aware", False)
+            or getattr(cfg, "spa_bit_budget", False)
+            or self.core.sensitivity_target_mode == "sens_per_bit"
+        )
         if cfg.semantic_enabled:
             if cfg.semantic_proj_head:
                 hidden = self.core.mlp_complexity[0].out_features
@@ -378,6 +398,17 @@ class HACPlusModel(BaseGaussianModel):
             self.core.sensitivity_offsets = torch.zeros(n, 1, device=self.device)
             self.core.sensitivity_mean = torch.zeros(3, device=self.device)
             self.core.sensitivity_var = torch.ones(3, device=self.device)
+        for name in (
+            "sensitivity_sq_feat", "sensitivity_sq_scaling",
+            "sensitivity_sq_offsets", "bits_ema",
+        ):
+            tensor = getattr(self.core, name, None)
+            if (tensor is None or tensor.numel() == 0) and self.num_anchors > 0:
+                setattr(
+                    self.core,
+                    name,
+                    torch.zeros(self.num_anchors, 1, device=self.device),
+                )
         return result
 
     def train(self, mode: bool = True):
@@ -455,6 +486,10 @@ class HACPlusModel(BaseGaussianModel):
         core.sensitivity_feat = torch.zeros(n, 1, device=device)
         core.sensitivity_scaling = torch.zeros(n, 1, device=device)
         core.sensitivity_offsets = torch.zeros(n, 1, device=device)
+        core.sensitivity_sq_feat = torch.zeros(n, 1, device=device)
+        core.sensitivity_sq_scaling = torch.zeros(n, 1, device=device)
+        core.sensitivity_sq_offsets = torch.zeros(n, 1, device=device)
+        core.bits_ema = torch.zeros(n, 1, device=device)
         core.sensitivity_mean = torch.zeros(3, device=device)
         core.sensitivity_var = torch.ones(3, device=device)
         core.update_anchor_bound()
@@ -1051,6 +1086,11 @@ class HACPlusModel(BaseGaussianModel):
         cores.spa_ratio = 1.0
         cores.mini_splat_full_selected = True
         cores.mini_splat_importance = scores[keep].unsqueeze(-1).contiguous()
+        # Post-reinit selection baseline: the full path must set these too,
+        # otherwise the post-phase kappa branch (and the holdout gate's
+        # freeze consumer) never engages.
+        cores.spa_post_base = int(cores.get_anchor.shape[0])
+        cores.spa_reinit_step = int(cores.current_step)
         print(
             "[MiniSplat-full] depth="
             f"{depth_added} blur={blur_added} keep={kappa} "
@@ -1101,9 +1141,57 @@ class HACPlusModel(BaseGaussianModel):
         # s_norm = accum / (mean(accum) + eps). The variance-EMA z-score
         # never converges from its unit init at alpha=0.99 and flattens the
         # signal (grad norms span several orders of magnitude per anchor).
-        z_score = (ema - core.sensitivity_mean) / core.sensitivity_mean.clamp_min(
-            1e-12
-        )
+        if (
+            core.sensitivity_target_mode == "sens_per_bit"
+            and core.bits_ema.numel() == core.get_anchor.shape[0]
+        ):
+            # D3 entropy-aware step allocation: divide the sensitivity signal
+            # by the per-anchor estimated coded bits (detached), so fine steps
+            # concentrate where importance per coded bit is highest. Bits are
+            # normalized by their positive median and clamped to [0.25, 4]:
+            # a stale estimate can rescale the target, never flip it.
+            b = core.bits_ema[idx].squeeze(-1)
+            pos = b[b > 0]
+            if pos.numel() > 0:
+                b_med = pos.median().clamp_min(1e-8)
+                # Mask-dead anchors hold stale estimates: charge them the
+                # median (neutral) instead of letting the 0.25 clamp give
+                # them a 4x "cheap" bonus.
+                dead = core.get_mask_anchor[idx].squeeze(-1).detach() <= 0.5
+                b = torch.where(dead, b_med.expand_as(b), b)
+                b_rel = (b / b_med).clamp(0.25, 4.0)
+                ema = ema / b_rel.clamp_min(0.25).unsqueeze(-1)
+                z_score = ema / ema.mean().clamp_min(1e-12) - 1.0
+                if not getattr(core, "_spb_engaged", False):
+                    core._spb_engaged = True
+                    print(
+                        "[SensPerBit] engaged (per-bit target active)",
+                        flush=True,
+                    )
+            else:
+                z_score = (
+                    ema - core.sensitivity_mean
+                ) / core.sensitivity_mean.clamp_min(1e-12)
+        else:
+            if (
+                core.sensitivity_target_mode == "sens_per_bit"
+                and core.current_step > 12000
+                and not getattr(core, "_spb_warned", False)
+            ):
+                # Audit rule: a requested target mode falling back must not
+                # be silent (fusion-gate lesson). Past the bits warm-up a
+                # misaligned buffer means the mechanism never engaged.
+                core._spb_warned = True
+                print(
+                    "[SensPerBit] requested but bits_ema misaligned "
+                    f"(bits_N={int(core.bits_ema.numel())} vs "
+                    f"N={int(core.get_anchor.shape[0])}); "
+                    "using plain sens target",
+                    flush=True,
+                )
+            z_score = (
+                ema - core.sensitivity_mean
+            ) / core.sensitivity_mean.clamp_min(1e-12)
         strength = self.cfg.sensitivity_strength
         pred = 1.0 + strength * torch.tanh(gaussians.complexity_logits)
         target = sensitivity_multiplier(z_score, strength).detach()
@@ -1242,6 +1330,36 @@ class HACPlusModel(BaseGaussianModel):
         ):
             ema_tensor.mul_(alpha)
             ema_tensor.index_add_(0, idx, (1.0 - alpha) * g)
+        if (
+            bool(getattr(self.cfg, "sensitivity_second_order", False))
+            and core.sensitivity_sq_feat.numel() == core.get_anchor.shape[0]
+        ):
+            # Empirical-Fisher material: per-anchor E[g^2] EMA (OBD-style
+            # significance). Reuses the first-order pass's gradients, so the
+            # upgrade costs zero extra backward passes (survey §8.4).
+            for ema_sq, g in zip(
+                (
+                    core.sensitivity_sq_feat,
+                    core.sensitivity_sq_scaling,
+                    core.sensitivity_sq_offsets,
+                ),
+                grads,
+            ):
+                ema_sq.mul_(alpha)
+                ema_sq.index_add_(0, idx, (1.0 - alpha) * g * g)
+        elif (
+            bool(getattr(self.cfg, "sensitivity_second_order", False))
+            and not getattr(core, "_sq_warned", False)
+        ):
+            # Audit rule: silent skips become invisible failures later.
+            core._sq_warned = True
+            print(
+                "[Fisher] sq buffers misaligned "
+                f"(sq_N={int(core.sensitivity_sq_feat.numel())} vs "
+                f"N={int(core.get_anchor.shape[0])}); "
+                "E[g^2] accumulation skipped",
+                flush=True,
+            )
         batch_mean = torch.stack([g.mean() for g in grads])
         batch_var = torch.stack([g.var(unbiased=False) for g in grads])
         core.sensitivity_mean.mul_(alpha).add_((1.0 - alpha) * batch_mean)
@@ -1392,6 +1510,32 @@ class HACPlusModel(BaseGaussianModel):
             self._view.offset.mean(),
         )
         bit_offsets = bit_offsets * mask_anchor_c * masks_c
+
+        if getattr(core, "bits_ema_enabled", False):
+            # Per-anchor coded-bits estimate: sum over the three coded groups
+            # for each subsampled anchor, EMA-accumulated from the same 5%
+            # subsample the RD loss already pays for. Every anchor is covered
+            # within ~100 steps at decay 0.995. Detached; training-only.
+            with torch.no_grad():
+                n_all = int(core.get_anchor.shape[0])
+                if core.bits_ema.numel() != n_all:
+                    core.bits_ema = torch.zeros(n_all, 1, device=self.device)
+                bits_sub = (
+                    bit_feat.sum(dim=-1, keepdim=True)
+                    + bit_scaling.sum(dim=-1, keepdim=True)
+                    + bit_offsets.sum(dim=-1, keepdim=True)
+                ).float()
+                idx_sub = choose.nonzero(as_tuple=True)[0]
+                if idx_sub.numel() > 0:
+                    decay = float(getattr(core, "bits_ema_decay", 0.995))
+                    # Sample-only EMA: rows without a fresh estimate keep
+                    # their value instead of decaying toward zero — a whole
+                    # -buffer mul_ would park every row at ~5% of its true
+                    # bit count under the 5% subsample.
+                    updated = decay * core.bits_ema[idx_sub] + (
+                        1.0 - decay
+                    ) * bits_sub
+                    core.bits_ema.index_copy_(0, idx_sub, updated)
 
         s_feat, n_feat = torch.sum(bit_feat), bit_feat.numel()
         s_scaling, n_scaling = torch.sum(bit_scaling), bit_scaling.numel()

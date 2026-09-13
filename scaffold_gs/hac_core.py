@@ -209,6 +209,10 @@ class HACCoreView:
             "sensitivity_offsets": self._core.sensitivity_offsets,
             "sensitivity_mean": self._core.sensitivity_mean,
             "sensitivity_var": self._core.sensitivity_var,
+            "sensitivity_sq_feat": self._core.sensitivity_sq_feat,
+            "sensitivity_sq_scaling": self._core.sensitivity_sq_scaling,
+            "sensitivity_sq_offsets": self._core.sensitivity_sq_offsets,
+            "bits_ema": self._core.bits_ema,
         }
 
     def load_sensitivity_state(self, state: Dict[str, Any]) -> None:
@@ -228,6 +232,20 @@ class HACCoreView:
         self._core.sensitivity_var = state["sensitivity_var"].to(
             device
         )
+        # Round-2 buffers: old checkpoints predate them — fall back to the
+        # current (zero-initialized) tensors instead of KeyErroring.
+        for name in (
+            "sensitivity_sq_feat",
+            "sensitivity_sq_scaling",
+            "sensitivity_sq_offsets",
+            "bits_ema",
+        ):
+            if name in state:
+                setattr(
+                    self._core,
+                    name,
+                    state[name].to(device),
+                )
 
     # ------------------------------------------------------------------
     # Hash-grid parameters (nested private modules live here only)
