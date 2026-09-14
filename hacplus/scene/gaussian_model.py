@@ -1718,6 +1718,14 @@ class GaussianModel(nn.Module):
         # # prune anchors
         anchors_mask = (self.anchor_demon > check_interval*success_threshold).squeeze(dim=1) # [N, 1]
         if getattr(self, "spa_enabled", False):
+            # The box is filled by the provider DURING this call (the
+            # provider block above already ran) — read it here, not at
+            # wrapper call time. The old design passed a call-time snapshot,
+            # always one cycle stale (None on the first cycle), so the
+            # greedy never engaged and the fallback was silent.
+            submodular_edges = submodular_box[0] if submodular_box else None
+            if submodular_edges is not None and len(submodular_edges) == 0:
+                submodular_edges = None
             # SPA-anchor: ADMM hard-sparsity projection with budget kappa.
             n = self.get_anchor.shape[0]
             if self.spa_z.numel() == 0 or self.spa_z.shape[0] != n:
@@ -1955,14 +1963,6 @@ class GaussianModel(nn.Module):
                         self._rate_info += f" bit_budget=kappa->{int(kappa)}"
             kappa = min(kappa, scores.shape[0])
             z = torch.zeros_like(scores, dtype=torch.bool)
-            # The box is filled by the provider DURING this call — read it
-            # here, after the provider block above. The old design passed a
-            # call-time snapshot from the wrapper, which was always one
-            # cycle stale (None on the first cycle) — the greedy then never
-            # engaged and the fallback was silent.
-            submodular_edges = submodular_box[0] if submodular_box else None
-            if submodular_edges is not None and len(submodular_edges) == 0:
-                submodular_edges = None
             submod_stats = None
             if kappa > 0 and submodular_edges is not None and submodular_select is not None:
                 # Phase 1: replace the independent top-k with a submodular
