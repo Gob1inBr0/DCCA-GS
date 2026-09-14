@@ -102,11 +102,22 @@ def view_edges(
         return None
     anchor_ids = gids.long()[gs_ids.long()]
     bw = max(1, width // BLOCK)
+    bh = max(1, (height + BLOCK - 1) // BLOCK)
     flat = pixel_ids[0].long()
     row = torch.div(flat, width, rounding_mode="floor")
     col = flat % width
     block_ids = (row // BLOCK) * bw + (col // BLOCK)
-    return block_ids, anchor_ids
+    # Per-view reduce BEFORE returning: raw pixel pairs are ~133M per view
+    # (~2 GB in int64) at 890k anchors / 1600 px — the training process has
+    # no headroom for that. Reduce to unique (anchor, block) pairs with
+    # their pixel counts via one int64 key sort; output is orders smaller
+    # and the greedy consumes (anchor, block, count) triplets.
+    nb = bw * bh
+    key = anchor_ids * nb + block_ids
+    uniq_keys, counts = torch.unique(key, return_counts=True)
+    ua = torch.div(uniq_keys, nb, rounding_mode="floor")
+    ub = uniq_keys % nb
+    return ua, ub, counts.float()
 
 
 def submodular_greedy_select(
@@ -128,25 +139,33 @@ def submodular_greedy_select(
     t0 = time.time()
     device = base_scores.device if base_scores is not None else edges_by_view[0][0].device
     N = int(base_scores.shape[0]) if base_scores is not None else int(
-        max((a.max().item() + 1) for _, a in edges_by_view)
+        max((a.max().item() + 1) for _, a, _ in edges_by_view)
     )
     pool_size = min(N, max(kappa + 1, kappa * int(pool_factor)))
     pool = torch.topk(base_scores, pool_size).indices if base_scores is not None \
         else torch.arange(N, device=device)
 
-    # Aggregate per (anchor, block) coverage mass across views.
-    # Unique pairs first (a block may contain several pixels of one anchor).
-    pair_parts = []
-    for block_ids, anchor_ids in edges_by_view:
-        pair_parts.append(torch.stack([anchor_ids.long(), block_ids.long()], dim=1))
-    pairs = torch.cat(pair_parts, dim=0)
-    uniq_pairs, mass = pairs.unique(dim=0, return_counts=True)
-    ua = uniq_pairs[:, 0].long()   # anchor idx
-    ub = uniq_pairs[:, 1].long()   # block idx
+    # Edges are per-view reduced (anchor, block, pixel-count) triplets
+    # (see view_edges). Merge across views: the same (anchor, block) seen
+    # in two views sums its counts — identical totals to the old
+    # all-views-raw-pairs unique, at a fraction of the memory.
+    triplets = []
+    for ua_v, ub_v, cnt_v in edges_by_view:
+        if ua_v.numel() == 0:
+            continue
+        triplets.append(torch.stack([ua_v.long(), ub_v.long(), cnt_v.float()], dim=1))
+    if not triplets:
+        return pool[:0], (time.time() - t0) * 1000.0
+    t = torch.cat(triplets, dim=0)
+    uniq_ab, inverse = t[:, :2].unique(dim=0, return_inverse=True)
+    ua = uniq_ab[:, 0].long()      # anchor idx
+    ub = uniq_ab[:, 1].long()      # block idx
+    mass = torch.zeros(ua.shape[0], device=ua.device)
+    mass.scatter_add_(0, inverse, t[:, 2])
     if sens is not None:
         w = 1.0 + sens[ua].float()
     else:
-        w = mass.float()
+        w = mass
 
     # Compact block ids to [0, B) BEFORE filtering to the pool
     ub_comp, block_map = torch.unique(ub, return_inverse=True)
@@ -197,16 +216,40 @@ def submodular_greedy_select(
             i = int(batch_idx[j])
             s, e = int(starts[i]), int(starts[i + 1])
             bg[j] = (flat_w[s:e] - covered[flat_ub[s:e]]).clamp_min(0).sum()
-        take = torch.argsort(bg, descending=True)[:remaining]
+        # Walk the whole batch in gain order: the sequential re-eval below
+        # skips redundant candidates, so cutting the walk at `remaining`
+        # would starve blocks whose anchors sit behind redundant ones.
+        take = torch.argsort(bg, descending=True)
         for j in take.tolist():
             i = int(batch_idx[j])
-            if bg[j] <= 0:
+            if sel[i]:
+                continue
+            s, e = int(starts[i]), int(starts[i + 1])
+            # Re-evaluate the CURRENT marginal at accept time: bg is stale
+            # within a batch, and without this re-check two anchors covering
+            # the same blocks are both taken (redundancy blindness).
+            cur = (flat_w[s:e] - covered[flat_ub[s:e]]).clamp_min(0).sum()
+            if cur <= 0:
                 continue
             sel[i] = True
             remaining -= 1
-            s, e = int(starts[i]), int(starts[i + 1])
             cov_idx = flat_ub[s:e]
             covered[cov_idx] = torch.maximum(covered[cov_idx], flat_w[s:e])
+            if remaining == 0:
+                break
+
+    if remaining > 0:
+        # Pool swept with budget left: every unselected candidate is
+        # zero-marginal in block space. Fill by base score so the budget is
+        # spent exactly — size parity with the topk baseline is what makes
+        # the G1 comparison size-matched.
+        rest = torch.nonzero(~sel, as_tuple=False).squeeze(-1)
+        if rest.numel():
+            pool_scores = base_scores[pool] if base_scores is not None else torch.zeros(P, device=device)
+            fill = rest[
+                torch.argsort(pool_scores[rest], descending=True)[:remaining]
+            ]
+            sel[fill] = True
 
     keep_pool_idx = torch.nonzero(sel, as_tuple=False).squeeze(-1)
     keep = pool[keep_pool_idx]

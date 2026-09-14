@@ -1726,6 +1726,11 @@ class GaussianModel(nn.Module):
             submodular_edges = submodular_box[0] if submodular_box else None
             if submodular_edges is not None and len(submodular_edges) == 0:
                 submodular_edges = None
+            # Same-cycle channel: drop the edges once read so a failed
+            # provider tomorrow cannot pin ~GBs of stale tensors across
+            # cycles (133M pairs/view ≈ 4 GB at 870k anchors).
+            if submodular_box:
+                submodular_box.clear()
             # SPA-anchor: ADMM hard-sparsity projection with budget kappa.
             n = self.get_anchor.shape[0]
             if self.spa_z.numel() == 0 or self.spa_z.shape[0] != n:
@@ -2064,6 +2069,10 @@ class GaussianModel(nn.Module):
                 ),
                 flush=True,
             )
+            # Free the projection's transient blocks (provider render + edge
+            # CSR + greedy intermediates) so the next cycle's provider spike
+            # can allocate against a small cache, not a full one.
+            torch.cuda.empty_cache()
         else:
             prune_mask = (self.opacity_accum < min_opacity*self.anchor_demon).squeeze(dim=1)
             prune_mask = torch.logical_and(prune_mask, anchors_mask)  # [N]
