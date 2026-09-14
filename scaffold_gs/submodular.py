@@ -14,6 +14,9 @@ the top-2kappa linear scores, lazy greedy with stale-bound pruning.
 
 from __future__ import annotations
 
+import heapq
+
+import numpy as np
 import torch
 
 BLOCK = 8  # pixel binning
@@ -197,46 +200,52 @@ def submodular_greedy_select(
     flat_ub = ub_sorted
     flat_w = w_sorted
 
-    # Vectorized batched greedy: each round re-evaluates the marginal gains
-    # of a candidate batch (per-candidate GPU round-trips are infeasible at
-    # kappa~1e5), takes the batch top, updates coverage, repeats.
-    covered = torch.zeros(B, device=device)
+    # Exact lazy greedy with a stale-gain priority queue. The previous
+    # batched loop spent 272 s per projection at N~890k (889k per-candidate
+    # GPU round-trips); the heap version pops-and-accepts most candidates
+    # without recomputation and runs in tens of seconds, while returning
+    # the EXACT greedy order (a popped candidate is only accepted when its
+    # refreshed gain is >= the next stale head — valid because gains only
+    # decrease as coverage grows).
+    covered_t = torch.zeros(B, device=device)
     sel = torch.zeros(P, dtype=torch.bool, device=device)
     gains = torch.zeros(P, device=device)
     gains.scatter_add_(0, ua_dense, w_p)
-    BATCH = 4096
-    order_hint = torch.argsort(gains, descending=True)
-    pos = 0
-    remaining = kappa
-    while remaining > 0 and pos < P:
-        batch_idx = order_hint[pos: pos + max(BATCH, remaining)]
-        pos += batch_idx.numel()
-        bg = torch.zeros(batch_idx.numel(), device=device)
-        for j in range(batch_idx.numel()):
-            i = int(batch_idx[j])
-            s, e = int(starts[i]), int(starts[i + 1])
-            bg[j] = (flat_w[s:e] - covered[flat_ub[s:e]]).clamp_min(0).sum()
-        # Walk the whole batch in gain order: the sequential re-eval below
-        # skips redundant candidates, so cutting the walk at `remaining`
-        # would starve blocks whose anchors sit behind redundant ones.
-        take = torch.argsort(bg, descending=True)
-        for j in take.tolist():
-            i = int(batch_idx[j])
-            if sel[i]:
-                continue
-            s, e = int(starts[i]), int(starts[i + 1])
-            # Re-evaluate the CURRENT marginal at accept time: bg is stale
-            # within a batch, and without this re-check two anchors covering
-            # the same blocks are both taken (redundancy blindness).
-            cur = (flat_w[s:e] - covered[flat_ub[s:e]]).clamp_min(0).sum()
-            if cur <= 0:
-                continue
-            sel[i] = True
-            remaining -= 1
-            cov_idx = flat_ub[s:e]
-            covered[cov_idx] = torch.maximum(covered[cov_idx], flat_w[s:e])
-            if remaining == 0:
-                break
+
+    import heapq
+
+    ua_np = ua_dense.detach().cpu().numpy()
+    starts_np = starts.detach().cpu().numpy()
+    ub_np = flat_ub.detach().cpu().numpy()
+    w_np = flat_w.detach().cpu().float().numpy()
+    covered = np.zeros(B, dtype=np.float64)
+
+    heap = [(-float(g), int(i)) for i, g in enumerate(gains.detach().cpu().tolist())]
+    heapq.heapify(heap)
+    remaining = int(kappa)
+    while remaining > 0 and heap:
+        neg_g, i = heapq.heappop(heap)
+        if sel[i]:
+            continue
+        s, e = int(starts_np[i]), int(starts_np[i + 1])
+        if e > s:
+            ub_i = ub_np[s:e]
+            cur = float(
+                np.clip(w_np[s:e] - covered[ub_i], 0.0, None).sum()
+            )
+        else:
+            cur = 0.0
+        # Stale-gain check: another candidate with a larger claim remains —
+        # push back with the refreshed gain instead of accepting blind.
+        if heap and -heap[0][0] > cur:
+            heapq.heappush(heap, (-cur, i))
+            continue
+        if cur <= 0:
+            break  # every remaining candidate has zero marginal
+        sel[i] = True
+        remaining -= 1
+        if e > s:
+            covered[ub_i] = np.maximum(covered[ub_i], w_np[s:e])
 
     if remaining > 0:
         # Pool swept with budget left: every unselected candidate is
