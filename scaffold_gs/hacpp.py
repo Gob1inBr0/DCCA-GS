@@ -967,7 +967,7 @@ class HACPlusModel(BaseGaussianModel):
             min_opacity=min_opacity,
             importance_provider=provider,
             post_phase=post_phase,
-            submodular_edges=sub_edges_box[0] if sub_edges_box else None,
+            submodular_box=sub_edges_box,
             submodular_select=sub_select,
         )
 

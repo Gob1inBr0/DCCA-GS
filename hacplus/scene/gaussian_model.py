@@ -1652,7 +1652,7 @@ class GaussianModel(nn.Module):
         )
         return torch.log1p(s.clamp_min(0.0))
 
-    def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005, importance_provider=None, post_phase=False, submodular_edges=None, submodular_select=None):
+    def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005, importance_provider=None, post_phase=False, submodular_box=None, submodular_select=None):
         # # adding anchors
         if self.mini_splat_importance.numel() == 0:
             self.mini_splat_importance = torch.zeros(
@@ -1955,6 +1955,14 @@ class GaussianModel(nn.Module):
                         self._rate_info += f" bit_budget=kappa->{int(kappa)}"
             kappa = min(kappa, scores.shape[0])
             z = torch.zeros_like(scores, dtype=torch.bool)
+            # The box is filled by the provider DURING this call — read it
+            # here, after the provider block above. The old design passed a
+            # call-time snapshot from the wrapper, which was always one
+            # cycle stale (None on the first cycle) — the greedy then never
+            # engaged and the fallback was silent.
+            submodular_edges = submodular_box[0] if submodular_box else None
+            if submodular_edges is not None and len(submodular_edges) == 0:
+                submodular_edges = None
             submod_stats = None
             if kappa > 0 and submodular_edges is not None and submodular_select is not None:
                 # Phase 1: replace the independent top-k with a submodular
