@@ -297,7 +297,7 @@ def compute_per_anchor_bits(model, batch: int = 3000) -> Dict[str, np.ndarray]:
             out_offsets[rows_cpu] = (
                 (offsets_bits * mask_flat).sum(dim=-1).double().cpu().numpy()
             )
-            out_masks[rows_cpu] = mask_bit.sum(dim=-1).double().cpu().numpy()
+            out_masks[rows_cpu] = mask_bit[start:end].sum(dim=-1).double().cpu().numpy()
     return {
         "feat": out_feat,
         "scaling": out_scaling,
