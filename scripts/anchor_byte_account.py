@@ -63,7 +63,7 @@ def _share_of_top(
         return 0.0
     k = max(1, int(round(idx_valid.size * frac)))
     order = idx_valid[np.argsort(area[idx_valid])][-k:]
-    total = float(bits[order].sum())
+    total = float(bits[idx_valid].sum())
     if total <= 0:
         return 0.0
     return float(bits[order].sum()) / total
