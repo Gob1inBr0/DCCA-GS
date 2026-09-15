@@ -247,9 +247,11 @@ def compute_per_anchor_bits(model, batch: int = 3000) -> Dict[str, np.ndarray]:
             # The codec's STE grid: hard round, no +center shift.
             feat_q = torch.round(feat_all[rows] / Q_feat) * Q_feat
             scaling_q = torch.round(scaling_all[rows] / Q_scaling) * Q_scaling
-            offsets_q = torch.round(offsets_all[rows] / Q_offsets) * Q_offsets
+            offsets_rows = offsets_all[rows]                      # [n, k, 3]
+            Qo3 = Q_offsets.view(-1, k, 3)
+            offsets_q = torch.round(offsets_rows / Qo3) * Qo3
             mask_flat = core.get_mask[rows].repeat(1, 1, 3).view(-1, 3 * k)
-            offsets_q = offsets_q * mask_flat
+            offsets_q = (offsets_q * mask_flat.view(-1, k, 3)).view(-1, 3 * k)
 
             mean_scale = torch.cat([mean, scale, prob], dim=-1)
             scale_c = scale.clamp(min=1e-9)

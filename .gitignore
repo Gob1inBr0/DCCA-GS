@@ -28,3 +28,6 @@ docs/05-paper/iclr2027/main.pdf
 !docs/
 !docs/data/
 !docs/data/*.csv
+
+# literature raw materials (PDFs + extracted text cache)
+.lit-cache/
