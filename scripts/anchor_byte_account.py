@@ -291,12 +291,13 @@ def compute_per_anchor_bits(model, batch: int = 3000) -> Dict[str, np.ndarray]:
                 Q_offsets,
                 offsets_all.mean(),
             )
-            out_feat[rows] = feat_bits.sum(dim=-1).double().cpu().numpy()
-            out_scaling[rows] = scaling_bits.sum(dim=-1).double().cpu().numpy()
-            out_offsets[rows] = (
+            rows_cpu = rows.detach().cpu()
+            out_feat[rows_cpu] = feat_bits.sum(dim=-1).double().cpu().numpy()
+            out_scaling[rows_cpu] = scaling_bits.sum(dim=-1).double().cpu().numpy()
+            out_offsets[rows_cpu] = (
                 (offsets_bits * mask_flat).sum(dim=-1).double().cpu().numpy()
             )
-            out_masks[rows] = mask_bit.sum(dim=-1).double().cpu().numpy()
+            out_masks[rows_cpu] = mask_bit.sum(dim=-1).double().cpu().numpy()
     return {
         "feat": out_feat,
         "scaling": out_scaling,
