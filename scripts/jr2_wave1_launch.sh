@@ -6,6 +6,7 @@
 set -u
 ulimit -n 65536
 DCCA_ROOT=/home/project2/DCCA-GS-git
+export PATH="/home/project2/tmc13:$PATH"
 DCCA_PY=/home/project2/miniconda3/envs/DCCA/bin
 ROOT=/dev/shm/dcca_runs
 DATA=/dev/shm/dcca_data/1-78/data
