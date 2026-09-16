@@ -79,7 +79,6 @@ def main() -> None:
         pred = out.image[0].permute(2, 0, 1)
         gt = dataset.get_image(cam)
         loss = l1_fn(pred, gt).mean()
-        model.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         g = out.gaussians.pre_quant_feat.grad
         if g is None:
