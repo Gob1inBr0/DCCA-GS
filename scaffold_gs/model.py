@@ -55,6 +55,10 @@ class NeuralGaussians:
     pre_quant_scaling: Optional[torch.Tensor] = None
     pre_quant_offsets: Optional[torch.Tensor] = None
     complexity_logits: Optional[torch.Tensor] = None
+    # Optional Mini-Splatting bookkeeping: for each rasterized Gaussian, the
+    # global anchor index that generated it. Required to compute per-anchor
+    # contribution area (fusion-prune coverage / submodular edges).
+    gaussian_anchor_indices: Optional[torch.Tensor] = None
 
 
 class AnchorParams(nn.Module):
