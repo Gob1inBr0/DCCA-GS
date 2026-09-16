@@ -90,8 +90,8 @@ def main() -> None:
         seen_np[idx.detach().cpu().numpy()] = True
         acc = torch.zeros(n_total, 1, device=per_g.device)
         acc.index_add_(0, idx, per_g.detach())
-        s_gt += acc.double().cpu().numpy()
-        seen |= torch.from_numpy(seen_np)
+        s_gt += acc.double().reshape(-1).cpu().numpy()
+        seen |= seen_np
         print(f"[A1] view {vi + 1}/{len(cams)} done, "
               f"touched {int(seen_np.sum())} anchors", flush=True)
 
