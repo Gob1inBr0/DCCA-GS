@@ -24,7 +24,8 @@ m_field = 1 + tanh(mlp_complexity(formula)) × α
 - **I6（渲染敏感度监督）**：训练期用渲染损失对不同属性的梯度 EMA 监督同一个 `mlp_complexity`，
   使乘子学会"把更细的 Q 给对画面影响大的锚点"；只改训练目标，不进码流。
 
-`mlp_complexity` 是 8→32→3 的小网络，与 AQM 共享；**编/解码端用同一份权重与公式路径，bit-exact**。
+`mlp_complexity` 是 4→hidden→3 的小网络（PHG v2 起 4 维公式输入，隐藏层默认
+`feat_dim//2`），与 AQM 共享；**编/解码端用同一份权重与公式路径，bit-exact**。
 
 > 一句话：**用"解码端可重算的内容复杂度"×"训练期渲染敏感度监督"，共享一个小 MLP，零侧信息地做内容自适应量化。**
 
@@ -83,10 +84,13 @@ bash scripts/runner_phg_cell.sh 0 1-78 /dev/shm/dcca_data/1-78/data 0.002 \
 
 ```text
 total_MB = (bits_xyz + bits_feat + bits_scaling + bits_offsets
-            + bits_masks + bits_hash + bits_mlp + bits_bounds + bits_header) / 8 / 1024 / 1024
+            + bits_masks + bits_hash + bits_mlp + bits_bounds + bits_header
+            + bits_attr_ctx + bits_bg_codebook) / 8 / 1024 / 1024
 ```
 
 `bits_mlp` 按 float32（32 bit/参数）计；与 HAC++ 原生口径一致，主比较用 fp32。
+`bits_attr_ctx`（R4 条件上下文预测器）与 `bits_bg_codebook`（背景码本，方案 C）
+仅在启用时非 0。
 
 ---
 

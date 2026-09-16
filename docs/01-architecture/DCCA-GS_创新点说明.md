@@ -152,10 +152,12 @@ ramp_progress = clamp((step − start_iter) / ramp_iters, 0, 1)
 默认 `complexity_scale=0.35`、`start_iter=20000`、`ramp_iters=10000`——Q 乘子在
 训练后期逐步从 1.0 放大到目标幅度，避免训练初期扰动。
 
-**`mlp_complexity` 结构：** `Linear(8 → hidden) + ReLU + Linear(hidden → 3)`，
-hidden 默认 `feat_dim//2`；架构扫描确定 **hidden=32、1 层（8→32→3）最优**。
+**`mlp_complexity` 结构：** `Linear(4 → hidden) + ReLU + Linear(hidden → 3)`
+（PHG v2 起 4 维输入，删去了旧 8 维输入中 4 个恒零的照片统计），
+hidden 默认 `feat_dim//2`；架构扫描（在旧 8 维输入上进行，即 8→32→3）确定
+**hidden=32、1 层最优**。
 
-**5 维公式输入（全部解码端可重算）：**
+**4 维公式输入（全部解码端可重算）：**
 
 ```text
 1. local_density     = exp(−NN_dist / voxel_size)        # 局部密度
@@ -235,7 +237,7 @@ L_sens = sensitivity_weight × MSE(pred, target)
 ```text
 # ── 训练每步 ──
 if step ≥ content_aware_start_iter:                    # I2 生效
-    z = mlp_complexity(formula_input)                  # 8 维公式输入
+    z = mlp_complexity(formula_input)                  # 4 维公式输入
     m = 1 + tanh(z) × α                                # 内容复杂度乘子
     Q = Q0 × (1 + tanh(q_AQM)) × m                     # 在 AQM 之外再乘
     x_hat = STE_round(x / Q)                           # 量化（训练模拟）
@@ -264,7 +266,7 @@ x_hat = round(x / Q)   →  算术编码 / 解码
 | 层 | HAC++ 原版 AQM | PHG I2 | PHG I6 |
 | --- | --- | --- | --- |
 | Q 来源 | `mlp_grid` 输出 `qa/qs/qo` | 在 AQM 之外再乘 `mlp_complexity` 乘子 | 不产生 Q，只监督 |
-| 输入 | 哈希上下文 | 5 维公式特征 | 渲染损失梯度 EMA |
+| 输入 | 哈希上下文 | 4 维公式特征 | 渲染损失梯度 EMA |
 | 参与阶段 | 训练/编码/解码 | 训练/编码/解码 | 仅训练 |
 | 码流 | 无侧信息 | 无侧信息（Q 可重算） | 无任何字段 |
 
