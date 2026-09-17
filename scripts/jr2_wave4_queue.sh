@@ -1,7 +1,8 @@
 #!/bin/bash
 # jr2 wave4: positional-negative-gain discriminative/fix arms (task书 2026-09-17).
-# Same lock protocol as jr2_wave2_queue.sh; whitelist drops GPU 2 (held by an
-# external watcher process) and GPU 1 (s104r rerun in flight).
+# Same lock protocol as jr2_wave2_queue.sh; whitelist is 0/4/5/7 only (GPU 2
+# reserved for an external user via the permanent hold_gpu2_external lock),
+# and a global gate keeps OUR concurrent unfinished arms at <= 4.
 #   a) r2_l0005_relax_r085_lam0005_s42 — ph0c_base_r085_lam0005_s42 config with
 #      ONLY --cfg.model.spa-post-ratio 1.0 (no fusion-prune block, S0 kept).
 #      PRE-REGISTERED GATE (H1/B fix): >=27.80 dB @ <=21.4 MB.
@@ -19,9 +20,24 @@ DATA=/dev/shm/dcca_data/1-78/data
 QLOG="$ROOT/jr2_wave4.log"
 WHITELIST="0 4 5 7"
 FREE_MB=4500
+MAX_OUR_ARMS=4
 S0="--cfg.model.sensitivity-start-iter 0"
 FUSION="--cfg.model.fusion-prune --cfg.model.spa-coverage-constraint --cfg.model.spa-coverage-cell-size 0.05 --cfg.model.spa-post-ratio 0.85"
 R100="--cfg.model.spa-post-ratio 1.0"
+
+# Count our arms that still hold a GPU (lock present, runner log has no
+# ALL_DONE yet). The GPU-2 hold tag is excluded: it is a placeholder, not a
+# job, so it must not consume the concurrency budget.
+our_busy_arms() {
+  local n=0 f tag
+  for f in "$ROOT"/.qlock_*; do
+    [ -f "$f" ] || continue
+    case "$f" in *".qlock_2") continue ;; esac
+    tag=$(cat "$f" 2>/dev/null) || continue
+    grep -qa "ALL_DONE" "$ROOT/${tag}.log" 2>/dev/null || n=$((n + 1))
+  done
+  echo "$n"
+}
 
 gpu_busy() {
   local g=$1
@@ -76,6 +92,11 @@ while true; do
     IFS='|' read -r tag lam seed extra <<< "$job"
     [ "${DONE[$tag]:-0}" = "1" ] && continue
     all_done=0
+    # Global concurrency cap for our arms (incl. wave2 leftovers): only
+    # launch when fewer than MAX_OUR_ARMS of ours are still holding GPUs.
+    if [ "$(our_busy_arms)" -ge "$MAX_OUR_ARMS" ]; then
+      break
+    fi
     g=$(pick_gpu) || continue
     launch "$g" "$tag" "$lam" "$seed" "$extra"
     DONE[$tag]=1
