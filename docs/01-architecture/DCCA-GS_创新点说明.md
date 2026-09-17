@@ -1,16 +1,21 @@
 # PHG 创新点说明
 
-> 版本：v2.1（2026-08-17）
+> 版本：v2.2（2026-09-02）
 >
 > 定位：论文创新点草稿。每个创新点按“动机 → 原版机制与伪代码 → 方法 → 公式/算法
 > → 与基线对比 → 消融证据 → 边界与理论局限”组织，原理说明达到论文方法章
 > （Methods）的学术粒度。
 >
-> 共三个创新点：
+> 创新点三层定位：
 >
-> 1. **渲染敏感性复杂度量化**（原 I2 + I6 合并）；
-> 2. **MLP 权重量化 + 算术编码**；
-> 3. **GaussianSpa 式训练侧 ADMM 剪枝**（阶段 A 完成，尚未补完整实验）。
+> - **主创新（唯一保留）**：渲染敏感度损失的复杂度乘子（＝ 解码端可重算的内容复杂度
+>   量化 I2 × 训练期渲染敏感度监督 I6，共享同一个 MLP，零侧信息）。
+> - **工程实现（归一起，不主 claim）**：feat_dim 泛化、哈希/熵模型/G-PCC/算术编码工程等。
+>   作为"实现/工程贡献"汇总，不单列创新点。
+>   ⚠️ **MLP 权重量化已移除**（只省 ~0.5%、口径不自洽），不再作为创新点或贡献点。
+> - **基础措施（不作主创新提及）**：SPA（GaussianSpa 式训练侧 ADMM 剪枝）、
+>   Mini-Splatting（depth-reinit / blur-split / 贡献面积简化）。二者是既有方法的组件，
+>   按**基础措施**使用；**除非后期对 SPA 做出能显著提升其效果的改动**，才单独作为创新点。
 
 ---
 
@@ -36,7 +41,7 @@ HAC++ 的压缩管线可以抽象成五个环节：
    写码流。feat 额外经过 `Channel_CTX_fea` 通道自回归（逐 10 维组条件解码），
    所以解码必须按固定顺序（feat → scaling → offsets）。
 
-### 0.2 体积口径（三个创新点“省在哪里”的共同参照系）
+### 0.2 体积口径（四个创新点“省在哪里”的共同参照系）
 
 ```text
 total_MB = (bits_xyz + bits_feat + bits_scaling + bits_offsets
@@ -46,20 +51,22 @@ total_MB = (bits_xyz + bits_feat + bits_scaling + bits_offsets
 
 - `bit_mlp` 官方口径 = Σ(MLP 参数个数) × 32 bit；MLP 量化实验用真实压缩载荷替换；
 - `bit_bounds` = 32 × 3 × 2（x_bound 边界，float32）；
-- 三个创新点的贡献对应：创新点①省 `bits_feat/scaling/offsets`，创新点②省
-  `bit_mlp`，创新点③省几乎所有与锚点数量成比例的项（几何 + 属性 + masks + hash）。
+- 贡献对应：**主创新（复杂度乘子）**省 `bits_feat/scaling/offsets`（更细的 Q 给重要锚点）；
+  **工程实现（MLP 量化）**省 `bit_mlp`；**基础措施（SPA）**省几乎所有与锚点数量成比例的项
+  （几何 + 属性 + masks + hash）；**基础措施（MiniSplat）**在固定预算下调整锚点位置。
 
-### 0.3 三个创新点“动在哪里”的速览
+### 0.3 四个创新点“动在哪里”的速览
 
-| 创新点 | 维度 | 原版基线 | PHG 改动 |
-| --- | --- | --- | --- |
-| ① 渲染敏感性复杂度量化 | 量化步长 Q | `mlp_grid` 输出每锚点 Q 调整量 | 再乘一个内容复杂度乘子，并用渲染敏感度监督该乘子 |
-| ② MLP 权重量化 + 算术编码 | 解码器模型体积 | 权重按 float32 计入体积 | 逐通道 PTQ + 静态区间编码 |
-| ③ SPA 剪枝 | 锚点数量 | 训练后一次 topk | 训练中 ADMM 交替“优化-稀疏化” |
+| 层 | 内容 | 维度 | 原版基线 | PHG 改动 |
+| --- | --- | --- | --- | --- |
+| **主创新** | 渲染敏感度损失的复杂度乘子 | 量化步长 Q | `mlp_grid` 输出每锚点 Q 调整量 | 再乘一个**内容复杂度乘子**，并用**渲染敏感度监督**该乘子（I2×I6） |
+| **工程实现** | MLP 权重量化 + 算术编码 | 解码器模型体积 | 权重按 float32 计入体积 | 逐通道 PTQ + 静态区间编码 |
+| **基础措施** | SPA 剪枝 | 锚点数量 | 训练后一次 topk | 训练中 ADMM 交替“优化-稀疏化” |
+| **基础措施** | MiniSplat | 锚点位置 | 固定预算下重排锚点 | 生长停止点做深度/表面重采样，SPA 预算钉在增密前 |
 
 ---
 
-## 1. 创新点①：渲染敏感性复杂度量化（I2 + I6 合并）
+## 1. 主创新：渲染敏感度损失的复杂度乘子（I2 + I6 合并）
 
 ### 1.1 动机
 
@@ -145,10 +152,12 @@ ramp_progress = clamp((step − start_iter) / ramp_iters, 0, 1)
 默认 `complexity_scale=0.35`、`start_iter=20000`、`ramp_iters=10000`——Q 乘子在
 训练后期逐步从 1.0 放大到目标幅度，避免训练初期扰动。
 
-**`mlp_complexity` 结构：** `Linear(8 → hidden) + ReLU + Linear(hidden → 3)`，
-hidden 默认 `feat_dim//2`；架构扫描确定 **hidden=32、1 层（8→32→3）最优**。
+**`mlp_complexity` 结构：** `Linear(4 → hidden) + ReLU + Linear(hidden → 3)`
+（PHG v2 起 4 维输入，删去了旧 8 维输入中 4 个恒零的照片统计），
+hidden 默认 `feat_dim//2`；架构扫描（在旧 8 维输入上进行，即 8→32→3）确定
+**hidden=32、1 层最优**。
 
-**5 维公式输入（全部解码端可重算）：**
+**4 维公式输入（全部解码端可重算）：**
 
 ```text
 1. local_density     = exp(−NN_dist / voxel_size)        # 局部密度
@@ -228,7 +237,7 @@ L_sens = sensitivity_weight × MSE(pred, target)
 ```text
 # ── 训练每步 ──
 if step ≥ content_aware_start_iter:                    # I2 生效
-    z = mlp_complexity(formula_input)                  # 8 维公式输入
+    z = mlp_complexity(formula_input)                  # 4 维公式输入
     m = 1 + tanh(z) × α                                # 内容复杂度乘子
     Q = Q0 × (1 + tanh(q_AQM)) × m                     # 在 AQM 之外再乘
     x_hat = STE_round(x / Q)                           # 量化（训练模拟）
@@ -257,7 +266,7 @@ x_hat = round(x / Q)   →  算术编码 / 解码
 | 层 | HAC++ 原版 AQM | PHG I2 | PHG I6 |
 | --- | --- | --- | --- |
 | Q 来源 | `mlp_grid` 输出 `qa/qs/qo` | 在 AQM 之外再乘 `mlp_complexity` 乘子 | 不产生 Q，只监督 |
-| 输入 | 哈希上下文 | 5 维公式特征 | 渲染损失梯度 EMA |
+| 输入 | 哈希上下文 | 4 维公式特征 | 渲染损失梯度 EMA |
 | 参与阶段 | 训练/编码/解码 | 训练/编码/解码 | 仅训练 |
 | 码流 | 无侧信息 | 无侧信息（Q 可重算） | 无任何字段 |
 
@@ -733,24 +742,329 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 4. 三个创新点的正交性与组合策略
+## 4. 创新点④：Mini-Splatting anchor spatial re-organization
 
-| 创新点 | 维度 | 省什么 | 与其余两个的关系 |
+### 4.1 动机
+
+SPA 解决的是“保留多少锚点”；MiniSplat 解决的是“哪些锚点值得保留”。
+训练侧的 top-k/ADMM 只是删锚点，不会改变幸存锚点的空间分布。当场景里存在
+“重叠区域锚点扎堆、覆盖不足区域又缺锚点”时，只压数量会把质量损失放在最不该
+损失的位置。
+
+本文沿用 Fang & Wang 的观点：**count is not the bottleneck, placement is**。
+把 Mini-Splatting 的 depth-reinit 移植到锚点/HAC++ 世界，不增加码流侧信息，
+只改变训练中的锚点位置。
+
+### 4.2 与 SPA 的关系
+
+`depth-reinit + SPA` 的关键设计是：
+
+1. 在生长停止点（30k 协议为 15000，110k 协议为 45000）渲染若干训练相机的深度图；
+2. 把有效深度反投影到世界表面，体素去重后生成候选锚点；
+3. 调用 `append_depth_anchors` 加入候选锚点；
+4. **增密前把 SPA 预算钉死**（`spa_final_n = 增密前锚点数`），
+   因此新增锚点只参与“谁活下来”，不会抬高预算；
+5. SPA 的 ADMM top-k 在重排后的锚点集上继续训练。
+
+这样隔离了“位置（placement）”与“数量（count）”：如果增益来自多塞锚点，
+体积会相应变大；如果来自重排，体积几乎不动而质量上升。
+
+### 4.3 训练触发点与整体数据流
+
+训练器在每次迭代的尾部、优化器更新之前检查：
+
+```text
+if iteration == mini_splat_reinit_iter and not core.mini_splat_done:
+    # 1) 钉死 SPA 预算：增密前的锚点数
+    core.spa_final_n = n_before
+    core.spa_ref_n = max(core.spa_ref_n, n_before)
+
+    # 2) depth-reinit：从训练相机得到表面候选锚点
+    candidates = collect_depth_surface_anchors(model, cams, ...)
+    depth_added = core.append_depth_anchors(candidates, voxel)
+
+    # 3) 完整版（可选）：贡献面积 + blur-split + 简化
+    if mini_splat_full:
+        area = compute_contribution_areas(model, cams, ...)
+        blur_candidates = collect_blur_split_anchors(...)
+        blur_added = core.append_depth_anchors(blur_candidates, voxel)
+        keep = topk(area, kappa)
+        core.prune_anchor(~keep)
+        core.mini_splat_full_selected = True
+        core.mini_splat_importance = area[keep]
+
+    core.mini_splat_done = True
+```
+
+这里“生长停止点”是 `optim.update_until`（30k 协议为 15000，110k 协议为 45000）。
+在该迭代上，正常的 `adjust_anchor` 不再执行，因此深度重采样不会与“同一轮
+生长/剪枝”互相干扰；重采样后，SPA 继续在重排后的锚点集上工作。
+
+### 4.4 depth-reinit 的具体实现
+
+#### 4.4.1 相机选择
+
+不从全部训练相机采样，而是固定抽样以保持确定性和控制开销：
+
+```text
+views = min(mini_splat_views, len(train_cameras))
+stride = len(train_cameras) / float(views)
+idx = sorted(set(int(i * stride) for i in range(views)))
+cams = [train_cameras[i] for i in idx if i < len(train_cameras)]
+```
+
+默认 `views=8`。该选择顺序与随机种子无关，后续解码/复现不需要存相机索引。
+
+#### 4.4.2 深度渲染
+
+`render_scene_depth()` 不使用 RGB 渲染，而是直接用 gsplat 深度模式：
+
+```text
+visible_mask = prefilter_anchors(model, cam)
+gaussians = generate_gaussians(cam, visible_mask, is_training=False)
+depths, alphas, meta = rasterization(
+    means=gaussians.xyz,
+    quats=gaussians.quats,
+    scales=gaussians.scales,
+    opacities=gaussians.opacities,
+    viewmats=viewmats,
+    Ks=Ks,
+    render_mode="D",
+    packed=True,
+)
+```
+
+返回的：
+
+- `depths`：`[1, H, W, 1]`，相机坐标系深度；
+- `alphas`：`[1, H, W, 1]` 累积不透明度；
+- `meta`：包含 `gaussian_ids`、`means2d`、`conics`、`opacities`、
+  `isect_offsets`、`flatten_ids` 等，供完整版计算贡献面积；
+- `gaussians.gaussian_anchor_indices`：每个被光栅化的高斯回到其全局锚点索引。
+
+这一层在训练时也是“训练后的重采样”，因此不参与当前步的 autograd。
+
+#### 4.4.3 有效深度过滤与反投影
+
+gsplat 背景/无表面位置深度为 0，必须过滤：
+
+```text
+valid = isfinite(depth) and depth > 0 and alpha > alpha_min
+```
+
+默认 `alpha_min = 0.05`。随后把像素坐标反投影到世界坐标：
+
+```text
+x_cam = (u - cx) * z / fx
+y_cam = (v - cy) * z / fy
+[x, y, z, 1] -> world = c2w @ [x, y, z, 1]
+```
+
+`fx/fy/cx/cy` 来自 `SceneCamera.K`，且已经由 `max_width` 缩放；`c2w` 是
+COLMAP 相机到世界矩阵。反投影结果为 `[N_pixel, 3]`。
+
+#### 4.4.4 体素去重与确定性上限
+
+候选点先按世界坐标体素化：
+
+```text
+cell = round(world / voxel_size)
+uniq, inverse = unique(cell)
+mean_world = scatter_mean(world, inverse)
+```
+
+如果去重后的候选数超过 `mini_splat_max_new`，用固定 seed 的 CPU
+`torch.randperm` 选择子集，避免 GPU 随机数与解码/复现不一致。
+
+这保证：
+
+- 表面点不重复；
+- 候选锚点稳定；
+- 不会因为一个相机恰好投影大量近景像素而生成失控数量的锚点。
+
+#### 4.4.5 追加锚点
+
+`append_depth_anchors(candidates, voxel)` 对每个候选锚点初始化：
+
+```text
+scaling = log(voxel * ones(6))
+rotation = identity quaternion
+anchor_feat = zeros(feat_dim)
+offset = zeros(K, 3)
+mask = ones(K+1)
+opacity = inverse_sigmoid(0.1)
+```
+
+然后走官方的 `cat_tensors_to_optimizer`，让新锚点进入与旧锚点相同的优化器参数组。
+注意：优化器中有 MLP/编码器/语义投影头参数组，这些组没有逐锚点扩展，必须跳过；
+只有 `anchor / offset / mask / anchor_feat / scaling / rotation / opacity`
+逐锚点组合并扩展。
+
+#### 4.4.6 关键状态同步
+
+只扩展模型参数是不够的，训练统计张量也必须同步：
+
+```text
+anchor_demon              [N, 1]                   per-anchor
+opacity_accum             [N, 1]                   per-anchor
+offset_gradient_accum     [N*K, 1]                 per Gaussian fan-in
+offset_denom              [N*K, 1]                 per Gaussian fan-in
+sensitivity_feat/scaling/offsets  [N, 1]           per-anchor
+spa_z / spa_u             [N, 1]                   per-anchor
+mini_splat_importance     [N, 1]                   per-anchor
+semantic_target / cov     [N, dim] / [N, 1]        per-anchor
+```
+
+当前实现：
+
+1. `append_depth_anchors` 中追加 `n*K` 长度的 `offset_gradient_accum` /
+   `offset_denom`，而不是只追加 `n`；
+2. 完整版直接调用 `prune_anchor`（绕过 `adjust_anchor` 的预裁剪）时，统一裁剪
+   上述统计张量；
+3. 用“统计张量长度是否等于当前实际锚点数 `self._anchor.shape[0]`”判断是否
+   已经预裁剪，避免 `adjust_anchor` 路径的二次裁剪。
+
+这一步缺失会导致下一步 `training_statis` 或 `anchor_growing` 出现
+`device-side assert` / `IndexError`，是 1-78 大场景培训期最常见的故障源。
+
+### 4.5 完整版实现：贡献面积、blur split 与 intersection-preserving simplification
+
+#### 4.5.1 贡献面积
+
+完整版先用低层 gsplat 相交接口计算每个锚点的“最大贡献像素面积”：
+
+```text
+gs_ids, pixel_ids, image_ids = rasterize_to_indices_in_range(
+    transmittances, means2d, conics, opacities, ...
+)
+```
+
+对每个相交像素，用 alpha 合成公式恢复该像素的“argmax contributor”权重，再通过：
+
+```text
+global_anchor = gaussian_anchor_indices[gaussian_ids]
+area.scatter_add_(0, global_anchor, per_gaussian_count / (H*W))
+```
+
+把像素面积累加回全局锚点。这里的 `gaussian_ids` 是当前光栅化视图中可见高斯的
+局部索引，必须先映射回全局锚点索引，否则面积会统计到错误锚点。
+
+#### 4.5.2 blur split
+
+贡献面积超过 `mini_splat_blur_threshold` 的锚点被认为覆盖了过多像素。
+对每个被判断为 blur 的锚点，取其光栅化高斯的世界坐标作为子锚点候选，再做
+体素去重并限制在 blur 预算内。默认：
+
+```text
+blur_threshold = 0.01
+max_new = 4000
+depth_budget = max_new // 2
+blur_budget = max_new - depth_added
+```
+
+#### 4.5.3 简化
+
+增密后重新计算贡献面积，按面积分数保留：
+
+```text
+if spa_enabled:
+    kappa = n_before * spa_ratio
+else:
+    kappa = n_before
+
+keep = topk(score, kappa)
+core.prune_anchor(~keep)
+```
+
+之后把幸存锚点的贡献面积存为 `mini_splat_importance`。后续 SPA 分数为：
+
+```text
+scores = importance_normalized + 0.25 * spa_soft_score
+```
+
+这样完整版不是“先删后忘”，而是把“哪些位置对渲染贡献大”的记忆传给 SPA。
+
+### 4.6 码流与训练端边界
+
+上述所有过程都是训练端行为：
+
+- 不新增逐锚点 side information；
+- 不改变 `codec_header`、`FORMULA_INPUT_VERSION`、算术编码顺序；
+- 不改变 `total_MB` 的字段定义；
+- 完整版的 `mini_splat_importance` 只参与训练，不写入码流；
+- 增密会把“训练锚点数”提高，但 SPA 预算钉在增密前，因此编码锚点数和码流
+  体积累积不会按增密数量线性上涨。
+
+工程上的额外工作包括：
+
+- HAC++ 读取 1200 张大图时设置 `ulimit -n 65536`；
+- 官方 `capture()` 引用未初始化 `denom` 的开关不要打开；
+- 深度模式渲染和贡献面积计算均使用 packed gsplat，避免大场景显存爆炸；
+- 大场景图像用 `--no-preload-images` + CPU uint8 缓存；
+- 远程训练调度使用 `WAIT_VRAM_MB` 显存门槛，避免和其他任务叠爆。
+
+### 4.7 关键模块
+
+| 模块 | 职责 |
+| --- | --- |
+| `scaffold_gs/config.py` | `mini_splat_enabled / reinit_iter / max_new / views / voxel / full` |
+| `scaffold_gs/hacpp.py` | `mini_splat_reinit()`，固定 SPA 预算并调用重采样 |
+| `scaffold_gs/mini_splat.py` | 深度渲染、反投影、体素化、贡献面积、blur split |
+| `hacplus/scene/gaussian_model.py` | `append_depth_anchors()`、统计张量同步、`prune_anchor()` |
+| `scaffold_gs/trainer.py` | 在 `iteration == mini_splat_reinit_iter` 触发 |
+
+### 4.8 实验结果
+
+**playroom 30k、SPA ratio=0.85、λ=0.004、HAC++ 解码后：**
+
+| 配置 | PSNR | total_MB | 说明 |
+| --- | ---: | ---: | --- |
+| SPA baseline | 30.2210 | 1.8594 | 无 MiniSplat |
+| depth-reinit + SPA | 30.4202 | 1.9051 | +0.199 dB，体积 +2.5% |
+| SPA 预算曲线（r=0.52/0.85/0.92/0.97） | — | — | BD-PSNR +0.124 dB，BD-rate −8.6% |
+
+**完整版 vs depth-reinit 跨场景（30k、SPA 0.85、λ=0.004，官方体积口径）：**
+
+| 场景 | full PSNR/MB | depth PSNR/MB | ΔPSNR | Δ体积 |
+| --- | ---: | ---: | ---: | ---: |
+| playroom | 30.525 / 1.356 | 30.273 / 1.422 | +0.252 | −4.6% |
+| drjohnson | 29.416 / 2.082 | 29.504 / 2.225 | −0.088 | −6.4% |
+| T&T train | 22.164 / 3.239 | 22.284 / 3.631 | −0.120 | −10.8% |
+| T&T truck | 25.391 / 3.248 | 25.380 / 3.434 | +0.011 | −5.4% |
+| Mip garden | 26.181 / 5.529 | 26.291 / 6.060 | −0.110 | −8.8% |
+| Mip bicycle | 24.171 / 3.824 | 24.255 / 4.270 | −0.085 | −10.4% |
+| Mip stump | 25.665 / 2.648 | 25.781 / 2.980 | −0.116 | −11.1% |
+
+结论：
+
+1. depth-reinit 在 playroom 上是“免费重排”，在 SPA 预算曲线上 BD-rate −8.6%；
+2. 完整版跨场景的优势是**体积更紧凑**（约 5–11%），不是普适 PSNR 提升；
+3. 完整版只在 playroom/T&T truck 同时改善质量，playroom 换 seed 后增益不稳定；
+4. 因此论文应报告 depth-reinit 为主要实现，完整版作为可选/消融版本，
+   不能写成“泛化有效”。
+5. 新三场景（1-78、2-06、4-10）的 30k 矩阵正在跑，后续按同一协议更新本表。
+
+---
+
+## 5. 四个创新点的正交性与组合策略
+
+| 创新点 | 维度 | 省什么 | 与其余三个的关系 |
 | --- | --- | --- | --- |
 | ① 渲染敏感性复杂度量化 | 量化步长 | 属性字段的码率 | 独立于锚点数量和 MLP 体积 |
 | ② MLP 权重量化 | 模型体积 | bit_mlp 固定开销 | SPA 后占比最大，必须组合 |
 | ③ SPA 剪枝 | 锚点数量 | 所有与锚点数成比例的项 | 与 ① 正交；低码率点依赖 ② 收尾 |
+| ④ MiniSplat | 锚点位置 | 固定预算下重新分配锚点 | 与 ③ 联合，改变“哪些锚点活”而不是增加预算 |
 
 组合优先级：
 
 1. **低码率操作点**：SPA（③）先压锚点数，再叠加 MLP 量化（②）——此时 MLP
    权重占比最高，② 的收益最大；
 2. **中等码率**：I2+I6（①）微调 Q 分配，MLP 量化（②）压固定开销；
-3. **全码率**：三者同时开，用多场景、多 λ 的完整 RD 曲线和 BD-rate 对照验证。
+3. **全码率**：四者联合（①+②+③+④），用多场景、多 λ 的完整 RD 曲线和 BD-rate 对照验证。
 
 ---
 
-## 5. 汇总对照表
+## 6. 汇总对照表
 
 **4-28 场景（1600 宽，官方体积口径，含 MLP 权重）：**
 
@@ -775,7 +1089,7 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 6. 术语表
+## 7. 术语表
 
 | 术语 | 含义 |
 | --- | --- |
@@ -804,7 +1118,7 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 7. 数据来源
+## 8. 数据来源
 
 本文档所有数字均来自以下已确认来源，未新增任何未实测数字：
 
@@ -828,8 +1142,11 @@ ratio=0.5、ρ=1e-3、u clamp ±1。29 个验证视图，compress → decode →
 
 ---
 
-## 8. 明确不属于创新点的部分（供论文叙述时排除）
+## 9. 明确不属于创新点的部分（供论文叙述时排除）
 
+- **基础措施（非主创新，除非后期大改）**：SPA（GaussianSpa 式训练侧 ADMM 剪枝）、
+  Mini-Splatting（depth-reinit / blur-split / 贡献面积简化）。二者是既有方法的组件，
+  按**基础措施**使用；若后期对 SPA 做出能显著提升其效果的改动，再单独作为创新点。
 - feat_dim 泛化、训练加速、图像缓存、tile 尺寸、deform 加载修复：工程实现；
 - I1 层级上下文：消融为中性偏负（+0.003dB、体积 +0.10MB），已默认关闭并删除
   侧信息；

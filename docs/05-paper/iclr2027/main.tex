@@ -1,0 +1,233 @@
+% ICLR 2027 submission shell (official template files are in this directory).
+\documentclass{article}
+\usepackage{iclr2027_conference,times}
+\input{math_commands.tex}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{caption}
+
+\newcommand{\DCCA}{DCCA-GS}
+\newcommand{\Itwo}{I\textsubscript{2}}
+\newcommand{\Isix}{I\textsubscript{6}}
+
+\title{DCCA-GS: Decoder-Reproducible Content-Adaptive Compression for Anchor-Based 3D Gaussian Splatting}
+
+\author{Anonymous Submission}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+3D Gaussian Splatting (3DGS) produces high-quality novel views with real-time rendering, but the storage of per-Gaussian attributes grows quickly with scene scale. Anchor-based codecs reduce this cost through compact anchor features, shared attributes, and mask-based offset selection. Existing codecs, however, either transmit per-anchor quantization decisions, ignore the render-sensitivity of individual anchors, or apply pruning only after training and therefore leave the surviving anchors without a chance to re-adapt under the final budget. We present \DCCA, a compression framework built on the anchor-hash entropy-coding pipeline of HAC++ that coordinates four core decoder-reproducible mechanisms and evaluates a fifth anchor-reallocation component. First, content-adaptive formula quantization computes every quantization step on both the encoder and decoder from anchor- and prediction-available features, so the bitstream carries no per-anchor step array. Second, render-sensitivity supervision trains the same complexity network with training-only gradient statistics, adding no side information. Third, mixed-precision post-training quantization compresses decoder MLPs with a per-group bit assignment selected from rendering- and entropy-model sensitivity. Fourth, training-side ADMM anchor sparsity imposes a hard anchor budget during training, so surviving anchors adapt to the final budget rather than being removed after optimization. Fifth, Mini-Splatting-style anchor reallocation is studied under the same fixed budget. On the 4-28 large-scale scene, the 110k-iteration operating point with mixed-precision MLP quantization reaches 28.82 dB at 5.49 MiB, compared with 28.31 dB at 6.95 MiB for the HAC++ reference point on the same scene. On Deep Blending, the high-rate operating point reaches 30.73 dB at 4.22 MiB, and the low-rate SPA point reaches 29.90 dB at 0.96 MiB. We report ablation, bitstream-composition, codec-efficiency, and negative-result analyses, all measured on decoded bitstreams.
+\end{abstract}
+
+\section{Introduction}
+
+3D Gaussian Splatting (3DGS) (\citet{kerbl2023}) represents a scene with explicit Gaussian primitives and supports high-fidelity, real-time novel-view synthesis. High-quality scenes, however, require millions of primitives, and the resulting storage cost limits deployment on bandwidth-constrained platforms. One effective line of work organizes Gaussians around shared anchors and derives rendering attributes from compact anchor features (\citet{lu2024}). Anchor-based codecs extend this representation with hash-grid context and conditional entropy models (\citet{chen2024}; \citet{chen2025}), and report large reductions over raw 3DGS. Yet the remaining cost is distributed across several independent sources: per-anchor attribute symbols, decoder MLP weights, and the anchor set itself.
+
+\begin{figure}[t]
+\centering
+% Placeholder: replace with the final system overview figure.
+\fbox{\parbox{0.9\linewidth}{\centering\vspace{2cm}DCCA-GS pipeline:\\ structure control, decoder-reproducible quantization, MLP compression, and training-side sparsity\vspace{2cm}}}
+\caption{DCCA-GS overview. The framework keeps the HAC++ codec contract and adds decoder-reproducible quantization, render-sensitivity supervision, mixed-precision MLP compression, and training-side anchor sparsity.}
+\label{fig:overview}
+\end{figure}
+
+Three observations motivate this work. First, quantization steps must be recomputed by the decoder if no side information is allowed. Structural quantities such as local anchor density and predicted attribute complexity are available after decoding, whereas render-loss gradients are not. A useful quantization mechanism therefore needs a decoder-reproducible predictor and a training-time signal that can guide it. Second, decoder MLP weights are a fixed component of the bitstream and can be large at low anchor budgets. Their precision should be selected by measuring both rendering damage and entropy-model degradation, rather than by a single global bit width. Third, anchor count is the coarsest rate lever in an anchor codec. Pruning after training removes anchors without allowing the remaining representation to adapt; a training-side budget should instead let the survivors re-optimize under the same constraint that will be applied at test time.
+
+\DCCA addresses these issues in one framework. It preserves the HAC++ decoding contract and evaluates four core components plus an anchor-reallocation study: decoder-reproducible formula quantization (\Itwo), render-sensitivity supervision (\Isix), mixed-precision decoder-MLP quantization, training-side ADMM anchor sparsity, and Mini-Splatting-style anchor reallocation.
+
+Our contributions are as follows.
+
+\begin{itemize}
+\item We formulate content-adaptive quantization as a decoder-reproducible mechanism. The final quantization step is produced from local anchor density, predicted scaling anisotropy, predicted offset energy, and active mask ratio. The bitstream carries no per-anchor step array, and the same formula is used in training, encoding, decoding, and rate estimation.
+\item We train the complexity predictor with render-sensitivity supervision. Gradients of the rendering loss with respect to pre-quantization attributes are accumulated as a training-only target, and the target is regressed by the same decoder-reproducible network. On Deep Blending playroom at 110k iterations, removing \Isix reduces PSNR by 0.064 dB in the high-rate regime and by 0.42 dB in the SPA low-rate regime.
+\item We evaluate mixed-precision decoder-MLP quantization. Per-output-channel symmetric post-training quantization is followed by static arithmetic coding. On the 4-28 scene at 90k and 110k iterations, the recommended configuration reduces payload by about 0.155 MiB and 0.162 MiB, respectively, with less than 0.002 dB PSNR change.
+\item We formulate anchor sparsity as a training-side ADMM projection. A hard budget is ramped from a historical maximum anchor count, and survivors continue to train under the budget. At the same encoded anchor count on playroom, training-side sparsity is 5.52 dB better than encode-side top-k pruning.
+\item In addition, we study anchor reallocation through Mini-Splatting-style depth reinitialization, and we report both positive and scene-dependent results. On playroom with SPA ratio 0.85, depth reinitialization improves decoded PSNR from 30.221 to 30.420 dB with a 2.5\% size increase; on 4-28 and drjohnson the current measurements are negative. We therefore treat anchor reallocation as an open component until the generalization matrix is complete.
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Compression of 3D Gaussian Splatting}
+Compact 3DGS representations reduce storage by pruning low-contribution primitives, quantizing attributes, or sharing parameters. LightGaussian (\citet{fan2024}), Compact3DGS (\citet{lee2024}), and Reduced3DGS (\citet{papantonakis2024}) use learned importance or lightweight attributes. MesonGS (\citet{xie2024}) performs post-training pruning and transformation, while PCGS (\citet{chen2026a}) refines masks and quantization progressively. Anchor-based methods organize primitives around shared anchors. Scaffold-GS (\citet{lu2024}) introduces view-adaptive anchor features. HAC (\citet{chen2024}) and HAC++ (\citet{chen2025}) add hash-grid context and differentiable entropy estimation, and ContextGS (\citet{wang2024b}) develops anchor-level context.
+
+\subsection{Rate-Distortion Optimized Codecs}
+Learned image compression has established the pattern of optimizing a differentiable rate estimate jointly with distortion (\citet{balle2018}; \citet{cheng2020}). RDO-Gaussian (\citet{wang2024a}) and CompGS (\citet{liu2024b}) apply this idea to 3DGS. HAC++ further improves anchor-based probability modeling with intra-anchor context and a Gaussian mixture model. These methods control rate through a fixed multiplier or a post-training configuration search. Our work instead updates a shared multiplier from estimated and requested sizes, and uses the same multiplier for structure selection and continuous attribute optimization.
+
+\subsection{Anchor Selection and Placement}
+Masking and pruning in anchor codecs determine which offsets and anchors remain. HAC (\citet{chen2024}) promotes sparsity with an auxiliary mask loss, CAT-3DGS (\citet{zhan2025}) incorporates view frequency, and HAC++ incorporates Gaussian- and anchor-level masks into rate estimation. Mini-Splatting (\citet{fang2024}) argues that Gaussian placement, not only count, limits quality, and proposes depth reinitialization plus contribution-aware simplification. Our framework uses a fixed SPA budget and evaluates both depth reinitialization and a contribution-area variant for anchor placement under that budget.
+
+\section{Method}
+
+\subsection{Problem Setup}
+We build on an anchor-based codec with $N$ anchors and $K$ offsets per anchor. Each anchor has anchor features $a_i \in \mathbb{R}^{D_a}$, scaling parameters, masks, and offset vectors. A valid offset generates one neural Gaussian. Let $m_{ik}\in\{0,1\}$ be the binary offset mask and let $\theta$ collect the coded anchor attributes and entropy-model parameters. The compression objective is
+\begin{equation}
+\min_{\theta,m}\ D(\theta,m)\quad \mathrm{s.t.}\quad R_{\mathrm{tot}}(\theta,m)\le B,
+\end{equation}
+where $D$ is reconstruction distortion, $R_{\mathrm{tot}}$ is the total bitstream size, and $B$ is the requested size. We use a Lagrange multiplier $\lambda$ to balance distortion and code length.
+
+\subsection{Decoder-Reproducible Content-Adaptive Quantization}
+The HAC++ adaptive quantization module predicts a base step $Q_0$ from hash-grid context. Our formula quantization adds a multiplier that is computed from quantities available at both encoder and decoder:
+\begin{equation}
+Q_{i,f}=Q_{0,f}\left(1+\tanh(q_{i,f}^{AQM})\right)\left(1+\alpha\tanh(z_{i,f})\right),
+\end{equation}
+where $f$ indexes feature, scaling, or offset fields, $\alpha$ ramps from zero to the configured scale, and
+\begin{equation}
+z_{i,f}=f_{\mathrm{complexity}}\big(\rho_i,\ \mathrm{aniso}_i,\ \mathrm{energy}_i,\ \mathrm{active}_i\big).
+\end{equation}
+The inputs are local anchor density, predicted scaling anisotropy, predicted offset energy, and active mask ratio. These quantities can be recomputed from the decoded grid, anchor attributes, and masks; no side information is added.
+
+The complexity network is supervised with render sensitivity. During training we retain gradients of pre-quantization attributes and accumulate their norm with an exponential moving average. A bounded target is derived from the relative sensitivity of each anchor, and the complexity network is trained with an MSE term. This term appears only in the training objective; the bitstream format and decode path are unchanged.
+
+\subsection{Mixed-Precision Decoder-MLP Quantization}
+Decoder MLP weights are conventionally counted as 32-bit values. We apply per-output-channel symmetric post-training quantization:
+\begin{equation}
+q_c = \mathrm{round}\left(w_c / s_c\right),\quad
+s_c = \max_i |w_{c,i}| / (2^{b-1}-1).
+\end{equation}
+Symbols with $b \geq 16$ are stored as raw integers, while 8-bit symbols use a static 32-bit range coder. The selected configuration is 8-bit for the complexity and deform networks and 16-bit for the opacity, covariance, color, and grid networks. This selection is not uniform: 8-bit opacity directly reduces rendering quality, and 8-bit grid degrades the entropy model and increases attribute rate, while 8-bit complexity and deform have negligible measured effect at the tested operating points.
+
+\subsection{Training-Side Anchor Sparsity}
+SPA-signed sparsity is formulated as ADMM projection on the anchor mask score $a_i=\mathrm{mean}(\mathrm{mask}_i)$. We introduce a binary auxiliary state $z_i$, multiplier $u_i$, and budget $\kappa$. The budget is anchored to the historical maximum anchor count and ramped during growth. At each projection step,
+\begin{equation}
+z=\mathrm{TopK}\left(a+u,\kappa\right),\qquad
+u=\mathrm{clamp}\left(u+a-z,\pm1\right).
+\end{equation}
+Anchors with $z_i=0$ are pruned, and the remaining representation is trained under the same budget. This is a training-only mechanism: $z$ and $u$ are never written to the bitstream.
+
+\subsection{Anchor Reallocation}
+At the growth-stop iteration, depth maps are rendered for sampled training cameras, back-projected to surface points, voxelized, and appended as candidate anchors while the SPA budget remains fixed. This lets new anchors compete for the existing budget rather than increase it. We report results for this depth-reinitialization variant. A full contribution-area variant that adds blur splitting and contribution-based simplification is implemented in a separate branch and is being evaluated for generalization.
+
+\section{Experiments}
+
+\subsection{Setup}
+We evaluate on the 4-28 large-scale UAV scene (1,200 training images, 150 validation views), Deep Blending playroom and drjohnson, Tanks \& Temples train and truck, and representative Mip-NeRF 360 scenes. All results are measured on decoded bitstreams at 1600-pixel width with $data\_factor=1$ and $test\_every=8$. Size is the decode-required payload in MiB. We report PSNR, SSIM, and VGG-LPIPS. The recommended configuration is feature dimension 50, complexity hidden 32, 10 offsets, voxel size 0.001, and 110,000 iterations for large scenes or 30,000 iterations for the ablation protocol. Every ablation is re-encoded, re-decoded, and re-evaluated after quantization.
+
+\subsection{Main Results}
+Table~\ref{tab:main428} reports the 4-28 operating point. \DCCA improves over the HAC++ reference by 0.51 dB while reducing the required payload from 6.95 to 5.49 MiB. Table~\ref{tab:db} reports Deep Blending high-rate and low-rate points.
+
+\begin{table}[t]
+\centering
+\caption{Decoded-view comparison on 4-28 at 110k iterations. Sizes are decode-required payload in MiB.}
+\label{tab:main428}
+\begin{tabular}{lcccc}
+\toprule
+Method & PSNR & SSIM & LPIPS & Size \\
+\midrule
+HAC++ reference & 28.31 & 0.8900 & 0.2932 & 6.95 \\
+\DCCA (I2+I6, float32) & 28.825 & 0.8926 & --- & 5.65 \\
+\DCCA (I2+I6, mixed MLP) & \textbf{28.82} & \textbf{0.8926} & \textbf{0.2771} & \textbf{5.49} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Decoded-view operating points on Deep Blending. Sizes are decode-required payload in MiB.}
+\label{tab:db}
+\begin{tabular}{lcccc}
+\toprule
+Setting & PSNR & SSIM & LPIPS & Size \\
+\midrule
+playroom, high rate & 30.73 & 0.9130 & 0.2575 & 4.22 \\
+drjohnson, high rate & 30.04 & 0.9112 & 0.2459 & 6.85 \\
+playroom, SPA low rate & 29.89 & 0.8963 & 0.3072 & 1.13 \\
+playroom, SPA + MLP quant & 29.90 & 0.8964 & 0.3072 & 0.96 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In the SPA regime, \Isix remains beneficial: full \DCCA is 0.42 dB above the model without \Isix at similar size. In the high-rate regime, removing \Isix costs 0.064 dB. The interaction between \Itwo and \Isix is configuration-dependent, so we report the pair jointly rather than interpreting \Itwo alone.
+
+MLP quantization is low-cost at the recommended mixed configuration. On 4-28 90k, the payload decreases from 5.5604 to 5.4052 MiB with PSNR unchanged to 0.001 dB. At 110k, it decreases from 5.6471 to 5.4852 MiB with PSNR change below 0.002 dB. A uniform 8-bit quantization is not advisable: it degrades the entropy model and increases total size.
+
+\subsection{Ablations}
+Table~\ref{tab:spaab} gives the training-side sparsity ablation on playroom at 110k iterations. At the same encoded anchor count, training-side sparsity is 5.52 dB better than encode-side top-k (29.64 dB vs.\ 24.12 dB at 34.7k coded anchors). Table~\ref{tab:minisplat} summarizes the depth-reinitialization result at 30k.
+
+\begin{table}[t]
+\centering
+\caption{Playroom 110k ablation. Sizes are decode-required payload in MiB.}
+\label{tab:spaab}
+\begin{tabular}{lcccc}
+\toprule
+Variant & PSNR & SSIM & LPIPS & Size \\
+\midrule
+No SPA (I2+I6) & 30.7310 & 0.9130 & 0.2575 & 4.3819 \\
+No SPA + I2 (w/o I6) & 30.6671 & 0.9123 & 0.2577 & 4.4668 \\
+Full SPA & 29.8908 & 0.8963 & 0.3072 & 1.1292 \\
+SPA + I2 (w/o I6) & 29.4691 & 0.8920 & 0.3209 & 0.9836 \\
+SPA only & 29.7623 & 0.8940 & 0.3162 & 1.0083 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Playroom 30k anchor reallocation. Sizes are decode-required payload in MiB.}
+\label{tab:minisplat}
+\begin{tabular}{lcccc}
+\toprule
+Variant & PSNR & SSIM & LPIPS & Size \\
+\midrule
+SPA baseline & 30.221 & 0.9068 & 0.2809 & 1.859 \\
+Depth-reinit + SPA & 30.420 & 0.9070 & 0.2787 & 1.905 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Negative Results and Codec Analysis}
+Table~\ref{tab:bitstream} reports the field-level bitstream composition on 4-28 before MLP quantization. Feature, scaling, and offset fields together account for 82.8\% of the total payload. Mixed-precision MLP quantization reduces the decoder-model component from 0.3320 to 0.1650 MiB without changing the attribute path. The final codec round-trip is verified with bit-exact diagnostics.
+
+\begin{table}[t]
+\centering
+\caption{Field-level bitstream composition on 4-28 at 110k iterations (float32 decoder weights).}
+\label{tab:bitstream}
+\begin{tabular}{lrr}
+\toprule
+Field & Bits & Share (\%) \\
+\midrule
+Feature & 23,953,808 & 50.60 \\
+Scaling & 9,480,704 & 20.00 \\
+Offsets & 5,759,376 & 12.20 \\
+Anchor geometry & 3,768,632 & 8.00 \\
+MLP weights (32-bit) & 2,784,704 & 5.90 \\
+Masks & 1,402,480 & 3.00 \\
+Hash parameters & 213,224 & 0.45 \\
+Bounds and header & 8,064 & 0.02 \\
+\midrule
+Total & 47,370,992 & 100.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+We also report documented negative results. Hierarchical context adds 0.10 MiB with 0.003 dB PSNR gain, so it is disabled. Offline context entropy and residual-coding directions provide gains below the implementation threshold (up to 2.30\% in the context entropy case) and are disabled. The sensitivity side-information variant increases the 4-28 payload from 5.5604 to 5.7143 MiB, so it is disabled. These results support the decision to keep retained mechanisms decoder-reproducible.
+
+\section{Discussion and Open Questions}
+The current evidence supports four claims: decoder-reproducible quantization can be trained with a render-sensitivity signal, mixed MLP precision can reduce decoder size at negligible quality cost, training-side anchor sparsity outperforms post-training top-k at matched anchor count, and anchor placement interacts with the available budget. It does not yet support a universal claim for anchor reallocation. The depth-reinitialization variant improves playroom but is negative on drjohnson and 4-28. A contribution-area variant is implemented in `codex/minisplat-full` and is running on a multi-scene matrix (playroom, drjohnson, T\&T train/truck, Mip-NeRF 360 garden/bicycle/stump). The next experiments are:
+
+\begin{itemize}
+\item collect the final metrics and bitstream sizes from the full MiniSplat matrix;
+\item compare the contribution-area variant with depth-reinitialization at matched SPA budget and identical $mini\_splat\_views$;
+\item add 4-28 110k and seed 2026 cells to test larger scenes and seed robustness;
+\item compute BD-PSNR and BD-rate for the five-component curve;
+\item if the full variant is negative at scale, report anchor reallocation as scene-dependent and keep depth-reinitialization only where positive.
+\end{itemize}
+
+\section{Conclusion}
+\DCCA coordinates decoder-reproducible content-adaptive quantization, render-sensitivity supervision, mixed-precision decoder-MLP compression, training-side anchor sparsity, and anchor reallocation within one anchor-based codec. The reported operating points are produced by the actual decode pipeline: the framework reaches 28.82 dB at 5.49 MiB on 4-28, 30.73 dB at 4.22 MiB on playroom, and 29.90 dB at 0.96 MiB in the SPA low-rate regime, while all retained mechanisms add zero side information. Anchor reallocation remains an active research problem: depth reinitialization is effective on playroom but not on all tested scenes, and the contribution-area variant is under evaluation.
+
+\subsection*{AI use statement}
+The authors used generative AI tools to assist with literature organization, drafting, LaTeX formatting, and code review. All AI-assisted text, equations, and code were reviewed by the authors, and all numbers were checked against the project's experiment records. The authors take responsibility for the final content of this work.
+
+\subsection*{Ethics statement}
+This work uses publicly available scene datasets and does not involve human subjects. No additional ethical concerns were identified.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

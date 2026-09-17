@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" font-family="Arial,Helvetica,sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L8,4.5 L0,9 z" fill="#37474f"/>
+    </marker>
+    <marker id="ard" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L8,4.5 L0,9 z" fill="#c62828"/>
+    </marker>
+  </defs>
+
+  <rect x="10" y="10" width="940" height="600" rx="14" fill="#fbfdff" stroke="#cfd8dc" stroke-width="1.5"/>
+  <text x="480" y="42" text-anchor="middle" font-size="20" font-weight="bold" fill="#1f4e9c">DCCA-GS 主创新：渲染敏感度损失的复杂度乘子（I2 × I6，共享同一网络，零侧信息）</text>
+
+  <!-- ===== 解码端 band ===== -->
+  <rect x="18" y="58" width="924" height="250" rx="12" fill="#f4f9ff" stroke="#90a4ae" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="34" y="84" font-size="14" font-weight="bold" fill="#455a64">解码端（坐标 → 重算 · 零侧信息 · bit-exact）</text>
+
+  <!-- anchor coord -->
+  <rect x="60" y="110" width="150" height="66" rx="10" fill="#ffffff" stroke="#1f4e9c" stroke-width="2"/>
+  <text x="135" y="136" text-anchor="middle" font-size="15" fill="#1f4e9c">锚点坐标</text>
+  <text x="135" y="156" text-anchor="middle" font-size="11" fill="#546e7a">(G-PCC 解码)</text>
+
+  <!-- formula -->
+  <rect x="250" y="110" width="200" height="66" rx="10" fill="#ffffff" stroke="#1f4e9c" stroke-width="2"/>
+  <text x="350" y="136" text-anchor="middle" font-size="15" fill="#1f4e9c">公式特征（4 维）</text>
+  <text x="350" y="156" text-anchor="middle" font-size="11" fill="#546e7a">密度/各向异性/偏移能/掩码</text>
+
+  <!-- shared mlp_complexity -->
+  <rect x="490" y="98" width="250" height="92" rx="12" fill="#e8f0fe" stroke="#1f4e9c" stroke-width="3"/>
+  <text x="615" y="130" text-anchor="middle" font-size="16" font-weight="bold" fill="#1f4e9c">mlp_complexity</text>
+  <text x="615" y="152" text-anchor="middle" font-size="12" fill="#455a64">(8 → 32 → 3)</text>
+  <text x="615" y="172" text-anchor="middle" font-size="11" fill="#c62828">共享：I2 公式 + I6 敏感度监督</text>
+
+  <!-- m -->
+  <rect x="780" y="110" width="150" height="66" rx="10" fill="#ffffff" stroke="#1f4e9c" stroke-width="2"/>
+  <text x="855" y="138" text-anchor="middle" font-size="15" fill="#1f4e9c">m = 1+tanh(z)·α</text>
+  <text x="855" y="158" text-anchor="middle" font-size="11" fill="#546e7a">复杂度乘子</text>
+
+  <!-- hash -> mlp_grid -> Q0 -->
+  <rect x="250" y="218" width="200" height="66" rx="10" fill="#ffffff" stroke="#00796b" stroke-width="2"/>
+  <text x="350" y="244" text-anchor="middle" font-size="14" fill="#00796b">哈希网格 + mlp_grid</text>
+  <text x="350" y="264" text-anchor="middle" font-size="11" fill="#546e7a">→ Q0·(1+tanh(q_AQM))</text>
+
+  <!-- Q -->
+  <rect x="660" y="204" width="230" height="80" rx="12" fill="#fff8e1" stroke="#f57f17" stroke-width="2"/>
+  <text x="775" y="234" text-anchor="middle" font-size="16" font-weight="bold" fill="#e65100">Q = Q0·(1+tanh(q_AQM))·m</text>
+  <text x="775" y="256" text-anchor="middle" font-size="11" fill="#6d4c00">内容自适应量化步长</text>
+  <text x="775" y="272" text-anchor="middle" font-size="11" fill="#6d4c00">解码端可重算 · 零侧信息</text>
+
+  <!-- dequantize -> render -->
+  <rect x="660" y="300" width="230" height="46" rx="10" fill="#ffffff" stroke="#37474f" stroke-width="2"/>
+  <text x="775" y="327" text-anchor="middle" font-size="14" fill="#37474f">反量化 → 渲染</text>
+
+  <!-- ===== 训练端 band ===== -->
+  <rect x="18" y="352" width="924" height="236" rx="12" fill="#fff5f5" stroke="#c62828" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="34" y="378" font-size="14" font-weight="bold" fill="#c62828">训练端（监督信号，不进码流 · 零侧信息）</text>
+
+  <rect x="60" y="400" width="140" height="60" rx="10" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+  <text x="130" y="426" text-anchor="middle" font-size="14" fill="#c62828">渲染</text>
+  <text x="130" y="445" text-anchor="middle" font-size="11" fill="#546e7a">训练步</text>
+
+  <rect x="230" y="400" width="150" height="60" rx="10" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+  <text x="305" y="426" text-anchor="middle" font-size="14" fill="#c62828">渲染损失</text>
+  <text x="305" y="445" text-anchor="middle" font-size="11" fill="#546e7a">L1 + SSIM + λ·rate</text>
+
+  <rect x="410" y="400" width="150" height="60" rx="10" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+  <text x="485" y="426" text-anchor="middle" font-size="14" fill="#c62828">梯度</text>
+  <text x="485" y="445" text-anchor="middle" font-size="11" fill="#546e7a">∂L/∂(feat·scaling·offsets)</text>
+
+  <rect x="590" y="400" width="160" height="60" rx="10" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+  <text x="670" y="426" text-anchor="middle" font-size="14" fill="#c62828">敏感度 EMA</text>
+  <text x="670" y="445" text-anchor="middle" font-size="11" fill="#546e7a">逐锚点梯度范数</text>
+
+  <rect x="780" y="400" width="150" height="60" rx="10" fill="#fde0e0" stroke="#c62828" stroke-width="2"/>
+  <text x="855" y="426" text-anchor="middle" font-size="13" font-weight="bold" fill="#c62828">监督</text>
+  <text x="855" y="445" text-anchor="middle" font-size="11" fill="#546e7a">MSE(m̂, m_target)</text>
+
+  <!-- ===== arrows (decode, solid) ===== -->
+  <line x1="210" y1="143" x2="248" y2="143" stroke="#37474f" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="450" y1="143" x2="488" y2="143" stroke="#37474f" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="740" y1="143" x2="778" y2="143" stroke="#37474f" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="450" y1="251" x2="658" y2="244" stroke="#37474f" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="775" y1="130" x2="775" y2="202" stroke="#37474f" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="775" y1="284" x2="775" y2="298" stroke="#37474f" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- ===== arrows (training, dashed) ===== -->
+  <line x1="200" y1="430" x2="228" y2="430" stroke="#c62828" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ard)"/>
+  <line x1="380" y1="430" x2="408" y2="430" stroke="#c62828" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ard)"/>
+  <line x1="560" y1="430" x2="588" y2="430" stroke="#c62828" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ard)"/>
+  <line x1="750" y1="430" x2="778" y2="430" stroke="#c62828" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ard)"/>
+  <line x1="855" y1="398" x2="855" y2="362" stroke="#c62828" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ard)"/>
+  <line x1="855" y1="362" x2="740" y2="192" stroke="#c62828" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ard)"/>
+
+  <!-- key note -->
+  <rect x="60" y="500" width="840" height="64" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="480" y="526" text-anchor="middle" font-size="14" font-weight="bold" fill="#2e7d32">关键：同一个 mlp_complexity</text>
+  <text x="480" y="548" text-anchor="middle" font-size="12" fill="#455a64">· 解码端用公式可重算 → 零侧信息； · I6 仅训练期监督、不进码流； · 编/解码同一 Q 路径 → bit-exact</text>
+</svg>

@@ -1,0 +1,80 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1360' height='820' viewBox='0 0 1360 820' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_2e7d32' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#2e7d32'/></marker></defs>
+<rect x='8' y='8' width='1344' height='804' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='680.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>创新①：复杂度乘子——解码端可复算的内容自适应量化步长</text>
+<text x='680.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>四个结构统计量 → 共享小 MLP → m = 1+tanh(·)·strength 重缩放 AQM 步长；训练/编码/解码三端走同一路径，权重随熵模型进码流，零侧信息</text>
+<rect x='24' y='92' width='400.0' height='560.0' rx='12' fill='#f2f8f2' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='116' text-anchor='start' font-size='15' fill='#2e7d32' font-weight='bold' opacity='1.0'>结构统计量 x [N,4]（全部由已解码量重算）</text>
+<rect x='40' y='132' width='368.0' height='90.5' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='224.0' y='156.5' text-anchor='middle' font-size='13.5' fill='green' font-weight='bold' opacity='1.0'>局部密度</text>
+<text x='224.0' y='170.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>ρ = exp(−d_nn / voxel)</text>
+<text x='224.0' y='186.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>d_nn = 最近邻锚点距离</text>
+<text x='224.0' y='202.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>（N&gt;4096 时 4096 采样近似）</text>
+<rect x='40' y='238' width='368.0' height='74.5' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='224.0' y='262.5' text-anchor='middle' font-size='13.5' fill='green' font-weight='bold' opacity='1.0'>尺度各向异性</text>
+<text x='224.0' y='276.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>std( 预测平均 scaling 前三维 )</text>
+<text x='224.0' y='292.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>预测值来自 mlp_grid（码流内）</text>
+<rect x='40' y='344' width='368.0' height='74.5' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='224.0' y='368.5' text-anchor='middle' font-size='13.5' fill='green' font-weight='bold' opacity='1.0'>偏移能量</text>
+<text x='224.0' y='382.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>mean | 预测平均 offsets |</text>
+<text x='224.0' y='398.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>（K×3，预测值来自 mlp_grid）</text>
+<rect x='40' y='450' width='368.0' height='74.5' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='224.0' y='474.5' text-anchor='middle' font-size='13.5' fill='green' font-weight='bold' opacity='1.0'>活跃掩码率</text>
+<text x='224.0' y='488.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>mean( masks )</text>
+<text x='224.0' y='504.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>存活子高斯比例</text>
+<text x='214' y='564' text-anchor='middle' font-size='11.5' fill='#2e7d32' font-weight='normal' opacity='1.0'>来源：解码后的坐标 / 熵参数 / 掩码</text>
+<text x='214' y='582' text-anchor='middle' font-size='11.5' fill='#2e7d32' font-weight='normal' opacity='1.0'>→ 解码端零成本获得，无需任何侧信息</text>
+<rect x='452' y='92' width='380.0' height='560.0' rx='12' fill='#f2f8f2' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='466' y='116' text-anchor='start' font-size='15' fill='#2e7d32' font-weight='bold' opacity='1.0'>乘子生成（mlp_complexity）</text>
+<rect x='468' y='136' width='348.0' height='75.0' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='642.0' y='161' text-anchor='middle' font-size='14' fill='green' font-weight='bold' opacity='1.0'>mlp_complexity</text>
+<text x='642.0' y='174.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>Linear(4,16) → ReLU → Linear(16,3)</text>
+<text x='642.0' y='190.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>hidden = feat_dim/2 = 16</text>
+<rect x='468' y='232' width='348.0' height='91.0' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='642.0' y='257' text-anchor='middle' font-size='14' fill='green' font-weight='bold' opacity='1.0'>m = 1 + tanh(logits) · strength</text>
+<text x='642.0' y='270.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>logits [N,3] → 逐字段乘子 m₀ m₁ m₂</text>
+<text x='642.0' y='286.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>strength = complexity_scale × ramp</text>
+<text x='642.0' y='302.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>= 0.35 × clamp((t−20000)/10000, 0, 1)</text>
+<line x1='642' y1='211.0' x2='642' y2='229' stroke='#2e7d32' stroke-width='2.0' marker-end='url(#ar_2e7d32)'/>
+<rect x='468' y='352' width='348.0' height='110.0' rx='8' fill='#ffffff' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='484' y='372' text-anchor='start' font-size='11.5' fill='#2e7d32' font-weight='normal' opacity='1.0'>strength ramp（t: 20k → 30k 线性升 0 → 0.35）</text>
+<line x1='508' y1='440' x2='786' y2='440' stroke='#546e7a' stroke-width='1.2'/>
+<line x1='508' y1='440' x2='508' y2='370' stroke='#546e7a' stroke-width='1.2'/>
+<path d='M508,440 L588,440 L768,378' fill='none' stroke='#2e7d32' stroke-width='2.2'/>
+<path d='M768,378 l-9,2 l3,9 z' fill='#2e7d32'/>
+<text x='768' y='454' text-anchor='middle' font-size='10.5' fill='#2e7d32' font-weight='normal' opacity='1.0'>t=30k →0.35</text>
+<text x='508' y='454' text-anchor='middle' font-size='10.5' fill='#2e7d32' font-weight='normal' opacity='1.0'>t=20k →0</text>
+<rect x='468' y='490' width='348.0' height='73.5' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='642.0' y='513.5' text-anchor='middle' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>为何要 ramp</text>
+<text x='642.0' y='527.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>20k 前保持 HAC++ 原行为（m≡1）</text>
+<text x='642.0' y='543.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>量化感知训练从原行为平滑出发，避免突变</text>
+<rect x='860' y='92' width='476.0' height='560.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='874' y='116' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>最终量化步长（Q0 = HAC++ 基础步长）</text>
+<rect x='876' y='132' width='444.0' height='59.0' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='1098.0' y='157' text-anchor='middle' font-size='14' fill='green' font-weight='bold' opacity='1.0'>Q_feat = 1.0 · (1+tanh qa) · m₀</text>
+<text x='1098.0' y='170.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>基础 1.0 · AQM 调整 · 内容乘子</text>
+<rect x='876' y='220' width='444.0' height='59.0' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='1098.0' y='245' text-anchor='middle' font-size='14' fill='green' font-weight='bold' opacity='1.0'>Q_scaling = 0.001 · (1+tanh qs) · m₁</text>
+<text x='1098.0' y='258.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>基础 0.001</text>
+<rect x='876' y='308' width='444.0' height='59.0' rx='10' fill='green_bg' stroke='green' stroke-width='1.8' opacity='1.0'/>
+<text x='1098.0' y='333' text-anchor='middle' font-size='14' fill='green' font-weight='bold' opacity='1.0'>Q_offsets = 0.2 · (1+tanh qo) · m₂</text>
+<text x='1098.0' y='346.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>基础 0.2</text>
+<rect x='876' y='396' width='444.0' height='89.5' rx='10' fill='#ffffff' stroke='#cfd8dc' stroke-width='1.8' opacity='1.0'/>
+<text x='1098.0' y='419.5' text-anchor='middle' font-size='12.5' fill='#263238' font-weight='bold' opacity='1.0'>使用位置</text>
+<text x='1098.0' y='433.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>训练 &gt;10k：属性 + (rand−0.5)·Q 噪声仿真</text>
+<text x='1098.0' y='449.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>评估/编码：STE_multistep(x, Q, 均值) 硬量化</text>
+<text x='1098.0' y='465.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>解码：同一公式重算 Q → 反量化</text>
+<text x='1098' y='560' text-anchor='middle' font-size='13' fill='#263238' font-weight='bold' opacity='1.0'>直觉</text>
+<text x='876' y='584' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>密集 · 各向异性 · 高偏移能量 · 多活跃偏移  →  m&lt;1  →  细 Q（费比特保质量）</text>
+<text x='876' y='606' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>稀疏 · 各向同性 · 低能量（平滑大区域）  →  m&gt;1  →  粗 Q（省比特）</text>
+<line x1='424' y1='372' x2='466' y2='372' stroke='#2e7d32' stroke-width='2.0' marker-end='url(#ar_2e7d32)'/>
+<path d='M832,372L852,372L852,340L872,340' fill='none' stroke='#2e7d32' stroke-width='2' marker-end='url(#ar_2e7d32)'/>
+<text x='852' y='362' text-anchor='middle' font-size='12' fill='#2e7d32' font-weight='normal' opacity='1.0'>m</text>
+<rect x='24' y='672' width='1312.0' height='104.0' rx='12' fill='#f2f8f2' stroke='#2e7d32' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='696' text-anchor='start' font-size='15' fill='#2e7d32' font-weight='bold' opacity='1.0'>三端一致契约（zero-side-information）</text>
+<text x='40' y='712' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>训练渲染 = 率估计 = 编码 = 解码，四处调用同一 build_formula_complexity_input → mlp_complexity → Q 路径（hacpp.py:610/683/1271/1526/1845）</text>
+<text x='40' y='736' text-anchor='start' font-size='12.5' fill='#263238' font-weight='normal' opacity='1.0'>mlp_complexity 权重按 mlp_* 参数计入 bit_mlp 随码流传给解码端；输入 x 在解码端由已解码量重算 → 编解码 Q 逐位一致（bit-exact 校验通过）</text>
+<text x='40' y='760' text-anchor='start' font-size='12' fill='#c62828' font-weight='normal' opacity='1.0'>消融：去掉乘子（content_aware_quant=False）在 1-78 λ=0.002 掉 0.41 dB；注意：论文正文的 8→32→3 为旧版，PHG v2 删除 4 个恒零图像统计后现为 4→16→3（旧检查点 8 维切片兼容）</text>
+<line x1='16' y1='786' x2='1344' y2='786' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='800' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: hacplus/scene/gaussian_model.py:674–808 · hacplus/utils/codec_consistency.py:77–137 · scaffold_gs/config.py:94–103</text>
+<text x='1342' y='800' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>敏感度如何监督 mlp_complexity → fig05</text>
+</svg>

@@ -1,0 +1,530 @@
+% DCCA-GS -- ICRA 2027 submission (IEEE conference template).
+% Non-experiment parts (abstract / introduction / related work / method) are complete;
+% the experiments section is a skeleton pending the experiment matrix (see
+% docs/05-paper/后续实验计划.md and the HAC++-replication plan).
+% ICRA page budget: 6 pages of content + 2 allowed with fee; references extra.
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{colortbl}
+\usepackage[normalem]{ulem}
+\usepackage{balance}
+
+\newcommand{\DCCA}{DCCA-GS}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+\begin{document}
+
+\title{DCCA-GS: Decoder-Reproducible Content-Adaptive Quantization and\\
+Coverage-Aware Fusion Pruning for Anchor-Based 3D Gaussian Splatting}
+
+\author{\IEEEauthorblockN{Chen Tong}
+\IEEEauthorblockA{Department of ..., University of ...\\
+Email: todo@example.edu}}
+
+\maketitle
+
+\begin{abstract}
+Anchor-based codecs such as HAC++ compress 3D Gaussian Splatting (3DGS) scenes by
+more than an order of magnitude, yet two decisions inside them remain crude. First,
+the quantization step of each anchor is predicted from hash context alone: the
+allocation ignores how complex the local content is and how much it matters to the
+rendered image, and carrying per-anchor step decisions in the bitstream would violate
+the zero-side-information contract that makes anchor codecs practical. Second,
+anchor pruning selects survivors with static, per-anchor scores, which is blind to
+spatial coverage: under a tight budget the score keeps high-sensitivity detail
+anchors and deletes the few anchors that cover large background regions, and
+reconstruction collapses. We present \DCCA{}, which addresses both problems with two
+decoder-reproducible mechanisms. (1)~A \emph{complexity multiplier} rescales the
+quantization step of every anchor by a factor computed from four structural
+statistics that the decoder can recompute exactly; during training the same small
+network is supervised by render-sensitivity statistics, so fine steps flow to anchors
+that matter to the image---without a single bit of side information. (2)~\emph{coverage-aware
+fusion pruning} augments the ADMM sparsification of GaussianSpa with a
+coverage-dominant score that fuses per-anchor coverage with render sensitivity, and
+with a hard projection that keeps at least one anchor per occupied coarse cell. On
+three large-scale UAV scenes, \DCCA{} needs on average $58\%$ of the HAC++ model size
+at matched $\lambda$ while remaining within $0.27$--$0.61$~dB PSNR, ranks first
+among 18 compared methods on a per-scene rank aggregation, and its coverage
+guards eliminate the failure mode behind a $1.56$~dB low-rate collapse at a
+quality cost within measurement noise.
+\end{abstract}
+
+\section{Introduction}
+
+3D Gaussian Splatting (3DGS)~\cite{kerbl2023} represents a scene with explicit
+Gaussian primitives and renders novel views in real time, but high-quality scenes
+require millions of primitives whose attributes dominate storage. Anchor-based
+codecs reduce this cost by organizing Gaussians around a compact set of anchors:
+Scaffold-GS~\cite{lu2024} derives neural Gaussians from anchor features,
+HAC~\cite{chen2024} and HAC++~\cite{chen2025} add hash-grid contexts and
+conditional entropy models, and ContextGS~\cite{wang2024b} models anchor-level
+context. These systems push the rate--distortion frontier far beyond vanilla 3DGS,
+and we build directly on the HAC++ coding pipeline. Two mechanisms inside this
+pipeline, however, allocate the remaining bits crudely, and both are the subject of
+this paper.
+
+\subsection{Bit allocation is content-blind}
+
+HAC++ predicts a \emph{base} quantization step per anchor from hash-grid context
+(adaptive quantization module, AQM). The base step, however, is modulated neither
+by the complexity of the local content nor by the importance of the anchor to the
+rendered image: a flat wall and a cluttered facade that share the same hash context
+receive the same step. Making the step content-adaptive seems to require either an
+explicit per-anchor step array---side information that changes the coding contract
+and costs bits---or latents whose rate must itself be modeled. Our setting forbids
+both: we require \emph{zero side information}, i.e., every signal that influences
+quantization or rate estimation must be recomputable by the decoder from the decoded
+bitstream alone.
+
+The way out is to separate \emph{what the step depends on} from \emph{what guides
+it}. Structural statistics---local anchor density, predicted scaling anisotropy,
+predicted offset energy, and active mask ratio---are functions of quantities the
+decoder already has, so a small network over these statistics is
+\emph{decoder-reproducible} by construction. What this network should \emph{predict}
+is not directly observable at test time, but during training we can measure how much
+each anchor matters: the gradient of the rendering loss with respect to its
+attributes. We therefore train the shared network to regress a render-sensitivity
+target accumulated as an exponential moving average. The supervision exists only in
+the training objective; the bitstream and the decode path are untouched, and the
+encoder--decoder round trip remains bit-exact.
+
+\subsection{Pruning is coverage-blind}
+
+The coarsest rate lever in an anchor codec is the number of surviving anchors.
+Training-side sparsification~\cite{zhang2025gaussianspa} imposes a hard budget
+during optimization via ADMM, so survivors re-adapt to the final budget---strictly
+better than pruning after training. Yet the selection step itself is still a greedy
+top-$k$ over \emph{static, per-anchor} scores. Such scores cannot express the
+statement ``some anchor must remain in this region'': under a tight budget, a score
+dominated by render sensitivity retains cluttered detail anchors and removes the
+sparse anchors that cover large background areas. The result is a \emph{coverage
+hole}: in our experiments, fusing sensitivity into the pruning score without any
+coverage term collapses low-rate reconstruction by $1.56$~dB on scene 1-78 while
+leaving the anchor count almost unchanged---the pruner did not prune too much, it
+pruned the wrong anchors.
+
+We fix this structurally rather than by re-tuning weights. The fused pruning score
+is made \emph{coverage-dominant} (sensitivity is capped at a $0.3$ share), and the
+ADMM hard projection is extended with a coverage constraint: every occupied coarse
+cell of the scene keeps at least one anchor. The constraint is a one-line change to
+the projection step, costs nothing at decode time, and eliminates the collapse
+failure mode. A pre-registered re-validation of the repaired score improves the
+tightest-budget point and holds size parity, but does not clear our improvement
+gates; we therefore report coverage-aware fusion pruning as a robustness
+mechanism rather than a rate--distortion gain, and analyze the signal defects
+behind this boundary in Section~\ref{sec:analysis}.
+
+\subsection{Contributions}
+
+\begin{itemize}
+\item \textbf{Decoder-reproducible content-adaptive quantization.} A complexity
+multiplier $m_i$ rescales the AQM step of anchor $i$ from four structural
+statistics; a single shared $8{\to}32{\to}3$ network produces it, is supervised in
+training by render-sensitivity gradients, and is recomputed bit-exactly by the
+decoder. The bitstream carries no step array and no side information. Removing the
+multiplier costs $0.41$~dB at $\lambda{=}0.002$ on 1-78.
+\item \textbf{Coverage-aware fusion pruning.} On top of the ADMM budget
+sparsification of GaussianSpa~\cite{zhang2025gaussianspa}, which we adopt as-is as
+the base mechanism, we add (i) depth re-initialization at growth stop, which inserts
+surface candidates that must compete under the \emph{existing} budget, and (ii) a
+sensitivity-aware pruning strategy: a coverage-dominant fusion score plus an ADMM
+coverage constraint. The strategy removes the failure mode behind the measured
+$1.56$~dB low-rate collapse at a quality cost within measurement noise;
+Section~\ref{sec:analysis} quantifies this boundary and dissects the signal
+defects that limit the rate--distortion gains of importance-guided selection.
+\item We validate both mechanisms on three large-scale UAV scenes under a uniform
+protocol ($30$k iterations, seed $42$, fp32 sizes, bit-exact decode), and document
+the negative results that shaped the design.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\todo{overview figure: left = anchor codec pipeline with the complexity multiplier
+hooked into AQM; right = SPA projection step with the coverage constraint and the
+fused score}
+\caption{\DCCA{} overview. Both innovations are decoder-reproducible: the
+complexity multiplier lives in the quantization path, the coverage-aware fusion
+pruning lives in the training-side projection. Neither writes anything extra to the
+bitstream.}
+\label{fig:overview}
+\end{figure}
+
+\section{Related Work}
+
+\subsection{Compression of 3D Gaussian Splatting}
+Compact-3DGS methods reduce the primitive count and the per-primitive cost:
+LightGaussian~\cite{fan2024} distills and prunes by global significance,
+Compact3DGS~\cite{lee2024} learns a compact mask, Reduced3DGS~\cite{papantonakis2024}
+sensitively quantizes attributes, MesonGS~\cite{xie2024} transforms attributes
+post-training, and PCGS~\cite{chen2026a} refines masks and quantization
+progressively. Anchor-based codecs organize primitives around shared anchors:
+Scaffold-GS~\cite{lu2024} introduces view-adaptive anchor features,
+HAC~\cite{chen2024} couples anchors with hash-grid contexts, HAC++~\cite{chen2025}
+adds intra-anchor context with a Gaussian mixture likelihood, and
+ContextGS~\cite{wang2024b} models anchor-level context autoregressively. \DCCA{} is
+implemented on the open-source gsplat rasterization library~\cite{ye2024gsplat} and
+reproduces the HAC++ coding pipeline within it; all HAC++ reference numbers used for
+comparison are produced by the official HAC++ implementation under an identical
+protocol. \DCCA{} is
+orthogonal to these probability-modeling improvements: it changes \emph{which} step
+each anchor is quantized with and \emph{which} anchors survive, while keeping the
+HAC++ bitstream contract.
+
+\subsection{Rate--Distortion Optimization and Adaptive Quantization}
+Learned image compression optimizes a differentiable rate estimate jointly with
+distortion~\cite{balle2018,cheng2020} and allocates precision through learned
+latents. RDO-Gaussian~\cite{wang2024a}, CompGS~\cite{liu2024b}, and
+CAT-3DGS~\cite{zhan2025} transfer this recipe to 3DGS. In all of them, per-element
+precision is carried by the latent itself and its cost by the entropy model. Our
+constraint is stricter: no signal beyond the decoded bitstream may influence
+quantization. The complexity multiplier therefore consumes only structural
+statistics and is guided, in training only, by render sensitivity---a mechanism
+reminiscent of perceptual JND (just-noticeable-difference) weighting in image
+codecs, but realized as a decoder-reproducible network rather than a side
+information channel.
+
+\subsection{Sparsification and Anchor Placement}
+HAC~\cite{chen2024} and HAC++~\cite{chen2025} promote offset sparsity with mask
+losses folded into rate estimation. GaussianSpa~\cite{zhang2025gaussianspa}
+sparsifies during training by alternating a smooth sub-problem with a hard top-$k$
+projection---the ADMM structure we adopt as the budget mechanism. Placement has
+been studied by Mini-Splatting~\cite{fang2024}, which re-initializes Gaussians from
+depth back-projection and simplifies by contribution; we borrow only its
+depth-reinitialization idea, run it once at growth stop, and force the new
+candidates to compete under the existing ADMM budget instead of growing the model.
+What is missing in all of these selection rules is spatial coverage: scores are
+per-anchor and static, so no rule can express ``this region must stay covered''.
+Our fusion pruning contributes exactly this missing piece, both softly
+(coverage-dominant score) and structurally (a hard projection constraint).
+
+\section{Method}
+
+\subsection{Preliminaries and Coding Contract}
+We build on an anchor-based codec with $N$ anchors and $K$ offsets per anchor. Each
+anchor carries features $a_i\in\mathbb{R}^{D_a}$, scaling parameters, offsets, and a
+binary offset mask; each valid offset instantiates one neural Gaussian whose color
+and opacity are decoded by shared MLPs from a hash grid. The codec is trained with
+the Lagrangian objective
+\begin{equation}
+\min_{\theta}\; D(\theta) + \lambda\, R(\theta),
+\label{eq:rd}
+\end{equation}
+where $\theta$ collects all coded parameters and $R$ is a differentiable rate
+estimate. Following HAC++, the base quantization step of anchor $i$ for field $f$
+(feature, scaling, or offset) is predicted from hash context by the AQM,
+$Q^{\mathrm{AQM}}_{i,f}$.
+
+\emph{Zero-side-information contract.} The decoder may use: (i) the decoded
+bitstream, (ii) the stored entropy-model and decoder weights, and (iii) any function
+of already-decoded quantities (hash grid, anchor geometry, masks, decoded MLP
+outputs). Anything else---per-anchor steps, importance maps, sensitivity
+maps---is forbidden. Both mechanisms below respect this contract by construction;
+the encoder--decoder round trip is verified bit-exactly for every reported run.
+
+\subsection{Complexity Multiplier with Render-Sensitivity Supervision}
+\label{sec:multiplier}
+
+\subsubsection{Multiplier}
+The final step used to quantize anchor $i$, field $f$, is
+\begin{equation}
+Q_{i,f} \;=\; Q^{\mathrm{AQM}}_{i,f}\,
+\bigl(1+\tanh q^{\mathrm{AQM}}_{i,f}\bigr)\,
+\bigl(1+\alpha\,\tanh m_{i,f}\bigr),
+\label{eq:q}
+\end{equation}
+where $\alpha$ ramps from $0$ to a configured scale during training so that
+quantization-aware training starts from the HAC++ behaviour. The multiplier is
+produced by a small shared network, $m_{i,f}=[\mathrm{MLP}_c(x_i)]_{f}$ with
+$\mathrm{MLP}_c: 8{\to}32{\to}3$, from the input vector $x_i$ of four structural
+statistics: \emph{local anchor density} $\rho_i$ (occupancy of the anchor's voxel
+neighbourhood), \emph{predicted scaling anisotropy} (spread of the decoded
+$\log$-scales), \emph{predicted offset energy} (norm of the decoded offsets), and
+\emph{active mask ratio} (fraction of surviving offsets). All four are functions of
+quantities the decoder possesses after decoding the grid and the anchor attributes,
+so $\mathrm{MLP}_c$---whose weights are stored in the bitstream as part of the
+entropy model---is evaluated identically at both ends. This is the same property
+that makes AQM itself decoder-reproducible; we extend it from a context-derived
+\emph{base} step to a content-adaptive \emph{modulation} of that step. Intuitively,
+$\mathrm{MLP}_c$ lowers the step (finer quantization) where content is dense,
+anisotropic, and high-energy, and raises it where few, isotropic, low-energy
+anchors cover smooth regions.
+
+\subsubsection{Render-sensitivity supervision}
+Nothing in $x_i$ says whether the anchor \emph{matters}. During training we measure
+exactly that: retaining gradients through the quantization-aware forward pass, we
+accumulate per-anchor sensitivity
+\begin{equation}
+s_i \;=\; \mathrm{EMA}_\tau\Bigl(\bigl\lVert \partial \mathcal{L}_{\mathrm{render}}
+/ \partial u_i \bigr\rVert_1\Bigr),
+\label{eq:sens}
+\end{equation}
+where $u_i$ collects the pre-quantization attributes generated by anchor $i$ and
+$\tau$ is the EMA decay. A bounded, per-frame-normalized target is derived from
+$s_i$, and $\mathrm{MLP}_c$ is trained with an additional MSE regression term
+weighted by $\lambda_{\mathrm{sens}}$. The target exists only in the training
+objective: at test time the decoder runs $\mathrm{MLP}_c$ on $x_i$ alone. The
+network therefore learns to \emph{predict} sensitivity from structure, and the
+prediction modulates the step---fine steps flow to anchors that matter to the
+rendered image, coarse steps to anchors that do not.
+
+\subsection{Coverage-Aware Fusion Pruning}
+\label{sec:fusion}
+
+\subsubsection{Base mechanism: ADMM budget sparsification}
+We adopt the training-side sparsification of GaussianSpa~\cite{zhang2025gaussianspa}
+as-is. With $a_i$ the anchor mask score, a binary state $z_i$, dual variable $u_i$,
+and budget $\kappa$, each projection step solves
+\begin{equation}
+z=\mathrm{TopK}(a+u,\ \kappa),\qquad
+u=\mathrm{clamp}\!\left(u+a-z,\ \pm 1\right),
+\label{eq:spa}
+\end{equation}
+and anchors with $z_i=0$ are pruned while the survivors continue to train under the
+budget. The budget is ramped down from the historical maximum anchor count during
+the growth phase. This mechanism decides \emph{how many} anchors survive; our
+additions decide \emph{which} ones.
+
+\subsubsection{Depth re-initialization under the fixed budget}
+Anchor growth stops early in training, and the anchors are clustered where initial
+SfM points happen to be. Following the depth-reinitialization idea of
+Mini-Splatting~\cite{fang2024}---and \emph{only} that idea---we render depth maps
+for $V$ sampled training cameras at growth stop, back-project them to surface
+points, voxelize them, and append the highest-coverage candidates as new anchors.
+Crucially, the SPA budget $\kappa$ is \emph{not} increased: the new candidates must
+displace existing anchors through the projection in \eqref{eq:spa}. This lets the
+anchor set migrate toward the true scene surface without growing the model.
+
+\subsubsection{Sensitivity-aware fusion score}
+The projection in \eqref{eq:spa} ranks anchors by the static mask score $a_i$.
+We replace the ranking by a fused importance
+\begin{equation}
+\hat{s}_i \;=\; (1-w)\,c_i \;+\; w\,t_i \;+\; \beta\, a_i ,
+\qquad w \le w_{\max}=0.3,
+\label{eq:fusion}
+\end{equation}
+where $c_i$ is the \emph{coverage} of anchor $i$ (its accumulated projected area in
+the rasterizer's per-anchor bookkeeping, normalized), $t_i$ is the
+\emph{render sensitivity} of Section~\ref{sec:multiplier} (normalized), and $\beta$
+keeps the original mask score as a tiebreaker. The cap $w_{\max}$ is the load-bearing
+detail: an unconstrained $w$ lets sensitivity dominate, and we measured the
+consequence---on 1-78 at $\lambda{=}0.004$, an $w{=}0.5$ fusion collapses decoded
+PSNR from $27.51$ to $25.95$~dB at an almost unchanged anchor count
+($507.8$k vs.\ $506.0$k): the pruner kept high-sensitivity detail anchors and
+deleted low-sensitivity anchors that covered large background regions, opening
+coverage holes. With $w\le0.3$, coverage is always the dominant term.
+
+\subsubsection{ADMM coverage constraint}
+The soft cap is complemented by a structural guarantee. Partition the scene into
+coarse cells of size $\delta$ (we use $\delta=0.05$ in scene units); at each hard
+projection, every occupied cell must keep at least one anchor:
+\begin{equation}
+\sum_{i\in C} z_i \;\ge\; 1 \quad \forall\, C \text{ occupied},
+\label{eq:cov}
+\end{equation}
+implemented by protecting the best-scoring anchor of each occupied cell before the
+top-$k$ of \eqref{eq:spa}. The constraint costs nothing at decode time and is
+unconditional: whatever the fused scores say, no region of the scene can go
+unrepresented. In our measurements the constraint alone rarely changes the anchor
+count (e.g., $671{,}570$ vs.\ $671{,}497$ on 4-10); its value is that the failure
+mode of \eqref{eq:fusion} is impossible by construction, which is what allowed the
+fusion to be enabled at the low-rate operating points at all.
+
+\begin{algorithm}[t]
+\caption{\DCCA{} training loop (per iteration)}
+\label{alg:loop}
+\begin{algorithmic}[1]
+\STATE render, compute $\mathcal{L}=\mathcal{L}_{\mathrm{render}}+\lambda R + \lambda_{\mathrm{sens}}\lVert \mathrm{MLP}_c(x)-s\rVert^2$ \COMMENT{Eq.~\eqref{eq:sens}}
+\STATE update anchor growth; accumulate coverage $c_i$ and sensitivity $s_i$
+\IF{ADMM projection step}
+  \STATE $\hat{s}_i=(1-w)c_i + w t_i + \beta a_i$ \COMMENT{Eq.~\eqref{eq:fusion}, $w\le0.3$}
+  \STATE protect $\arg\max_{i\in C}\hat{s}_i$ per occupied cell $C$; project $z=\mathrm{TopK}(\hat{s}+u,\kappa)$ \COMMENT{Eq.~\eqref{eq:cov}}
+  \STATE update $u$; prune $z_i=0$
+\ENDIF
+\IF{growth stop $T_r$}
+  \STATE back-project sampled depths; append voxelized candidates under fixed $\kappa$
+\ENDIF
+\STATE quantize with $Q_{i,f}$ \COMMENT{Eq.~\eqref{eq:q}; $\mathrm{MLP}_c$ shared, decoder-recomputed}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{What the Decoder Recomputes}
+Table~\ref{tab:contract} audits the coding contract. Both innovations consume only
+decoder-recomputable signals at test time; the sensitivity target and the coverage
+statistics are training-side only and are never encoded. The complete encode
+$\to$ decode $\to$ evaluate pipeline is exercised on every reported operating
+point, and a bit-exact round-trip diagnostic confirms that the decoded model is
+identical to the one the encoder measured.
+
+\begin{table}[t]
+\centering
+\caption{Zero-side-information audit.}
+\label{tab:contract}
+\begin{tabular}{p{0.31\linewidth}p{0.28\linewidth}p{0.22\linewidth}}
+\toprule
+Signal & Producer & In bitstream? \\
+\midrule
+Base step $Q^{\mathrm{AQM}}$ & hash context (HAC++) & weights only \\
+Complexity input $x_i$ & decoded grid/anchors/masks & no \\
+Multiplier $m_{i,f}$ & shared $\mathrm{MLP}_c$ & weights only \\
+Sensitivity target $s_i$ & training gradients & training only \\
+Coverage $c_i$ & rasterizer bookkeeping & training only \\
+Fusion score $\hat{s}_i$ & training-side projection & training only \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Setup}
+We evaluate on three large-scale UAV scenes (1-78, 2-06, 4-10; 1{,}200 images
+each, 150 validation views). The default protocol trains for 30k iterations
+(60k in the iteration study) with feature dimension 32, 10 offsets, seed 42,
+$\mathrm{data\_factor}{=}1$, 1600-px width, and one validation pass out of
+every 8 views. All sizes are decode-required payload with fp32 decoder weights
+(HAC++ accounting), and every operating point is produced by the full
+encode\,$\to$\,decode\,$\to$\,evaluate pipeline with a bit-exact round-trip
+diagnostic. Comparison numbers come from two sources: (i)~a shared evaluation
+table covering 18 methods on the same scenes\,—\,compiled by a third party;
+the per-method protocol is not re-verified, so we treat it as a breadth
+reference and flag it accordingly; and (ii)~our own runs of the
+\emph{official} HAC++ implementation under an identical protocol on scene
+1-78, which we use as the rigorous reference. \DCCA{}-base denotes the
+complexity multiplier (I2+I6) on top of SPA and depth re-initialization;
+\DCCA{}-full additionally enables coverage-aware fusion pruning.
+
+\subsection{Main comparison}
+Table~\ref{tab:main} reports one operating point per method (PSNR / size in
+MB). On 1-78, the \DCCA{}-base point dominates every entry of the shared
+table on both axes simultaneously; on 2-06 and 4-10 it is the smallest model
+within 0.42 and 0.06~dB of the best entry, respectively. Aggregating the
+three scenes with the rank score
+$\mathrm{rank}(\mathrm{PSNR})/6+\mathrm{rank}(\mathrm{SSIM})/6+
+\mathrm{rank}(\mathrm{LPIPS})/6+\mathrm{rank}(\mathrm{Size})/2$ (rank~1
+best, averaged over scenes), \DCCA{} scores 3.17 versus 3.56 for HAC++, the
+best of the 18 compared methods. Against the stricter, same-protocol
+official HAC++ runs on 1-78 (27.84~dB at 20.0~MB, 28.21 at 26.3, 28.68 at
+40.6), \DCCA{}-base at 30k trades quality for size
+($-0.27$ to $-0.61$~dB at $58\%$ of the size at matched $\lambda$).
+
+\begin{table*}[t]
+\centering
+\caption{Decoded-view PSNR (dB) / model size (MB) on three large-scale UAV
+scenes, one operating point per method. Shared-table entries are single
+points compiled by a third-party evaluation (protocol not re-verified);
+\DCCA{} rows are decoded bitstreams under the uniform 30k/seed-42/fp32
+protocol at $\lambda{=}0.002$.}
+\label{tab:main}
+\small
+\begin{tabular}{lccc}
+\toprule
+Method & 1-78 & 2-06 & 4-10 \\
+\midrule
+HAC++~\cite{chen2025} & 27.14 / 17.2 & 28.51 / 21.0 & 28.76 / 17.4 \\
+PC-GS & 23.09 / 12.0 & 26.26 / 15.1 & 26.36 / 11.8 \\
+CAT & 23.40 / 14.3 & 25.72 / 15.4 & 26.29 / 13.1 \\
+ContextGS~\cite{wang2024b} & 24.90 / 29.3 & 27.20 / 26.8 & 27.39 / 22.6 \\
+HAC~\cite{chen2024} & 24.83 / 21.7 & 26.86 / 26.8 & 26.94 / 20.9 \\
+RDO-Gaussian~\cite{wang2024a} & 23.91 / 11.2 & 25.14 / 14.7 & 24.68 / 6.4 \\
+Scaffold-GS~\cite{lu2024} & 24.63 / 286.1 & 27.21 / 250.2 & 27.21 / 202.0 \\
+Compact3D & 24.27 / 21.5 & 25.68 / 33.6 & 25.53 / 19.9 \\
+gsplat~\cite{ye2024gsplat} (uncompressed) & 26.02 / 604 & 27.63 / 606 & 26.82 / 610 \\
+3DGS~\cite{kerbl2023} (uncompressed) & 26.06 / 604 & 27.76 / 606 & 27.02 / 610 \\
+TC-GS & 23.41 / 17.7 & 24.84 / 15.7 & 25.99 / 18.6 \\
+Compact3DGS~\cite{lee2024} & 24.38 / 59.6 & 25.75 / 86.1 & 25.40 / 51.4 \\
+Mini-Splatting~\cite{fang2024} & 23.60 / 21.3 & 25.11 / 30.3 & 25.20 / 28.6 \\
+FC-GS & 19.51 / 47.1 & 20.25 / 59.6 & 21.94 / 59.7 \\
+LightGaussian~\cite{fan2024} & 24.35 / 281.7 & 26.22 / 407.5 & 25.46 / 194.9 \\
+GaussianSpa~\cite{zhang2025gaussianspa} & 24.37 / 106.5 & 25.13 / 107.2 & 25.50 / 99.6 \\
+Octree-GS & 20.33 / 21.5 & 21.29 / 15.7 & 24.55 / 34.7 \\
+\midrule
+\DCCA{}-base (I2+I6) & 27.75 / 15.0 & 28.09 / 16.4 & 28.70 / 15.7 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Training iterations}
+Doubling the budget from 30k to 60k improves \DCCA{}-base by $+0.44$ dB at
+$\lambda{=}0.004$ (27.95~dB at 12.5~MB), $+0.62$~dB at $\lambda{=}0.002$
+(28.37 at 16.7), and $+0.23$~dB at $\lambda{=}0.0005$ (28.18 at 25.8).
+At 60k the $\lambda{=}0.004$ and $\lambda{=}0.002$ points dominate the
+\emph{30k} HAC++ references on both axes; we emphasize the iteration mismatch:
+HAC++ likewise improves substantially with 60k
+(their reported BD-rate gain is $-32.9\%$), so this is a budget-matched
+trend, not a claim against HAC++ at 60k.
+
+\subsection{Analysis: importance-guided pruning under sparse coverage}
+\label{sec:analysis}
+With fusion pruning engaged (verified by per-projection engagement logging in
+$>89\%$ of projections), a six-point scoreboard against \DCCA{}-base shows
+the mechanism at parity overall ($-0.20$, $+0.10$, $+0.08$~dB at 30k for
+$\lambda{=}0.004/0.002/0.0005$; $-0.01$, $-0.23$, $-0.12$ at 60k), with a
+consistent pattern: gains at mild budgets, losses where pruning pressure is
+highest. Instrumentation explains the pattern. The coverage signal is
+computed from a fixed sample of 8 training views and max-normalized; the
+resulting per-anchor vector is extremely skewed (mean $\approx 0.000$: a
+handful of anchors hold the entire normalized mass, the silent majority is
+exactly zero). The additive score $0.7\,\tilde{c} + 0.3\,\tilde{s} +
+0.25\,(a+u)$ therefore pins its scale on a few anchors and demotes the
+calibrated ADMM score to a third-order term for the unseen majority---exactly
+where ranking noise is executed most often, i.e., at the tightest budget.
+Two structural guards remained effective throughout: the sensitivity cap
+($w \le 0.3$) and the per-cell coverage constraint prevent the catastrophic
+failure mode of an uncapped fusion (a $1.56$~dB collapse at
+$\lambda{=}0.004$), bounding the damage to parity. Based on this analysis
+the score was revised to a rotating-view coverage EMA (1080 distinct view
+samples over training), percentile normalization, and a multiplicative
+modulation $(a+u)\,(1+\gamma\,\tilde{\imath})$ that leaves the calibrated
+ADMM ranking of zero-coverage anchors untouched. The revision thickens the
+coverage distribution as designed (coverage $p50$ rises from $0.000$ to
+$0.176$) and improves the tightest-budget point ($+0.06$~dB at
+$\lambda{=}0.004$, now size-neutral), but does not clear our pre-registered
+improvement gates ($\ge 27.46$ at $\lambda{=}0.004$,
+$\ge 27.80$ at $\lambda{=}0.002$ on 1-78; the latter passed by $0.009$~dB).
+We therefore position coverage-aware fusion pruning as a robustness
+mechanism: its guards eliminate the collapse failure mode at an RD cost
+that is within noise, rather than as a rate--distortion improvement.
+
+\subsection{Negative results}
+We document the directions that did not survive measurement. (i)~A DINO
+semantic prior is predictable from decoder-recomputable features ($r=0.60$
+with rich context) but is the wrong target: semantic identity does not
+correspond to quantization importance, and the predictor gate initially
+passed on an input set richer than the one the supervised network actually
+receives. (ii)~An opacity-weighted reconstruction loss (per-pixel importance
+from rendered alpha) degrades PSNR at two of three $\lambda$ settings. (iii)~MLP
+weight quantization saves only $\sim$0.5\% of the payload and its original
+implementation mixed quantized-size accounting with a float32 model; we
+removed it rather than report the inconsistent number. (iv)~A sensitivity
+side-information variant increases the payload with no quality gain and is
+disabled. (v)~Hierarchical context adds size for negligible gain. These
+negatives shaped the two retained mechanisms: every signal that survives is
+either decoder-reproducible (quantization) or training-only (pruning).
+
+\section{Conclusion}
+\DCCA{} makes two decisions inside anchor-based 3DGS compression content-aware
+without spending a bit of side information. A decoder-reproducible complexity
+multiplier, supervised in training by render sensitivity, allocates quantization
+precision where the image needs it. Coverage-aware fusion pruning, built on ADMM
+budget sparsification, decides which anchors survive by what they cover---not only
+by how complex they look---and removes the catastrophic low-rate failure mode at a
+quality cost within measurement noise. Across three large-scale UAV scenes the
+framework holds $58\%$ of the HAC++ model size at matched $\lambda$ within
+$0.27$--$0.61$~dB, and aggregates the highest per-scene rank among 18 compared
+methods. Both mechanisms respect the same
+principle: every signal that shapes the bitstream must be recomputable from the
+bitstream itself.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

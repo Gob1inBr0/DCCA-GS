@@ -1,0 +1,50 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1360' height='860' viewBox='0 0 1360 860' font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',Helvetica,Arial,sans-serif"><defs><marker id='ar_e65100' markerWidth='9' markerHeight='9' refX='7' refY='4.5' orient='auto'><path d='M0,0 L8,4.5 L0,9 z' fill='#e65100'/></marker></defs>
+<rect x='8' y='8' width='1344' height='844' rx='14' fill='#fdfefe' stroke='#cfd8dc' stroke-width='1.5'/>
+<text x='680.0' y='40' text-anchor='middle' font-size='21' font-weight='bold' fill='#263238'>深度再初始化：@15000 用深度反投影给锚点“搬家”（预算不增）</text>
+<text x='680.0' y='62' text-anchor='middle' font-size='12.5' fill='#546e7a'>SfM 初始点聚集偏离真实表面 → 停止生长时渲染深度、反投影出表面候选锚；预算 κ 钉死，候选必须挤掉旧锚才能活——向表面迁移而不长大模型</text>
+<rect x='24' y='92' width='700.0' height='580.0' rx='12' fill='#fff6ec' stroke='#e65100' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='116' text-anchor='start' font-size='15' fill='#e65100' font-weight='bold' opacity='1.0'>流程（mini_splat_reinit，一次性）</text>
+<rect x='40' y='132' width='668.0' height='42.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='374.0' y='156' text-anchor='middle' font-size='13' fill='orange' font-weight='bold' opacity='1.0'>① 触发：it = 15000（mini_splat_reinit_iter，恰为生长停止刻）</text>
+<rect x='40' y='196' width='668.0' height='58.0' rx='10' fill='red_bg' stroke='red' stroke-width='1.8' opacity='1.0'/>
+<text x='374.0' y='220' text-anchor='middle' font-size='13' fill='red' font-weight='bold' opacity='1.0'>② 锁预算：spa_final_n ← 当前锚数 N_before（此后 κ 不再上涨）</text>
+<text x='374.0' y='233.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>再初始化不给“免费名额”</text>
+<rect x='40' y='274' width='668.0' height='42.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='374.0' y='298' text-anchor='middle' font-size='13' fill='orange' font-weight='bold' opacity='1.0'>③ 均匀采样 mini_splat_views = 8 个训练相机</text>
+<rect x='40' y='338' width='668.0' height='58.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='374.0' y='362' text-anchor='middle' font-size='13' fill='orange' font-weight='bold' opacity='1.0'>④ 逐视角：gsplat 渲染深度（render_mode=&quot;D&quot;）</text>
+<text x='374.0' y='375.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>有效像素：depth&gt;0 ∧ alpha&gt;0.05 · 用 K、c2w 反投影为表面点</text>
+<rect x='40' y='418' width='668.0' height='58.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='374.0' y='442' text-anchor='middle' font-size='13' fill='orange' font-weight='bold' opacity='1.0'>⑤ 体素化：每占用体素取均值点 → _voxel_subsample 上限 4000</text>
+<text x='374.0' y='455.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>seed=42 确定性子采样（mini_splat_max_new）</text>
+<rect x='40' y='492' width='668.0' height='58.0' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='374.0' y='516' text-anchor='middle' font-size='13' fill='orange' font-weight='bold' opacity='1.0'>⑥ append_depth_anchors：新锚 scaling=log(voxel)，offsets=0，</text>
+<text x='374.0' y='529.5' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>masks=1，opacity=0.1，feat=0；全部 per-anchor 状态 pad（fig06 清单）</text>
+<line x1='374' y1='174' x2='374' y2='193' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='374' y1='254.0' x2='374' y2='271' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='374' y1='316' x2='374' y2='335' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='374' y1='396.0' x2='374' y2='415' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<line x1='374' y1='476.0' x2='374' y2='489' stroke='#e65100' stroke-width='2.0' marker-end='url(#ar_e65100)'/>
+<rect x='748' y='92' width='588.0' height='300.0' rx='12' fill='#fff6ec' stroke='#e65100' stroke-width='1.4' opacity='1.0'/>
+<text x='762' y='116' text-anchor='start' font-size='15' fill='#e65100' font-weight='bold' opacity='1.0'>之后：竞争淘汰（核心设计）</text>
+<rect x='764' y='132' width='556.0' height='106.5' rx='10' fill='orange_bg' stroke='orange' stroke-width='1.8' opacity='1.0'/>
+<text x='1042.0' y='156.5' text-anchor='middle' font-size='13.5' fill='orange' font-weight='bold' opacity='1.0'>候选 ≠ 保留</text>
+<text x='1042.0' y='170.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>后续 SPA 投影 κ 不变（0.85·spa_final_n）</text>
+<text x='1042.0' y='186.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>新表面候选必须在融合分数（fig07）下挤掉旧锚</text>
+<text x='1042.0' y='202.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>→ 锚点集合向真实表面迁移，模型体积不增长</text>
+<text x='1042.0' y='218.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>等效于“用更好的位置换掉差的位置”</text>
+<rect x='748' y='412' width='588.0' height='260.0' rx='12' fill='#f5f7f8' stroke='#607d8b' stroke-width='1.4' opacity='1.0'/>
+<text x='762' y='436' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>full 模式（mini_splat_full=True，默认关）</text>
+<rect x='764' y='452' width='556.0' height='89.5' rx='10' fill='grey_bg' stroke='grey' stroke-width='1.8' stroke-dasharray='7,4' opacity='1.0'/>
+<text x='1042.0' y='475.5' text-anchor='middle' font-size='12.5' fill='grey' font-weight='bold' opacity='1.0'>附加两步</text>
+<text x='1042.0' y='489.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>· blur split：贡献面积 &gt; 0.01 的锚在其子高斯 xyz 处分裂新锚</text>
+<text x='1042.0' y='505.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>· 按贡献面积 top-κ 简化，spa_final_n=κ、spa_ratio=1.0</text>
+<text x='1042.0' y='521.0' text-anchor='middle' font-size='11.5' fill='#546e7a' font-weight='normal' opacity='1.0'>（借鉴 Mini-Splatting 的 blur split；主路径只取深度反投影思想）</text>
+<rect x='24' y='692' width='1312.0' height='100.0' rx='12' fill='#fdfefe' stroke='#78909c' stroke-width='1.4' opacity='1.0'/>
+<text x='38' y='716' text-anchor='start' font-size='15' fill='#263238' font-weight='bold' opacity='1.0'>动机与边界</text>
+<text x='40' y='732' text-anchor='start' font-size='13' fill='#263238' font-weight='normal' opacity='1.0'>动机：锚点初始位置来自 SfM 稀疏点，天然聚集在纹理区；生长停止后位置不再更新 → 深度反投影是唯一低成本的“纠位”机会</text>
+<text x='40' y='758' text-anchor='start' font-size='13' fill='#263238' font-weight='normal' opacity='1.0'>边界：只借 Mini-Splatting 的“深度反投影再初始化”思想；不采其无预算分裂——所有新锚进入既有 ADMM 预算竞争（这是与 Mini-Splatting 的本质区别）</text>
+<line x1='16' y1='826' x2='1344' y2='826' stroke='#cfd8dc' stroke-width='1'/>
+<text x='18' y='840' text-anchor='start' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>代码: scaffold_gs/hacpp.py:878–995（mini_splat_reinit） · scaffold_gs/mini_splat.py:29–174/282–392 · hacplus/scene/gaussian_model.py:1472–1577（append）</text>
+<text x='1342' y='840' text-anchor='end' font-size='10.5' fill='#546e7a' font-weight='normal' opacity='1.0'>views=8 · max_new=4000 · seed=42</text>
+</svg>
