@@ -28,13 +28,22 @@ FUSION="--cfg.model.fusion-prune --cfg.model.spa-coverage-constraint --cfg.model
 B="--cfg.model.spa-post-ratio 0.85"
 R100="--cfg.model.spa-post-ratio 1.0"
 
+# ALL_DONE lands in the RUNNER's stdout, i.e. ${tag}.launch.log (the
+# scheduler redirects it there); the trainer log ${tag}.log never contains
+# it. Check launch.log first, fall back to the trainer log for wave1-style
+# launches that redirected differently.
+arm_done() {
+  grep -qa "ALL_DONE" "$ROOT/$1.launch.log" 2>/dev/null \
+    || grep -qa "ALL_DONE" "$ROOT/$1.log" 2>/dev/null
+}
+
 gpu_busy() {
   local g=$1
   local lock="$ROOT/.qlock_$g"
   [ -f "$lock" ] || return 1
   local tag
   tag=$(cat "$lock")
-  if grep -qa "ALL_DONE" "$ROOT/${tag}.log" 2>/dev/null; then
+  if arm_done "$tag"; then
     rm -f "$lock"; return 1
   fi
   return 0
@@ -52,7 +61,7 @@ pick_gpu() {
   return 1
 }
 
-# Our arms still holding a GPU (lock present, runner log has no ALL_DONE).
+# Our arms still holding a GPU (lock present, runner not ALL_DONE yet).
 # The GPU-2 hold tag is a placeholder, not a job: excluded from the count.
 our_busy_arms() {
   local n=0 f tag
@@ -60,7 +69,7 @@ our_busy_arms() {
     [ -f "$f" ] || continue
     case "$f" in *".qlock_2") continue ;; esac
     tag=$(cat "$f" 2>/dev/null) || continue
-    grep -qa "ALL_DONE" "$ROOT/${tag}.log" 2>/dev/null || n=$((n + 1))
+    arm_done "$tag" || n=$((n + 1))
   done
   echo "$n"
 }
@@ -106,7 +115,7 @@ while true; do
     IFS='|' read -r tag lam seed extra <<< "$job"
     [ "${DONE[$tag]:-0}" = "1" ] && continue
     all_done=0
-    if grep -qa "ALL_DONE" "$ROOT/${tag}.log" 2>/dev/null; then
+    if arm_done "$tag"; then
       DONE[$tag]=1; echo "SKIP_ALREADY_DONE $tag $(date)" >> "$QLOG"; continue
     fi
     if tag_in_any_lock "$tag"; then
