@@ -108,6 +108,12 @@ jobs=(
   "r2_I6off_new_r085_lam0002_s42|0.002|42|$B --cfg.model.sensitivity-weight 0.0"
   "r2_B1_postw5000_r085_lam0002_s42|0.002|42|$B --cfg.model.spa-post-window 5000"
   "r2_B1_postw10000_r085_lam0002_s42|0.002|42|$B --cfg.model.spa-post-window 10000"
+  # G-F determinism pair: s42 gave +0.045 dB (inside the 0.058 dB dup-run
+  # noise floor). If the s104 pair also lands positive ~+0.04, keep the
+  # fisher flag as an undocumented option (paper body stays silent on it);
+  # if it flips negative, record negative and leave the flag off.
+  "r2_fusA_new_r085_lam0004_s104|0.004|104|$FUSION"
+  "r2_fisher_fusA_r085_lam0004_s104|0.004|104|$FUSION --cfg.model.sensitivity-second-order --cfg.model.sensitivity-use-fisher"
 )
 
 declare -A DONE
