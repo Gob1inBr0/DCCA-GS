@@ -17,7 +17,9 @@ ulimit -n 65536
 DCCA_ROOT=/home/project2/DCCA-GS-git
 export PATH="/home/project2/tmc13:$PATH"
 DCCA_PY=/home/project2/miniconda3/envs/DCCA/bin
-ROOT=/dev/shm/dcca_runs
+# Run storage moved to persistent NFS (9-18): /dev/shm filled up and crashed
+# a compress job; all run dirs, locks and runner logs now live here.
+ROOT=/mnt/newproject2/dcca_runs
 DATA=/dev/shm/dcca_data/1-78/data
 QLOG="$ROOT/jr2_total_queue.log"
 WHITELIST="0 1 3 4 5 6 7"
