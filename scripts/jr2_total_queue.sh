@@ -105,7 +105,7 @@ jobs=(
   "r2_A3_delayed_r085_lam0002_s42|0.002|42|$FUSION --cfg.model.submodular-mode cover_sens --cfg.model.sensitivity-start-iter 20000"
   "r2_w020_fusA_r085_lam0004_s42|0.004|42|$FUSION --cfg.model.fusion-sensitivity-weight 0.20"
   "r2_w010_fusA_r085_lam0004_s42|0.004|42|$FUSION --cfg.model.fusion-sensitivity-weight 0.10"
-  "r2_I6off_new_r085_lam0002_s42|0.002|42|$B --cfg.model.sensitivity-weight 0.0"
+  "r2_I6off_new_r085_lam0002_s42|0.002|42|$B --cfg.model.no-sensitivity-enabled"
   "r2_B1_postw5000_r085_lam0002_s42|0.002|42|$B --cfg.model.spa-post-window 5000"
   "r2_B1_postw10000_r085_lam0002_s42|0.002|42|$B --cfg.model.spa-post-window 10000"
   # G-F determinism pair: s42 gave +0.045 dB (inside the 0.058 dB dup-run
