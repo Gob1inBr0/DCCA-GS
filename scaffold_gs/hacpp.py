@@ -205,6 +205,21 @@ class HACPlusModel(BaseGaussianModel):
         # 0d safety-regression switch: lift the 0.3 coverage-dominance cap so
         # the uncapped fusion arm (expected collapse) can be measured.
         self.core.fusion_uncap = bool(getattr(cfg, "fusion_uncap", False))
+        # Submodular v2 (cover_sens) needs this copy: the projection reads it
+        # via getattr with a False default, so a missing copy silently degrades
+        # cover_sens to pure coverage (2026-09-19 provenance audit: every
+        # historical A3 run executed v1 semantics — see ckpt evidence in
+        # docs/03-reports/A3臂实现核查与来源调查_20260919.md).
+        self.core.submodular_sens_weighted = bool(
+            getattr(cfg, "submodular_sens_weighted", False)
+        ) or str(getattr(cfg, "submodular_mode", "off")) == "cover_sens"
+        print(
+            "[Submod] mode={} sens_weighted={}".format(
+                getattr(cfg, "submodular_mode", "off"),
+                self.core.submodular_sens_weighted,
+            ),
+            flush=True,
+        )
         # Phase 0 post-reinit budget: MUST be copied onto the core — the
         # projection reads these via getattr with no-op defaults (1.0/2000),
         # and a missing copy silently reproduces the legacy protocol.
