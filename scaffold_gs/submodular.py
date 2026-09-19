@@ -5,11 +5,11 @@ greedy maximization of the covered pixel-block mass:
 
     max_{|S|=kappa}  sum_b  w_b * max_{i in S} c_{i,b}      (blocks counted once)
 
-v1: w_b = 1 (pure coverage).  v2: w_b = mean sensitivity of the anchors
-contributing to block b (coverage x importance).
+v1: w_b = 1 (pure coverage).  v2: each (anchor, block) pair mass is scaled
+by (1 + anchor sensitivity) — coverage x importance per design §4.1.
 
 Engineering cost controls (design §4.1): 8x8 pixel binning, candidate pool of
-the top-2kappa linear scores, lazy greedy with stale-bound pruning.
+the top-2kappa linear scores, batched greedy with stale-gain re-evaluation.
 """
 
 from __future__ import annotations
@@ -144,7 +144,11 @@ def submodular_greedy_select(
     ua = uniq_pairs[:, 0].long()   # anchor idx
     ub = uniq_pairs[:, 1].long()   # block idx
     if sens is not None:
-        w = 1.0 + sens[ua].float()
+        # Documented v2 (§4.1): scale the pair mass by (1 + sensitivity).
+        # (An earlier revision REPLACED the mass with 1+sens, which turns the
+        # objective into blockwise max-sensitivity selection and drops the
+        # coverage term entirely.)
+        w = mass.float() * (1.0 + sens[ua].float())
     else:
         w = mass.float()
 
