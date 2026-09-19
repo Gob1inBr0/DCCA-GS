@@ -40,28 +40,56 @@ wait_vram() {
 }
 
 wait_vram "$WAIT_VRAM_MB"
+
+# Train command as a single array so the executed command and the recorded
+# provenance can never drift apart.
+CMD=(python train.py train
+  --cfg.model.model-name hac_pp
+  --cfg.data.data-dir "$DATA"
+  --cfg.data.result-dir "$R"
+  --cfg.data.data-factor 1 --cfg.data.max-width 1600 --cfg.data.test-every 8
+  --cfg.data.no-preload-images
+  --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 32 --cfg.model.n-offsets 10
+  --cfg.model.appearance-dim 0 --cfg.model.ratio 1
+  --cfg.model.tile-size 32
+  --cfg.model.content-aware-start-iter 20000 --cfg.model.content-aware-ramp-iters 10000
+  --cfg.model.mlp-complexity-hidden 32 --cfg.model.mlp-complexity-layers 1
+  --cfg.model.sensitivity-enabled --cfg.model.sensitivity-start-iter 20000
+  --cfg.model.sensitivity-weight 0.001
+  --cfg.optim.max-steps "$MAX_STEPS" --cfg.optim.eval-steps "$MAX_STEPS"
+  --cfg.optim.save-steps "$MAX_STEPS"
+  --cfg.optim.lambda-rate "$LAMBDA" --cfg.optim.mask-lr-final 0.002
+  --cfg.optim.start-stat 500 --cfg.optim.update-from 1500
+  --cfg.optim.update-until "$UPDATE_UNTIL" --cfg.optim.update-interval 100
+  "${EXTRA[@]}")
+
+# Run provenance (2026-09-19): record the exact code state and full launch
+# command into the run directory BEFORE training starts, so any later number
+# can be audited against the code that produced it. The A3/cover_sens audit
+# only succeeded because ckpts happened to store model_config — this removes
+# the luck. Resolved config stays reproducible from git_commit +
+# train_command; ckpt model_config remains the authoritative in-run record.
+mkdir -p "$R"
+{
+  echo "timestamp: $(date '+%F %T %Z')"
+  echo "host: $(hostname 2>/dev/null || echo unknown)"
+  echo "gpu: $GPU"
+  echo "tag: $TAG  scene: $SCENE  lambda: $LAMBDA  steps: $MAX_STEPS  update_until: $UPDATE_UNTIL"
+  echo "runroot: $RUNROOT"
+  echo "data_dir: $DATA"
+  echo "conda_env_bin: $EXPORT_PATH"
+  echo "git_commit: $(git -C "$RUNROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "git_branch: $(git -C "$RUNROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  echo "git_dirty_file_count: $(git -C "$RUNROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  git -C "$RUNROOT" status --porcelain 2>/dev/null | head -50 | sed 's/^/git_dirty: /'
+  echo -n "runner_argv:"; printf ' %q' "$0" "$@"; echo
+  echo -n "train_command:"; printf ' %q' "${CMD[@]}"; echo
+} > "$R/provenance.txt" 2>&1
+
 for attempt in $(seq 1 40); do
   echo "ATTEMPT $attempt tag=$TAG lambda=$LAMBDA steps=$MAX_STEPS $(date)"
   if CUDA_VISIBLE_DEVICES="$GPU" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-    python train.py train \
-    --cfg.model.model-name hac_pp \
-    --cfg.data.data-dir "$DATA" \
-    --cfg.data.result-dir "$R" \
-    --cfg.data.data-factor 1 --cfg.data.max-width 1600 --cfg.data.test-every 8 \
-    --cfg.data.no-preload-images \
-    --cfg.model.voxel-size 0.001 --cfg.model.feat-dim 32 --cfg.model.n-offsets 10 \
-    --cfg.model.appearance-dim 0 --cfg.model.ratio 1 \
-    --cfg.model.tile-size 32 \
-    --cfg.model.content-aware-start-iter 20000 --cfg.model.content-aware-ramp-iters 10000 \
-    --cfg.model.mlp-complexity-hidden 32 --cfg.model.mlp-complexity-layers 1 \
-    --cfg.model.sensitivity-enabled --cfg.model.sensitivity-start-iter 20000 \
-    --cfg.model.sensitivity-weight 0.001 \
-    --cfg.optim.max-steps "$MAX_STEPS" --cfg.optim.eval-steps "$MAX_STEPS" \
-    --cfg.optim.save-steps "$MAX_STEPS" \
-    --cfg.optim.lambda-rate "$LAMBDA" --cfg.optim.mask-lr-final 0.002 \
-    --cfg.optim.start-stat 500 --cfg.optim.update-from 1500 \
-    --cfg.optim.update-until "$UPDATE_UNTIL" --cfg.optim.update-interval 100 \
-    "${EXTRA[@]}" \
+    "${CMD[@]}" \
     > "$LOG" 2>&1
   then
     echo "TRAIN_OK tag=$TAG $(date)"
