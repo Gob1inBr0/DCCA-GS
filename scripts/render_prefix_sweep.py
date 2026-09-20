@@ -89,15 +89,20 @@ def gaussian_anchor_ids(model, out):
 
 
 def overlap_stats_for_view(model, out, width, height):
-    """Blocks-per-anchor and anchors-per-block from one rendered view."""
-    means2d = out.meta["means2d"][0].detach().float().cpu().numpy()  # [nnz, 2]
-    radii = out.meta["radii"][0].detach().float().cpu().numpy()      # [nnz, 2]
-    gids = out.meta["gaussian_ids"].detach().cpu().numpy()           # [nnz]
+    """Blocks-per-anchor and anchors-per-block from one rendered view.
+
+    Packed-mode meta arrays are already 2D per (gaussian, tile) pair:
+    means2d [nnz, 2], radii [nnz, 2], gaussian_ids [nnz] indexing the rows
+    of the gaussians array passed to the rasterizer (= xyz rows).
+    """
+    means2d = out.meta["means2d"].detach().float().cpu().numpy()   # [nnz, 2]
+    radii = out.meta["radii"].detach().float().cpu().numpy()       # [nnz, 2]
+    gids = out.meta["gaussian_ids"].detach().cpu().numpy().astype(np.int64)
     ok = (radii > 0).all(axis=-1)
     means2d, radii, gids = means2d[ok], radii[ok], gids[ok]
     if gids.size == 0:
         return [], []
-    anchor_of_g = gaussian_anchor_ids(model, out)[gids]
+    anchor_of_g = gaussian_anchor_ids(model, out)[gids]            # [nnz]
 
     ntx = max(int(np.ceil(width / TILE)), 1)
     nty = max(int(np.ceil(height / TILE)), 1)
@@ -324,11 +329,14 @@ def main():
                 psnr, out = view_psnr(model, cam, background, dataset, keep_mask)
                 psnrs.append(psnr)
                 if k == 1.00 and ordering == "contribution":
-                    bpa, apb = overlap_stats_for_view(
-                        model, out, cam.width, cam.height
-                    )
-                    bpa_all.append(bpa)
-                    apb_all.append(apb)
+                    try:
+                        bpa, apb = overlap_stats_for_view(
+                            model, out, cam.width, cam.height
+                        )
+                        bpa_all.append(bpa)
+                        apb_all.append(apb)
+                    except Exception as exc:  # overlap is secondary; keep the curve
+                        print(f"[S2] overlap stats failed on view {ci}: {exc!r}")
                 del out
 
             payload_bytes = fixed_bytes + geo_bytes_full * k + attr_bits[keep_idx].sum() / 8.0
