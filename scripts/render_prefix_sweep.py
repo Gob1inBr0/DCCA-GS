@@ -178,6 +178,13 @@ def main():
         help="per_anchor_bits.npz with per-anchor feat/scaling/offsets/masks bits",
     )
     ap.add_argument("--out", default="analysis/s2_prefix_sweep/prefix_sweep.json")
+    ap.add_argument(
+        "--ckpt",
+        default=None,
+        help="trained checkpoint with the FULL anchor set (model_state._anchor); "
+        "defaults to <run>/ckpts/ckpt_30000.pth. Needed because the bitstream "
+        "keeps only mask-alive anchors (~1-5k fewer than trained).",
+    )
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
@@ -187,32 +194,98 @@ def main():
     run_dir = Path(args.run)
     bit_dir = run_dir / "bitstreams"
     meta = json.loads((bit_dir / "hac_meta.json").read_text())
-    n_total_meta = int(meta["num_anchors_total"])
-
-    codec = HACPlusCodec()
-    model = codec.decode(bit_dir)
-    model.eval()
-    n = model.num_anchors
-    assert n == n_total_meta, f"anchor count mismatch: {n} vs meta {n_total_meta}"
-    print(f"[S2] decoded anchors={n}")
+    n_trained = int(meta["num_anchors_total"])
 
     stats = np.load(args.stats)
-    area = stats["area"].astype(np.float64)
-    assert area.shape[0] == n, "stats row count mismatch with this run"
-    rng = np.random.default_rng(0)
-    orders = {
-        "contribution": np.argsort(-area, kind="stable"),
-        "random": rng.permutation(n),
-    }
-
+    area_all = stats["area"].astype(np.float64)
+    assert area_all.shape[0] == n_trained, (
+        f"stats rows {area_all.shape[0]} != trained anchors {n_trained}"
+    )
     bits = np.load(args.bits)
-    attr_bits = (
+    attr_bits_all = (
         bits["feat"].astype(np.float64)
         + bits["scaling"].astype(np.float64)
         + bits["offsets"].astype(np.float64)
         + bits["masks"].astype(np.float64)
     )
-    assert attr_bits.shape[0] == n, "per-anchor bits row count mismatch"
+    assert attr_bits_all.shape[0] == n_trained, (
+        f"per-anchor bits rows {attr_bits_all.shape[0]} != trained anchors {n_trained}"
+    )
+
+    codec = HACPlusCodec()
+    model = codec.decode(bit_dir)
+    model.eval()
+    n = model.num_anchors
+    print(f"[S2] trained anchors={n_trained}, decoded (mask-alive) anchors={n}")
+
+    # Map each decoded anchor back to its row in the trained-set statistics:
+    # the encoder drops mask-dead anchors, so decoded rows are a subset of the
+    # trained rows. Match by nearest position (trained coords come from the
+    # checkpoint); positions are voxel-quantized so true matches sit at ~0
+    # distance — a low match rate means the wrong checkpoint, and we abort.
+    ckpt_path = Path(args.ckpt) if args.ckpt else run_dir / "ckpts" / "ckpt_30000.pth"
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path = out_path.with_suffix(".mapped.npy")
+    decoded_xyz = model.core.get_anchor
+    if cache_path.exists():
+        mapped = torch.from_numpy(np.load(cache_path)).to(model.device)
+        assert mapped.shape[0] == n, "mapping cache size mismatch; delete and rerun"
+        print(f"[S2] anchor mapping loaded from cache {cache_path}")
+        match_rate = close_rate = -1.0
+        max_dist = float("nan")
+        dup_rows = -1
+        dist_hist = []
+    else:
+        ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        trained_xyz = ck["model_state"]["_anchor"].to(model.device)
+        assert trained_xyz.shape[0] == n_trained, (
+            f"ckpt anchors {trained_xyz.shape[0]} != trained count {n_trained}"
+        )
+        mapped = torch.empty(n, dtype=torch.long, device=model.device)
+        min_d_all = torch.empty(n, device=model.device)
+        chunk = 1024
+        for start in range(0, n, chunk):
+            end = min(start + chunk, n)
+            d = torch.cdist(decoded_xyz[start:end], trained_xyz)
+            min_d, idx = d.min(dim=1)
+            mapped[start:end] = idx
+            min_d_all[start:end] = min_d
+            del d
+        # Geometry coding is lossy: most decoded positions sit exactly on their
+        # trained row, a fraction shift by up to a couple of voxels and then
+        # sometimes collide on the nearest neighbour's row. Gate on closeness
+        # and collision rate; record everything for disclosure.
+        bins = torch.tensor(
+            [1e-5, 1e-3, 2e-3, 5e-3, 1e-2, 1e9], device=model.device
+        )
+        dist_hist = torch.bincount(
+            torch.bucketize(min_d_all, bins), minlength=6
+        ).tolist()
+        exact = int((min_d_all < 1e-5).sum())
+        close_rate = float((min_d_all < 5e-3).float().mean())
+        dup_rows = n - len(torch.unique(mapped))
+        match_rate = exact / n
+        max_dist = float(min_d_all.max())
+        print(
+            f"[S2] anchor mapping: exact={match_rate:.4%}, <5e-3={close_rate:.4%}, "
+            f"max_dist={max_dist:.2e}, colliding_rows={dup_rows}"
+        )
+        print(
+            f"[S2] dist histogram bins(1e-5/1e-3/2e-3/5e-3/1e-2/inf): {dist_hist}"
+        )
+        assert close_rate >= 0.999 and dup_rows <= 0.01 * n, (
+            "decoded->trained anchor mapping unreliable; check --ckpt"
+        )
+        np.save(cache_path, mapped.cpu().numpy())
+    mapped_cpu = mapped.cpu().numpy()
+    area = area_all[mapped_cpu]
+    attr_bits = attr_bits_all[mapped_cpu]
+    rng = np.random.default_rng(0)
+    orders = {
+        "contribution": np.argsort(-area, kind="stable"),
+        "random": rng.permutation(n),
+    }
     fixed_bytes = (
         int(meta["bit_hash"])
         + int(meta["bit_mlp"])
@@ -300,10 +373,19 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "run": str(run_dir),
+        "ckpt": str(ckpt_path),
         "stats": args.stats,
         "bits": args.bits,
         "data_dir": args.data_dir,
         "n_anchors": n,
+        "n_trained": n_trained,
+        "anchor_mapping": {
+            "exact_rate": round(match_rate, 6),
+            "close_rate_5e3": round(close_rate, 6),
+            "max_dist": max_dist,
+            "colliding_rows": int(dup_rows),
+            "dist_hist_bins_1e5_1e3_2e3_5e3_1e2_inf": dist_hist,
+        },
         "n_views": len(cams),
         "prefixes": PREFIXES,
         "fixed_bytes": fixed_bytes,
