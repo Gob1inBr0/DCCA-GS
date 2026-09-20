@@ -381,6 +381,7 @@ DCCA-GS（原名 PHG / PKUGS-HAC-Gsplat）是基于 gsplat + Scaffold-GS + HAC++
 | `b1c5261` | 实验（离线） | feat 字段 C2 上限重测：0.31–0.39 bit/符号（与 scaling 同区间、两 λ 档一致）；C 家族总奖池约 1.3 MB ≈ 载荷 6%；恢复率告警（feat 整除性恢复仅 0.6%，用插值步长，精确 Q 待读编码路径）；脚本入库 `scripts/c2_feat_check.py` |
 | `ed60889` | 工具 | S2 前缀渲染扫描骨架 `scripts/render_prefix_sweep.py`（字节-PSNR 实测曲线 + A3 真实覆盖重叠统计），等队列空隙填充 eval_decoded 加载器后执行 |
 | 本次提交 | 文档 | **创建本文档 `docs/CHANGELOG_DETAILED.md` 与根目录 `AGENTS.md`**（变更记录维护要求）；docs/README.md 索引加一行；本表补录 `b1c5261`/`ed60889` 两条 |
+| `7e26a2a` | 工具 | S2 脚本补完（替换 `ed60889` 骨架）：HACPlusCodec 解码加载、前缀子集渲染（frustum 预滤与保留掩码相交）、字节轴（固定开销 + 几何按比例 + 逐锚点属性比特求和）、A3 重叠统计（渲染元数据还原高斯点归属锚点，16 像素块的重数分布），默认输入为服务器 λ0005 s42 解码产物；待 0 号卡空隙执行 |
 
 ---
 
