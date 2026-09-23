@@ -58,33 +58,68 @@ def fit_laplace(symbols):
     return loc, max(b, 1e-3)
 
 
-def model_params(layer, g):
-    locs = np.empty(GROUPS, dtype=np.float64)
-    bs = np.empty(GROUPS, dtype=np.float64)
+BUCKETS = 3  # residual context: |coarse symbol| in {0}, {1}, {>=2}
+
+
+def bucket_of(acc_prev):
+    """Context bucket from the already-decoded coarse symbol: 0 / 1 / >=2."""
+    a = np.abs(acc_prev)
+    return np.minimum(a, 2).astype(np.int16)
+
+
+def model_params(layer, g, ctx=None):
+    """Fit per-group (loc, b); with ctx, per (group, bucket) — the
+    layer-conditioned model (decoder recomputes the bucket from the
+    already-decoded coarse layer: zero side information)."""
+    if ctx is None:
+        locs = np.empty(GROUPS, dtype=np.float64)
+        bs = np.empty(GROUPS, dtype=np.float64)
+        for gid in range(GROUPS):
+            locs[gid], bs[gid] = fit_laplace(layer[g == gid])
+        return locs[g].astype(np.float32), bs[g].astype(np.float32), (locs, bs)
+    locs = np.empty((GROUPS, BUCKETS), dtype=np.float64)
+    bs = np.empty((GROUPS, BUCKETS), dtype=np.float64)
     for gid in range(GROUPS):
-        locs[gid], bs[gid] = fit_laplace(layer[g == gid])
-    return locs[g].astype(np.float32), bs[g].astype(np.float32), (locs, bs)
+        for bid in range(BUCKETS):
+            sel = layer[(g == gid) & (ctx == bid)]
+            if sel.size == 0:
+                sel = layer[g == gid]
+            locs[gid, bid], bs[gid, bid] = fit_laplace(sel)
+    means = locs[g, ctx].astype(np.float32)
+    stds = bs[g, ctx].astype(np.float32)
+    return means, stds, (locs, bs)
 
 
 def family():
     return constriction.stream.model.QuantizedGaussian(-FAMILY_RANGE, FAMILY_RANGE)
 
 
-def code_chunk(layer, g):
-    means, stds, params = model_params(layer, g)
+def code_chunk(layer, g, ctx=None):
+    means, stds, params = model_params(layer, g, ctx)
     enc = constriction.stream.queue.RangeEncoder()
     enc.encode(layer.astype(np.int32), family(), means, stds)
     comp = enc.get_compressed()
     dec = constriction.stream.queue.RangeDecoder(comp)
     back = dec.decode(family(), means, stds)
     exact = bool((back == layer).all())
-    return comp.tobytes(), means, stds, params, back.astype(np.int32), exact
+    plain_bytes = None
+    if ctx is not None:
+        # measure the unconditioned alternative for the savings report
+        pm, ps, _ = model_params(layer, g, None)
+        enc2 = constriction.stream.queue.RangeEncoder()
+        enc2.encode(layer.astype(np.int32), family(), pm, ps)
+        plain_bytes = len(enc2.get_compressed().tobytes())
+    return comp.tobytes(), means, stds, params, back.astype(np.int32), exact, plain_bytes
 
 
-def decode_chunk(data, g, params):
+def decode_chunk(data, g, params, ctx=None):
     locs, bs = params
-    means = locs[g].astype(np.float32)
-    stds = bs[g].astype(np.float32)
+    if ctx is None:
+        means = locs[g].astype(np.float32)
+        stds = bs[g].astype(np.float32)
+    else:
+        means = locs[g, ctx].astype(np.float32)
+        stds = bs[g, ctx].astype(np.float32)
     dec = constriction.stream.queue.RangeDecoder(np.frombuffer(data, dtype=np.uint32))
     return dec.decode(family(), means, stds).astype(np.int32)
 
@@ -93,9 +128,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
     ap.add_argument("--data-dir", required=True)
-    ap.add_argument("--stats", required=True)
+    ap.add_argument("--stats", default=None,
+                    help="anchor_stats.npz with per-anchor area (contribution "
+                    "groups); if absent, groups fall back to uniform buckets "
+                    "over the Morton row order")
     ap.add_argument("--mapped",
-                    default="analysis/s2_prefix_sweep/prefix_sweep.mapped.npy")
+                    default=None,
+                    help="decoded-row -> trained-row index map; auto-generated "
+                    "from the checkpoint when missing")
     ap.add_argument("--s2", default="analysis/s2_prefix_sweep/prefix_sweep.json")
     ap.add_argument("--out", default="analysis/s2_prefix_sweep/c25_real_bitstream.json")
     ap.add_argument("--bin", dest="bin_out",
@@ -113,35 +153,102 @@ def main():
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    stats = np.load(args.stats)
-    area = stats["area"].astype(np.float64)
-    assert area.shape[0] == n_trained
-    rank = np.empty(n_trained, dtype=np.int64)
-    rank[np.argsort(-area, kind="stable")] = np.arange(n_trained)
-    group_of = np.minimum(rank * GROUPS // n_trained, GROUPS - 1).astype(np.int16)
+    # groups: contribution-area buckets when stats exist; otherwise uniform
+    # buckets over the (Morton-ordered) decoded rows — documented fallback
+    if args.stats and Path(args.stats).exists():
+        stats = np.load(args.stats)
+        area = stats["area"].astype(np.float64)
+        assert area.shape[0] == n_trained
+        rank = np.empty(n_trained, dtype=np.int64)
+        rank[np.argsort(-area, kind="stable")] = np.arange(n_trained)
+        group_of_trained = np.minimum(rank * GROUPS // n_trained,
+                                      GROUPS - 1).astype(np.int16)
+        group_source = "contribution-area"
+    else:
+        group_of_trained = None
+        group_source = "morton-uniform (no stats)"
+    print(f"[RB] grouping: {group_source}")
 
-    mapped = np.load(args.mapped).astype(np.int64)
-
+    # decoded -> trained row map: load or generate from the checkpoint
     codec = HACPlusCodec()
     model = codec.decode(bit_dir)
     model.eval()
     del codec
     n_alive = model.num_anchors
     dev = model.device
-    assert n_alive == mapped.size
     view = model._view
     dec_t = {
         "feat": view.anchor_feat.data.detach().float(),
         "scaling": view.scaling.data.detach().float(),
         "offset": view.offset.data.detach().float(),
     }
-    z = np.load(out_path.parent / "c25_q_cache.npz")
-    Q_t = {
-        "feat": torch.from_numpy(z["Q_feat"]).to(dev),
-        "scaling": torch.from_numpy(z["Q_scaling"]).to(dev),
-        "offset": torch.from_numpy(z["Q_offsets"]).to(dev),
-    }
-    print(f"[RB] model decoded (anchors={n_alive}), Q loaded", flush=True)
+    run_tag = Path(args.run).name
+    if args.mapped and Path(args.mapped).exists():
+        mapped = np.load(args.mapped).astype(np.int64)
+        print(f"[RB] mapped loaded: {args.mapped}")
+    else:
+        ck = torch.load(run_dir / "ckpts" / "ckpt_30000.pth", map_location="cpu",
+                        weights_only=False)
+        trained_xyz = ck["model_state"]["_anchor"].to(dev)
+        assert trained_xyz.shape[0] == n_trained
+        decoded_xyz = model.core.get_anchor
+        mapped = np.empty(decoded_xyz.shape[0], dtype=np.int64)
+        with torch.no_grad():
+            for start in range(0, decoded_xyz.shape[0], 1024):
+                end = min(start + 1024, decoded_xyz.shape[0])
+                d = torch.cdist(decoded_xyz[start:end], trained_xyz)
+                mapped[start:end] = d.min(dim=1)[1].cpu().numpy()
+                del d
+        mp = out_path.parent / (run_tag + ".mapped.npy")
+        np.save(mp, mapped)
+        print(f"[RB] mapped generated and cached: {mp}")
+    assert n_alive == mapped.size
+    q_cache = out_path.parent / (run_tag + "_q_cache.npz")
+    if q_cache.exists():
+        z = np.load(q_cache)
+        Q_t = {
+            "feat": torch.from_numpy(z["Q_feat"]).to(dev),
+            "scaling": torch.from_numpy(z["Q_scaling"]).to(dev),
+            "offset": torch.from_numpy(z["Q_offsets"]).to(dev),
+        }
+        print("[RB] Q loaded from cache")
+    else:
+        core = model.core
+        k_off = model.cfg.n_offsets
+        core.current_step = 30000
+        core.current_iter = 30000
+        Q_feat = torch.empty(n_alive, 32, device=dev)
+        Q_scaling = torch.empty(n_alive, 6, device=dev)
+        Q_offsets = torch.empty(n_alive, k_off, 3, device=dev)
+        anchor_dev = model.core.get_anchor
+        with torch.no_grad():
+            for start in range(0, n_alive, 16384):
+                end = min(start + 16384, n_alive)
+                a = anchor_dev[start:end]
+                idx = torch.arange(start, end, device=dev)
+                ctx_in = core.calc_context_feat(a, anchor_indices=idx, caller="rb")
+                (mean, scale, prob, m_sc, s_sc, m_off, s_off, qa, qs, qo) = torch.split(
+                    core.get_grid_mlp(ctx_in),
+                    [32, 32, 32, 6, 6, 3 * k_off, 3 * k_off, 1, 1, 1],
+                    dim=-1,
+                )
+                qf = 1.0 * (1 + torch.tanh(qa.repeat(1, 32)))
+                qs2 = 0.001 * (1 + torch.tanh(qs.repeat(1, 6)))
+                qo2 = 0.2 * (1 + torch.tanh(qo.repeat(1, 3 * k_off))).view(-1, k_off, 3)
+                if core.is_content_aware_quant_active():
+                    msk = core.get_mask[idx]
+                    (qf, qs2, qo2, _, _, _, _) = core._codec_apply_content_aware_quant_params(
+                        "rb", a, msk, qf, qs2, qo2, None, None, None,
+                        m_sc.view(-1, 6), m_off.view(-1, 3 * k_off),
+                    )
+                Q_feat[start:end] = qf
+                Q_scaling[start:end] = qs2
+                Q_offsets[start:end] = qo2
+        np.savez(q_cache, Q_feat=Q_feat.cpu().numpy(), Q_scaling=Q_scaling.cpu().numpy(),
+                 Q_offsets=Q_offsets.cpu().numpy())
+        Q_t = {"feat": Q_feat, "scaling": Q_scaling, "offset": Q_offsets}
+        print("[RB] per-anchor Q computed via decoder-reproducible path (cached)")
+    print(f"[RB] model decoded (anchors={n_alive})", flush=True)
 
     fields = ("feat", "scaling", "offset")
     sym = {f: torch.round(dec_t[f] / Q_t[f]) for f in fields}
@@ -150,29 +257,53 @@ def main():
         qf = sym[f].cpu().numpy().astype(np.int32).reshape(-1)
         n_cols = qf.size // n_alive
         q_flat[f] = qf
-        g_flat[f] = np.repeat(group_of[mapped], n_cols)
+        g = (group_of_trained[mapped] if group_of_trained is not None
+             else np.minimum(np.arange(n_alive) * GROUPS // n_alive,
+                             GROUPS - 1).astype(np.int16))
+        g_flat[f] = np.repeat(g, n_cols)
         out_shape[f] = tuple(sym[f].shape)
 
     # ---- range-code the ladder (chunks in ladder order) ----
-    chunks = []          # dicts: level, field, params, data, decoded
+    # residual chunks (li>=1) use layer-conditioned models: per (group,
+    # |coarse symbol| bucket) — the bucket is recomputed decoder-side from
+    # the already-decoded coarse layer, so it stays zero-side-info.
+    chunks = []          # dicts: level, field, params, data, decoded, ctx
+    acc_prev = {}        # decoded coarse symbols per field (context source)
+    plain_bytes = {}     # unconditioned alternative, for the savings report
     t0 = time.time()
     for li in range(N_LEVELS):
         for f in fields:
             q = q_flat[f]
             if li == 0:
                 layer = np.round(q / STEPS[0]).astype(np.int32)
+                ctx = None
             else:
+                ratio = STEPS[li - 1] // STEPS[li]
                 layer = (np.round(q / STEPS[li]).astype(np.int32)
-                         - (STEPS[li - 1] // STEPS[li])
-                         * np.round(q / STEPS[li - 1]).astype(np.int32))
-            data, means, stds, params, back, exact = code_chunk(layer, g_flat[f])
+                         - ratio * acc_prev[f])
+                ctx = bucket_of(acc_prev[f])
+            data, means, stds, params, back, exact, pbytes = code_chunk(
+                layer, g_flat[f], ctx)
             assert exact, f"roundtrip mismatch level {li} field {f}"
+            if ctx is not None:
+                plain_bytes[(li, f)] = pbytes
             chunks.append({"level": li, "field": f, "params": params,
                            "data": data, "decoded": back, "bytes": len(data),
-                           "means": means, "stds": stds})
+                           "ctx": ctx})
+            acc_prev[f] = ((STEPS[li] if li == 0 else ratio) * 0
+                           + (np.round(q / STEPS[li]).astype(np.int32)
+                              if li == 0 else
+                              ratio * acc_prev[f] + back))
             print(f"[RB] coded L{li} {f}: {len(data)/1e6:.2f} MB exact={exact}",
                   flush=True)
     coding_s = time.time() - t0
+    plain_total = sum(plain_bytes.values()) if plain_bytes else 0
+    cond_total = sum(c["bytes"] for c in chunks if c["ctx"] is not None)
+    cond_saved = plain_total - cond_total
+    if plain_total:
+        print(f"[RB] layer-conditioned residual coding: {cond_total/1e6:.2f} MB "
+              f"vs unconditioned {plain_total/1e6:.2f} MB -> saved "
+              f"{cond_saved/1e6:.2f} MB", flush=True)
 
     # ---- write the real transmit-able file ----
     header = {
@@ -205,7 +336,11 @@ def main():
     ) / 8.0
     geom_bytes = int(meta["bit_anchor"]) / 8.0
     header_total = 4 + len(header_bytes)
-    chunk_params_total = sum(4 + 8 * GROUPS + 4 for _ in chunks)
+    chunk_params_total = 0
+    for c in chunks:
+        locs, bs = c["params"]
+        chunk_params_total += 8 + locs.astype(np.float32).tobytes().__len__() \
+            + bs.astype(np.float32).tobytes().__len__()
     chunk_data_total = sum(c["bytes"] for c in chunks)
 
     # ---- dataset (after model, per trainer convention) ----
@@ -280,6 +415,7 @@ def main():
         "fixed_bytes": fixed_bytes, "geom_bytes": geom_bytes,
         "header_bytes": header_total,
         "chunk_params_total": chunk_params_total,
+        "conditional_saved_bytes": int(cond_saved),
         "coding_s": round(coding_s, 1),
         "bin_file": str(bin_path), "bin_size": bin_size,
         "results": results,
