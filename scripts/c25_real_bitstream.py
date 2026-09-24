@@ -67,61 +67,171 @@ def bucket_of(acc_prev):
     return np.minimum(a, 2).astype(np.int16)
 
 
-def model_params(layer, g, ctx=None):
-    """Fit per-group (loc, b); with ctx, per (group, bucket) — the
-    layer-conditioned model (decoder recomputes the bucket from the
-    already-decoded coarse layer: zero side information)."""
-    if ctx is None:
-        locs = np.empty(GROUPS, dtype=np.float64)
-        bs = np.empty(GROUPS, dtype=np.float64)
-        for gid in range(GROUPS):
-            locs[gid], bs[gid] = fit_laplace(layer[g == gid])
-        return locs[g].astype(np.float32), bs[g].astype(np.float32), (locs, bs)
-    locs = np.empty((GROUPS, BUCKETS), dtype=np.float64)
-    bs = np.empty((GROUPS, BUCKETS), dtype=np.float64)
+# ---- binary-decomposition range coding ("geometric-binary") ----
+# Each integer symbol d (relative to its bucket's integer median `loc`) is
+# coded as binary decisions: [d != 0] -> [sign] -> magnitude unary-bit
+# stages [>=k+1?]. Every decision keeps its probability bounded away from
+# 0/1, so the fixed-point range coder never sees a zero-probability symbol
+# (the failure mode of single-shot discretized-Gaussian coding with tiny
+# fitted sigma).
+
+def _bin_ms(p):
+    """(mean, sigma) of a discretized Gaussian on {0,1} with P(1)=p:
+    mean sits at the likely value, sigma widens until the rare side keeps
+    nonzero probability (range-coder safe)."""
+    pt = torch.clamp(torch.as_tensor(np.asarray(p, dtype=np.float64)),
+                     1e-4, 1 - 1e-4)
+    mean = torch.round(pt)
+    z = torch.erfinv(2.0 * torch.abs(pt - mean) - 1.0).abs() * np.sqrt(2.0)
+    sigma = torch.clamp(0.5 / torch.clamp(z, min=1e-3), 0.05, 8.0)
+    return mean.numpy(), sigma.numpy()
+
+
+def _bin_family():
+    return constriction.stream.model.QuantizedGaussian(0, 1)
+
+
+def fit_chunk_params(layer, g, ctx=None):
+    """Per (group[, bucket]): loc (int median), p0 = P(d==0),
+    beta = P(>=k+1 | >=k) of the geometric tail."""
+    shape = (GROUPS, BUCKETS) if ctx is not None else (GROUPS,)
+    locs = np.zeros(shape, dtype=np.int64)
+    p0s = np.zeros(shape, dtype=np.float64)
+    bts = np.zeros(shape, dtype=np.float64)
     for gid in range(GROUPS):
-        for bid in range(BUCKETS):
-            sel = layer[(g == gid) & (ctx == bid)]
+        bids = range(BUCKETS) if ctx is not None else [None]
+        for bid in bids:
+            sel = layer[(g == gid) & (ctx == bid)] if ctx is not None \
+                else layer[g == gid]
             if sel.size == 0:
                 sel = layer[g == gid]
-            locs[gid, bid], bs[gid, bid] = fit_laplace(sel)
-    means = locs[g, ctx].astype(np.float32)
-    stds = bs[g, ctx].astype(np.float32)
-    return means, stds, (locs, bs)
-
-
-def family():
-    return constriction.stream.model.QuantizedGaussian(-FAMILY_RANGE, FAMILY_RANGE)
+            loc = int(np.median(sel))
+            d = sel.astype(np.float64) - loc
+            nz = float(np.mean(d != 0)) if sel.size else 0.0
+            m1 = float(np.mean(np.abs(d[d != 0]))) if np.any(d != 0) else 1.0
+            beta = min(max(1.0 - 1.0 / max(m1, 1.0), 0.05), 0.98)
+            i = (gid, bid) if ctx is not None else gid
+            locs[i] = loc
+            p0s[i] = 1.0 - nz
+            bts[i] = beta
+    return locs, p0s, bts
 
 
 def code_chunk(layer, g, ctx=None):
-    means, stds, params = model_params(layer, g, ctx)
+    """Binary-decomposition range coding of `layer`.
+
+    Decisions per symbol d = layer - loc:
+      A: d != 0            (P(1) = 1 - p0)
+      B: sign, if d != 0   (P(1) = 0.5, sign bit 1 = negative)
+      C: for k = 1, 2, ... while alive: |d| >= k+1 ?  (P(1) = beta)
+    Returns (data, params, plain_bytes); decoded symbols verified by caller
+    through decode_chunk."""
+    locs, p0s, bts = fit_chunk_params(layer, g, ctx)
+    if ctx is not None:
+        loc = locs[g, ctx]                 # per-symbol: (group, bucket) table
+        p0 = p0s[g, ctx]
+        beta = bts[g, ctx]
+    else:
+        loc = locs[g]
+        p0 = p0s[g]
+        beta = bts[g]
+    d = layer.astype(np.int64) - loc
+
     enc = constriction.stream.queue.RangeEncoder()
-    enc.encode(layer.astype(np.int32), family(), means, stds)
-    comp = enc.get_compressed()
-    dec = constriction.stream.queue.RangeDecoder(comp)
-    back = dec.decode(family(), means, stds)
-    exact = bool((back == layer).all())
+    mA, sA = _bin_ms(1.0 - p0)
+    enc.encode((d != 0).astype(np.int32), _bin_family(),
+               mA.astype(np.float32), sA.astype(np.float32))
+    alive = np.nonzero(d != 0)[0]
+    if alive.size:
+        mS, sS = _bin_ms(0.5)
+        enc.encode((d[alive] < 0).astype(np.int32), _bin_family(),
+                   np.full(alive.size, mS, dtype=np.float32),
+                   np.full(alive.size, sS, dtype=np.float32))
+    mags = np.abs(d[alive]) if alive.size else np.zeros(0, dtype=np.int64)
+    mB_all, sB_all = _bin_ms(beta)
+    k = 1
+    while alive.size:
+        bits = (mags >= k + 1).astype(np.int32)
+        enc.encode(bits, _bin_family(),
+                   mB_all[alive].astype(np.float32),
+                   sB_all[alive].astype(np.float32))
+        alive = alive[bits == 1]
+        mags = mags[bits == 1]
+        k += 1
+        if k > (1 << 20):
+            raise RuntimeError("unbounded magnitude stages")
+    data = enc.get_compressed().tobytes()
+    params = (locs, p0s, bts)
+
     plain_bytes = None
     if ctx is not None:
-        # measure the unconditioned alternative for the savings report
-        pm, ps, _ = model_params(layer, g, None)
+        pl, pp0s, pbts = fit_chunk_params(layer, g, None)
+        ploc = pl[g]
+        pp0 = pp0s[g]
+        pbeta = pbts[g]
+        pd = layer.astype(np.int64) - ploc
         enc2 = constriction.stream.queue.RangeEncoder()
-        enc2.encode(layer.astype(np.int32), family(), pm, ps)
+        mPA, sPA = _bin_ms(1.0 - pp0)
+        enc2.encode((pd != 0).astype(np.int32), _bin_family(), mPA, sPA)
+        alive2 = np.nonzero(pd != 0)[0]
+        if alive2.size:
+            mPS, sPS = _bin_ms(0.5)
+            enc2.encode((pd[alive2] < 0).astype(np.int32), _bin_family(),
+                        np.full(alive2.size, mPS, dtype=np.float32),
+                        np.full(alive2.size, sPS, dtype=np.float32))
+            mags2 = np.abs(pd[alive2])
+            mPB_all, sPB_all = _bin_ms(pbeta)
+            kk = 1
+            while alive2.size:
+                bits2 = (mags2 >= kk + 1).astype(np.int32)
+                enc2.encode(bits2, _bin_family(),
+                            mPB_all[alive2].astype(np.float32),
+                            sPB_all[alive2].astype(np.float32))
+                alive2 = alive2[bits2 == 1]
+                mags2 = mags2[bits2 == 1]
+                kk += 1
         plain_bytes = len(enc2.get_compressed().tobytes())
-    return comp.tobytes(), means, stds, params, back.astype(np.int32), exact, plain_bytes
+    return data, params, plain_bytes
 
 
 def decode_chunk(data, g, params, ctx=None):
-    locs, bs = params
-    if ctx is None:
-        means = locs[g].astype(np.float32)
-        stds = bs[g].astype(np.float32)
+    locs, p0s, bts = params
+    if ctx is not None:
+        loc = locs[g, ctx]
+        p0 = p0s[g, ctx]
+        beta = bts[g, ctx]
     else:
-        means = locs[g, ctx].astype(np.float32)
-        stds = bs[g, ctx].astype(np.float32)
-    dec = constriction.stream.queue.RangeDecoder(np.frombuffer(data, dtype=np.uint32))
-    return dec.decode(family(), means, stds).astype(np.int32)
+        loc = locs[g]
+        p0 = p0s[g]
+        beta = bts[g]
+    dec = constriction.stream.queue.RangeDecoder(
+        np.frombuffer(data, dtype=np.uint32))
+    n = g.size
+    d = np.zeros(n, dtype=np.int64)
+    mA, sA = _bin_ms(1.0 - p0)
+    z = dec.decode(_bin_family(), mA.astype(np.float32), sA.astype(np.float32))
+    surv = np.nonzero(z == 1)[0]
+    if surv.size:
+        mS, sS = _bin_ms(0.5)
+        sgn = dec.decode(_bin_family(),
+                         np.full(surv.size, mS, dtype=np.float32),
+                         np.full(surv.size, sS, dtype=np.float32))
+        mag = np.ones(surv.size, dtype=np.int64)
+        alive_pos = np.arange(surv.size)
+        mB_all, sB_all = _bin_ms(beta)
+        k = 1
+        while alive_pos.size:
+            bits = dec.decode(_bin_family(),
+                              mB_all[surv[alive_pos]].astype(np.float32),
+                              sB_all[surv[alive_pos]].astype(np.float32))
+            dead = alive_pos[bits == 0]
+            mag[dead] = k
+            alive_pos = alive_pos[bits == 1]
+            k += 1
+            if k > (1 << 20):
+                raise RuntimeError("unbounded magnitude stages")
+        d[surv] = np.where(sgn == 1, -mag, mag)
+    return (loc + d).astype(np.int32)
 
 
 def main():
@@ -141,6 +251,9 @@ def main():
     ap.add_argument("--bin", dest="bin_out",
                     default="analysis/s2_prefix_sweep/c25_real_bitstream.bin")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--field-aware", action="store_true",
+                    help="per-field ladders: feat/offset 8x-start, scaling "
+                    "2x-start (log-domain cliffs at coarser steps)")
     args = ap.parse_args()
 
     from scaffold_gs.hacpp import HACPlusCodec
@@ -251,6 +364,15 @@ def main():
     print(f"[RB] model decoded (anchors={n_alive})", flush=True)
 
     fields = ("feat", "scaling", "offset")
+    # field-aware ladders: scaling is log-domain (cliffs at 4x+), so its
+    # coarsest step is 2x; feat/offset tolerate 8x. Uniform mode = same
+    # ladder for all fields (legacy curve).
+    FIELD_STEPS = {"feat": [8, 4, 2, 1], "scaling": [2, 1], "offset": [8, 4, 2, 1]}
+    if args.field_aware:
+        fsteps = {f: FIELD_STEPS[f] for f in fields}
+        print("[RB] mode: FIELD-AWARE ladders", flush=True)
+    else:
+        fsteps = {f: STEPS for f in fields}
     sym = {f: torch.round(dec_t[f] / Q_t[f]) for f in fields}
     q_flat, g_flat, out_shape = {}, {}, {}
     for f in fields:
@@ -271,31 +393,33 @@ def main():
     acc_prev = {}        # decoded coarse symbols per field (context source)
     plain_bytes = {}     # unconditioned alternative, for the savings report
     t0 = time.time()
-    for li in range(N_LEVELS):
-        for f in fields:
+    for f in fields:
+        steps_f = fsteps[f]
+        for li in range(len(steps_f)):
             q = q_flat[f]
             if li == 0:
-                layer = np.round(q / STEPS[0]).astype(np.int32)
+                layer = np.round(q / steps_f[0]).astype(np.int32)
                 ctx = None
             else:
-                ratio = STEPS[li - 1] // STEPS[li]
-                layer = (np.round(q / STEPS[li]).astype(np.int32)
+                ratio = steps_f[li - 1] // steps_f[li]
+                layer = (np.round(q / steps_f[li]).astype(np.int32)
                          - ratio * acc_prev[f])
                 ctx = bucket_of(acc_prev[f])
-            data, means, stds, params, back, exact, pbytes = code_chunk(
-                layer, g_flat[f], ctx)
+            data, params, pbytes = code_chunk(layer, g_flat[f], ctx)
+            back = decode_chunk(data, g_flat[f], params, ctx)
+            exact = bool((back == layer).all())
             assert exact, f"roundtrip mismatch level {li} field {f}"
             if ctx is not None:
                 plain_bytes[(li, f)] = pbytes
             chunks.append({"level": li, "field": f, "params": params,
                            "data": data, "decoded": back, "bytes": len(data),
                            "ctx": ctx})
-            acc_prev[f] = ((STEPS[li] if li == 0 else ratio) * 0
-                           + (np.round(q / STEPS[li]).astype(np.int32)
+            acc_prev[f] = ((steps_f[li] if li == 0 else ratio) * 0
+                           + (np.round(q / steps_f[li]).astype(np.int32)
                               if li == 0 else
                               ratio * acc_prev[f] + back))
-            print(f"[RB] coded L{li} {f}: {len(data)/1e6:.2f} MB exact={exact}",
-                  flush=True)
+            print(f"[RB] coded {f} L{li} (Q x{steps_f[li]}): "
+                  f"{len(data)/1e6:.2f} MB exact={exact}", flush=True)
     coding_s = time.time() - t0
     plain_total = sum(plain_bytes.values()) if plain_bytes else 0
     cond_total = sum(c["bytes"] for c in chunks if c["ctx"] is not None)
@@ -307,9 +431,9 @@ def main():
 
     # ---- write the real transmit-able file ----
     header = {
-        "format": "c25_layered_v1",
+        "format": "c25_layered_v1" if not args.field_aware else "c25_layered_v2_fieldaware",
         "groups": GROUPS,
-        "steps": [int(s) for s in STEPS],
+        "steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fields": list(fields),
         "chunks": [{"level": c["level"], "field": c["field"]} for c in chunks],
         "n_alive": int(n_alive),
@@ -320,8 +444,10 @@ def main():
         fh.write(len(header_bytes).to_bytes(4, "little"))
         fh.write(header_bytes)
         for c in chunks:
-            locs, bs = c["params"]
-            pb = locs.astype(np.float32).tobytes() + bs.astype(np.float32).tobytes()
+            locs, p0s, bts = c["params"]
+            pb = (locs.astype(np.int32).tobytes()
+                  + p0s.astype(np.float16).tobytes()
+                  + bts.astype(np.float16).tobytes())
             fh.write(len(pb).to_bytes(4, "little"))
             fh.write(pb)
             fh.write(len(c["data"]).to_bytes(4, "little"))
@@ -338,9 +464,10 @@ def main():
     header_total = 4 + len(header_bytes)
     chunk_params_total = 0
     for c in chunks:
-        locs, bs = c["params"]
-        chunk_params_total += 8 + locs.astype(np.float32).tobytes().__len__() \
-            + bs.astype(np.float32).tobytes().__len__()
+        locs, p0s, bts = c["params"]
+        chunk_params_total += 8 + locs.astype(np.int32).tobytes().__len__() \
+            + p0s.astype(np.float16).tobytes().__len__() \
+            + bts.astype(np.float16).tobytes().__len__()
     chunk_data_total = sum(c["bytes"] for c in chunks)
 
     # ---- dataset (after model, per trainer convention) ----
@@ -353,23 +480,36 @@ def main():
     cams = [val[i] for i in pick]
     background = dataset.background
 
-    # cumulative coded bytes after finishing level li
-    cum_by_level, cum = {}, 0
-    for c in chunks:
-        cum += c["bytes"]
-        cum_by_level[c["level"]] = cum
+    # cumulative coded bytes per prefix: prefix p puts field f at its level
+    # min(p, len_f-1); chunks within a field are in ladder order
+    n_prefixes = max(len(fsteps[f]) for f in fields)
+    lvl_of_prefix = {
+        f: [min(p, len(fsteps[f]) - 1) for p in range(n_prefixes)]
+        for f in fields
+    }
+    cum_by_prefix = []
+    for p in range(n_prefixes):
+        tot = 0
+        for f in fields:
+            lf = lvl_of_prefix[f][p]
+            tot += sum(c["bytes"] for c in chunks
+                       if c["field"] == f and c["level"] <= lf)
+        cum_by_prefix.append(tot)
 
     # ---- render prefixes; full precision FIRST as the sanity anchor ----
     results = []
-    for li in [N_LEVELS - 1] + list(range(N_LEVELS - 1)):
+    for p in [n_prefixes - 1] + list(range(n_prefixes - 1)):
         deq = {}
         for f in fields:
-            chunks_upto = [c for c in chunks if c["level"] <= li and c["field"] == f]
+            lf = lvl_of_prefix[f][p]
+            steps_f = fsteps[f]
+            chunks_upto = [c for c in chunks
+                           if c["field"] == f and c["level"] <= lf]
             acc = chunks_upto[0]["decoded"].astype(np.float64)
             for prev, cur in zip(chunks_upto[:-1], chunks_upto[1:]):
-                acc = (STEPS[prev["level"]] // STEPS[cur["level"]]) * acc \
+                acc = (steps_f[prev["level"]] // steps_f[cur["level"]]) * acc \
                     + cur["decoded"]
-            xhat = (STEPS[li] * acc.reshape(out_shape[f])
+            xhat = (steps_f[lf] * acc.reshape(out_shape[f])
                     * Q_t[f].cpu().numpy()).astype(np.float32)
             deq[f] = torch.from_numpy(xhat).to(dev)
         view.anchor_feat = torch.nn.Parameter(deq["feat"].contiguous(),
@@ -390,20 +530,22 @@ def main():
                 psnrs.append(float("inf") if mse <= 0 else -10.0 * np.log10(mse))
                 del out
         real_bytes = (4 + len(header_bytes) + fixed_bytes + geom_bytes
-                      + chunk_params_total + cum_by_level[li])
+                      + chunk_params_total + cum_by_prefix[p])
         entry = {
-            "level": li,
-            "step_factor": int(STEPS[li]),
-            "coded_bytes": int(cum_by_level[li]),
+            "prefix": p,
+            "field_levels": {f: int(lvl_of_prefix[f][p]) for f in fields},
+            "field_steps": {f: int(fsteps[f][lvl_of_prefix[f][p]])
+                            for f in fields},
+            "coded_bytes": int(cum_by_prefix[p]),
             "real_bytes": round(real_bytes, 1),
             "psnr_mean": round(float(np.mean(psnrs)), 4),
             "psnr_per_view": [round(p, 4) for p in psnrs],
             "render_s": round(time.time() - t0, 1),
         }
         results.append(entry)
-        print(f"[RB] prefix@L{li} (Q x{entry['step_factor']}): REAL "
+        print(f"[RB] prefix P{p} (steps {entry['field_steps']}): REAL "
               f"{real_bytes/1e6:6.2f} MB  PSNR {entry['psnr_mean']:.3f}", flush=True)
-        if li == N_LEVELS - 1:
+        if p == n_prefixes - 1:
             print(f"[RB] SANITY ANCHOR: {entry['psnr_mean']:.3f} dB (need >= 25)")
             assert entry["psnr_mean"] >= 25.0, "sanity anchor failed — INVALID"
         del deq
@@ -411,7 +553,8 @@ def main():
 
     payload = {
         "run": str(run_dir), "n_alive": int(n_alive), "groups": GROUPS,
-        "steps": [int(s) for s in STEPS],
+        "field_aware": bool(args.field_aware),
+        "field_steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fixed_bytes": fixed_bytes, "geom_bytes": geom_bytes,
         "header_bytes": header_total,
         "chunk_params_total": chunk_params_total,
