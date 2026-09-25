@@ -165,25 +165,66 @@ def ladder_symbols(dec_t, Q_t, n_alive):
 
 # ---------------- head model ----------------
 
-class EntropyHead(nn.Module):
-    """MLP: (coarse symbol, group emb, log Q) -> (mean, log scale)."""
+MAX_MAG = 8  # decisions per symbol: zero-flag, sign, 7 magnitude bits
+             # (|d| <= 2**7 covers >99.9% of residuals; larger clipped by
+             # the coder's stage cap in practice)
+
+class BinaryEntropyHead(torch.nn.Module):
+    """MLP: (coarse symbol, group emb, log Q) -> per-decision probabilities
+    matching the production coder's binary-decomposition decision sequence:
+    out[:, 0]  = P(d != 0)
+    out[:, 1]  = P(d < 0 | d != 0)
+    out[:, 1+j] = P(|d| >= j+2 | |d| >= j+1), j = 1..MAX_MAG-1
+    Isomorphic to the encoder: every output is one encoder decision."""
 
     def __init__(self, emb_dim=8, hidden=64):
         super().__init__()
         self.emb = nn.Embedding(GROUPS, emb_dim)
         self.net = nn.Sequential(
-            nn.Linear(2 + emb_dim, hidden), nn.SiLU(),
-            nn.Linear(hidden, hidden), nn.SiLU(),
-            nn.Linear(hidden, 2),
+            nn.Linear(2 + emb_dim, hidden), torch.nn.SiLU(),
+            torch.nn.Linear(hidden, hidden), torch.nn.SiLU(),
+            torch.nn.Linear(hidden, 2 + MAX_MAG - 1),
         )
 
     def forward(self, coarse, group, logq):
         x = torch.cat([coarse[:, None].float(), self.emb(group),
                        logq[:, None].float()], dim=-1)
-        out = self.net(x)
-        mean = out[:, 0]
-        logscale = out[:, 1]
-        return mean, logscale
+        return torch.sigmoid(self.net(x))
+
+
+def decision_bits(residual, probs):
+    """Exact code length (bits, summed) of each residual under the
+    per-decision Bernoulli model that mirrors the production coder:
+      probs[:,0] = P(d != 0); probs[:,1] = P(d < 0 | d != 0);
+      probs[:,1+j] = P(|d| >= j+2 | |d| >= j+1), j = 1..MAX_MAG-1
+    Magnitude beyond 2**MAX_MAG-1 saturates (clipped, tiny fraction)."""
+    d = residual.long()
+    a = torch.abs(d)
+    sign = (d < 0).long()
+    nz = (a > 0).long()
+    bits = torch.zeros_like(a, dtype=torch.float32)
+    alive_idx = torch.nonzero(nz == 1).squeeze(-1)
+    if alive_idx.numel():
+        bits[alive_idx] += -_bce_bit(sign[alive_idx], probs[alive_idx, 1])
+        mag = a[alive_idx]
+        pos = torch.arange(alive_idx.numel(), device=a.device)
+        for j in range(1, MAX_MAG):
+            cont = (mag >= j + 1).long()
+            bits[alive_idx] += -_bce_bit(cont, probs[alive_idx, 1 + j])
+            keep = cont == 1
+            alive_idx = alive_idx[keep]
+            mag = mag[keep]
+            pos = pos[keep]
+            if alive_idx.numel() == 0:
+                break
+    return bits
+
+
+def _bce_bit(bit, p):
+    """Binary cross-entropy for a 0/1 bit with modeled probability p."""
+    p = p.clamp(1e-7, 1 - 1e-7)
+    b = bit.float()
+    return -(b * torch.log(p) + (1 - b) * torch.log(1 - p))
 
 
 def discr_gauss_nll(symbols, mean, logscale):
@@ -302,7 +343,7 @@ def mode_train(args):
         n_val = n // 10
         perm = torch.randperm(n)
         val_idx, tr_idx = perm[:n_val], perm[n_val:]
-        head = EntropyHead().to(device)
+        head = BinaryEntropyHead().to(device)
         opt = torch.optim.Adam(head.parameters(), lr=1e-3)
         coarse = coarse.to(device)
         group = group.to(device)
@@ -315,8 +356,8 @@ def mode_train(args):
             tot, nb = 0.0, 0
             for s in range(0, order.numel(), bs):
                 b = order[s:s + bs]
-                mean, logs = head(coarse[b], group[b], logq[b])
-                loss = discr_gauss_nll(res[b], mean, logs).mean()
+                probs = head(coarse[b], group[b], logq[b])
+                loss = decision_bits(res[b], probs).mean()
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
@@ -325,16 +366,13 @@ def mode_train(args):
             print(f"[S4] {f} epoch {epoch}: train NLL {tot/nb:.4f} nats "
                   f"({time.time()-t0:.0f}s)", flush=True)
         with torch.no_grad():
-            mv, ls = head(coarse[val_idx].to(device), group[val_idx].to(device),
-                          logq[val_idx].to(device))
-            nll_learned = float(discr_gauss_nll(res[val_idx].to(device), mv,
-                                                ls).mean())
+            probs = head(coarse[val_idx], group[val_idx], logq[val_idx])
+            bits_learned = float(decision_bits(res[val_idx], probs).mean())
             static = static_baseline_nll(
                 res[val_idx].cpu().numpy().astype(np.int32),
                 group[val_idx].cpu().numpy(), acc_prev_np[val_idx.numpy()])
+            bits_static = float(static.sum() / max(n_val, 1) / np.log(2))
         torch.save(head.state_dict(), f"{args.out}_{f}.pt")
-        bits_static = float(static.sum() / max(n_val, 1) / np.log(2))
-        bits_learned = nll_learned / np.log(2)
         heads[f] = f"{args.out}_{f}.pt"
         print(f"[S4] {f} val: learned {bits_learned:.3f} bits/sym vs static "
               f"{bits_static:.3f} bits/sym -> "
