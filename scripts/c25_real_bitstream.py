@@ -137,18 +137,28 @@ def _s4_ms(head, coarse, group, logq, device):
 
 def fit_chunk_params(layer, g, ctx=None):
     """Per (group[, bucket]): loc (int median), p0 = P(d==0),
-    beta = P(>=k+1 | >=k) of the geometric tail."""
-    shape = (GROUPS, BUCKETS) if ctx is not None else (GROUPS,)
+    beta = P(>=k+1 | >=k) of the geometric tail.
+
+    g is a COMPOSITE index; table size follows its max+1, so callers fold
+    extra condition dimensions (e.g. quant-step tier) into g and pass the
+    matching tier count via n_groups."""
+    n_groups = int(g.max()) + 1
+    shape = (n_groups, BUCKETS) if ctx is not None else (n_groups,)
     locs = np.zeros(shape, dtype=np.int64)
     p0s = np.zeros(shape, dtype=np.float64)
     bts = np.zeros(shape, dtype=np.float64)
-    for gid in range(GROUPS):
+    for gid in range(n_groups):
         bids = range(BUCKETS) if ctx is not None else [None]
         for bid in bids:
             sel = layer[(g == gid) & (ctx == bid)] if ctx is not None \
                 else layer[g == gid]
             if sel.size == 0:
-                sel = layer[g == gid]
+                # composite groups can be empty; fall back to the base group
+                # (same contribution group across tiers), then to everything
+                sel = layer[(g // 3) == (gid // 3)] if ctx is not None \
+                    else layer[g == gid]
+            if sel.size == 0:
+                sel = layer
             loc = int(np.median(sel))
             d = sel.astype(np.float64) - loc
             nz = float(np.mean(d != 0)) if sel.size else 0.0
@@ -161,7 +171,7 @@ def fit_chunk_params(layer, g, ctx=None):
     return locs, p0s, bts
 
 
-def code_chunk(layer, g, ctx=None, s4=None):
+def code_chunk(layer, g, ctx=None, s4=None):  # s4=(head, logq, dev, base_g)
     """Binary-decomposition range coding of `layer`.
 
     Decisions per symbol d = layer - loc:
@@ -183,10 +193,10 @@ def code_chunk(layer, g, ctx=None, s4=None):
         beta = bts[g]
     d = layer.astype(np.int64) - loc
 
-    head, logq, device = s4 if s4 is not None else (None, None, None)
+    head, logq, device, g_base = (s4 + (None,))[:4] if s4 is not None else (None, None, None, None)
     enc = constriction.stream.queue.RangeEncoder()
     if head is not None:
-        meanH, sigH = _s4_ms(head, loc, g, logq, device)
+        meanH, sigH = _s4_ms(head, loc, g_base, logq, device)
         # stage A: P(d != 0) = 1 - |Phi(meanH) - Phi(meanH-1)|  approximated
         # by the learned Gaussian's tail mass beyond +-0.5
         from math import erf
@@ -216,11 +226,10 @@ def code_chunk(layer, g, ctx=None, s4=None):
             mB_cur, sB_cur = _bin_ms(beta_cur)
         else:
             mB_cur, sB_cur = _bin_ms(beta)
-            mB_cur, sB_cur = mB_cur[g[alive]], sB_cur[g[alive]]
         bits = (mags >= k + 1).astype(np.int32)
         enc.encode(bits, _bin_family(),
-                   mB_cur.astype(np.float32),
-                   sB_cur.astype(np.float32))
+                   mB_cur[alive].astype(np.float32),
+                   sB_cur[alive].astype(np.float32))
         alive = alive[bits == 1]
         mags = mags[bits == 1]
         k += 1
@@ -231,10 +240,11 @@ def code_chunk(layer, g, ctx=None, s4=None):
 
     plain_bytes = None
     if ctx is not None:
-        pl, pp0s, pbts = fit_chunk_params(layer, g, None)
-        ploc = pl[g]
-        pp0 = pp0s[g]
-        pbeta = pbts[g]
+        pl, pp0s, pbts = fit_chunk_params(layer, g // 3, None)
+        # plain baseline conditions on the base group only (strip tier)
+        ploc = pl[g // 3]
+        pp0 = pp0s[g // 3]
+        pbeta = pbts[g // 3]
         pd = layer.astype(np.int64) - ploc
         enc2 = constriction.stream.queue.RangeEncoder()
         mPA, sPA = _bin_ms(1.0 - pp0)
@@ -274,9 +284,9 @@ def decode_chunk(data, g, params, ctx=None, s4=None):
         np.frombuffer(data, dtype=np.uint32))
     n = g.size
     d = np.zeros(n, dtype=np.int64)
-    head, logq, device = s4 if s4 is not None else (None, None, None)
+    head, logq, device, g_base = (s4 + (None,))[:4] if s4 is not None else (None, None, None, None)
     if head is not None:
-        meanH, sigH = _s4_ms(head, loc, g, logq, device)
+        meanH, sigH = _s4_ms(head, loc, g_base, logq, device)
         from math import erf
         ph = lambda x: 0.5 * (1 + np.vectorize(erf)(np.asarray(x, dtype=np.float64) / np.sqrt(2.0)))
         p_nz = np.clip((ph(meanH + 0.5) - ph(meanH - 0.5)) /
@@ -302,10 +312,9 @@ def decode_chunk(data, g, params, ctx=None, s4=None):
                 mB_cur, sB_cur = _bin_ms(beta_cur)
             else:
                 mB_cur, sB_cur = _bin_ms(beta)
-                mB_cur, sB_cur = mB_cur[g[cur]], sB_cur[g[cur]]
             bits = dec.decode(_bin_family(),
-                              mB_cur.astype(np.float32),
-                              sB_cur.astype(np.float32))
+                              mB_cur[cur].astype(np.float32),
+                              sB_cur[cur].astype(np.float32))
             dead = alive_pos[bits == 0]
             mag[dead] = k
             alive_pos = alive_pos[bits == 1]
@@ -337,6 +346,9 @@ def main():
                     help="prefix path of learned entropy heads (s4_head_*.pt); "
                     "residual layers coded with the learned conditional heads, "
                     "weights shipped in the bitstream header and counted")
+    ap.add_argument("--groups", type=int, default=GROUPS,
+                    help="contribution-group count for the condition tables "
+                    "(A2: try 64/128)")
     ap.add_argument("--field-aware", action="store_true",
                     help="per-field ladders: feat/offset 8x-start, scaling "
                     "2x-start (log-domain cliffs at coarser steps)")
@@ -460,15 +472,46 @@ def main():
     else:
         fsteps = {f: STEPS for f in fields}
     sym = {f: torch.round(dec_t[f] / Q_t[f]) for f in fields}
+
+    # ---- A1+A2: composite condition = contribution group × step tier ----
+    # step tier: per-field terciles of the per-anchor step multiplier
+    # (decoder recomputes both the multiplier and the tier cut points are
+    # fixed at 1/3, 2/3 quantiles of the same array — zero side info)
+    n_groups_eff = getattr(args, "groups", GROUPS)
+    step_tiers = {}
+    for f in fields:
+        qmul = Q_t[f].cpu().numpy().reshape(-1)
+        # per-symbol multiplier is constant across an anchor's columns:
+        qmul_anchor = qmul.reshape(-1, qmul.size // n_alive)[:, 0]
+        t1, t2 = np.quantile(qmul_anchor, [1 / 3, 2 / 3])
+        tier = np.digitize(qmul_anchor, [t1, t2]).astype(np.int16)
+        step_tiers[f] = tier  # per-anchor; repeated per column below
+    if n_groups_eff != GROUPS:
+        # finer contribution grouping: re-derive from area order
+        if args.stats and Path(args.stats).exists():
+            area = np.load(args.stats)["area"].astype(np.float64)
+            rank = np.empty(n_trained, dtype=np.int64)
+            rank[np.argsort(-area, kind="stable")] = np.arange(n_trained)
+            g_tr = np.minimum(rank * n_groups_eff // n_trained,
+                              n_groups_eff - 1).astype(np.int16)
+        else:
+            g_tr = np.minimum(np.arange(n_trained) * n_groups_eff // n_trained,
+                              n_groups_eff - 1).astype(np.int16)
+        g_base_alive = g_tr[mapped]
+    else:
+        g_base_alive = (group_of_trained[mapped] if group_of_trained is not None
+                        else np.minimum(np.arange(n_alive) * GROUPS // n_alive,
+                                        GROUPS - 1).astype(np.int16))
+    print(f"[RB] condition: groups={n_groups_eff} x step-tiers=3 "
+          f"(composite={n_groups_eff*3})", flush=True)
+
     q_flat, g_flat, out_shape = {}, {}, {}
     for f in fields:
         qf = sym[f].cpu().numpy().astype(np.int32).reshape(-1)
         n_cols = qf.size // n_alive
         q_flat[f] = qf
-        g = (group_of_trained[mapped] if group_of_trained is not None
-             else np.minimum(np.arange(n_alive) * GROUPS // n_alive,
-                             GROUPS - 1).astype(np.int16))
-        g_flat[f] = np.repeat(g, n_cols)
+        g_flat[f] = np.repeat(
+            g_base_alive * 3 + step_tiers[f], n_cols)
         out_shape[f] = tuple(sym[f].shape)
 
     # ---- optional learned entropy heads (S4) ----
@@ -476,6 +519,9 @@ def main():
     s4_weight_bytes = 0
     logq_flat = {}
     if args.s4_heads:
+        if getattr(args, "groups", GROUPS) != GROUPS:
+            raise SystemExit("--s4-heads was trained with 32 groups; "
+                             "combine with --groups 32 only")
         s4_heads = _load_s4_heads(args.s4_heads, dev)
         for f in fields:
             # Q_t[f] flat already has one entry per symbol of this field;
@@ -508,11 +554,18 @@ def main():
                 layer = (np.round(q / steps_f[li]).astype(np.int32)
                          - ratio * acc_prev[f])
                 ctx = bucket_of(acc_prev[f])
+            # base layer (li==0) conditions on the contribution group only:
+            # step-tier split there costs ~1.2 MB (fit variance with no
+            # magnitude context to justify it); enhancement layers keep it.
+            if ctx is None:
+                g_chunk = g_flat[f] // 3
+            else:
+                g_chunk = g_flat[f]
             s4ctx = None
             if s4_heads is not None and ctx is not None:
-                s4ctx = (s4_heads[f], logq_flat[f], dev)
-            data, params, pbytes = code_chunk(layer, g_flat[f], ctx, s4ctx)
-            back = decode_chunk(data, g_flat[f], params, ctx, s4ctx)
+                s4ctx = (s4_heads[f], logq_flat[f], dev, g_flat[f] // 3)
+            data, params, pbytes = code_chunk(layer, g_chunk, ctx, s4ctx)
+            back = decode_chunk(data, g_chunk, params, ctx, s4ctx)
             exact = bool((back == layer).all())
             assert exact, f"roundtrip mismatch level {li} field {f}"
             if ctx is not None:
@@ -538,7 +591,8 @@ def main():
     # ---- write the real transmit-able file ----
     header = {
         "format": "c25_layered_v1" if not args.field_aware else "c25_layered_v2_fieldaware",
-        "groups": GROUPS,
+        "groups": n_groups_eff,
+        "step_tiers": 3,
         "steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fields": list(fields),
         "chunks": [{"level": c["level"], "field": c["field"]} for c in chunks],
@@ -552,8 +606,8 @@ def main():
         for c in chunks:
             locs, p0s, bts = c["params"]
             pb = (locs.astype(np.int32).tobytes()
-                  + p0s.astype(np.float16).tobytes()
-                  + bts.astype(np.float16).tobytes())
+                  + p0s.astype(np.float32).tobytes()
+                  + bts.astype(np.float32).tobytes())
             fh.write(len(pb).to_bytes(4, "little"))
             fh.write(pb)
             fh.write(len(c["data"]).to_bytes(4, "little"))
@@ -572,8 +626,8 @@ def main():
     for c in chunks:
         locs, p0s, bts = c["params"]
         chunk_params_total += 8 + locs.astype(np.int32).tobytes().__len__() \
-            + p0s.astype(np.float16).tobytes().__len__() \
-            + bts.astype(np.float16).tobytes().__len__()
+            + p0s.astype(np.float32).tobytes().__len__() \
+            + bts.astype(np.float32).tobytes().__len__()
     chunk_data_total = sum(c["bytes"] for c in chunks)
 
     # ---- dataset (after model, per trainer convention) ----
@@ -659,7 +713,8 @@ def main():
         torch.cuda.empty_cache()
 
     payload = {
-        "run": str(run_dir), "n_alive": int(n_alive), "groups": GROUPS,
+        "run": str(run_dir), "n_alive": int(n_alive),
+        "groups": int(n_groups_eff),
         "field_aware": bool(args.field_aware),
         "s4_apply": s4_heads is not None,
         "s4_weight_bytes": s4_weight_bytes,
