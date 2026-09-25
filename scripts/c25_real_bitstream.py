@@ -91,6 +91,50 @@ def _bin_family():
     return constriction.stream.model.QuantizedGaussian(0, 1)
 
 
+class _S4Head(torch.nn.Module):
+    """Learned conditional entropy head: (coarse, group emb, logQ) ->
+    (mean, logscale) of a discretized Gaussian for the residual symbol."""
+
+    def __init__(self, emb_dim=8, hidden=64):
+        super().__init__()
+        self.emb = torch.nn.Embedding(GROUPS, emb_dim)
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(2 + emb_dim, hidden), torch.nn.SiLU(),
+            torch.nn.Linear(hidden, hidden), torch.nn.SiLU(),
+            torch.nn.Linear(hidden, 2),
+        )
+
+    def forward(self, coarse, group, logq):
+        x = torch.cat([coarse[:, None].float(), self.emb(group),
+                       logq[:, None].float()], dim=-1)
+        out = self.net(x)
+        return out[:, 0], out[:, 1]
+
+
+def _load_s4_heads(prefix, device="cpu"):
+    heads = {}
+    for f in ("feat", "scaling", "offset"):
+        h = _S4Head()
+        h.load_state_dict(torch.load(f"{prefix}_{f}.pt", map_location="cpu",
+                                     weights_only=True))
+        h.eval().to(device)
+        heads[f] = h
+    return heads
+
+
+def _s4_ms(head, coarse, group, logq, device):
+    """(mean, sigma) arrays for each symbol under the learned head."""
+    with torch.no_grad():
+        m, ls = head(torch.from_numpy(coarse).to(device),
+                     torch.from_numpy(group.astype(np.int64)).to(device),
+                     torch.from_numpy(logq.astype(np.float32)).to(device))
+    mean = torch.round(m).cpu().numpy().astype(np.float32)
+    z = torch.erfinv(2.0 * torch.abs(m - torch.round(m)) - 1.0).abs() \
+        .cpu().numpy() * np.sqrt(2.0)
+    sigma = np.clip(0.5 / np.clip(z, 1e-3, None), 0.05, 8.0).astype(np.float32)
+    return mean, sigma
+
+
 def fit_chunk_params(layer, g, ctx=None):
     """Per (group[, bucket]): loc (int median), p0 = P(d==0),
     beta = P(>=k+1 | >=k) of the geometric tail."""
@@ -117,15 +161,17 @@ def fit_chunk_params(layer, g, ctx=None):
     return locs, p0s, bts
 
 
-def code_chunk(layer, g, ctx=None):
+def code_chunk(layer, g, ctx=None, s4=None):
     """Binary-decomposition range coding of `layer`.
 
     Decisions per symbol d = layer - loc:
       A: d != 0            (P(1) = 1 - p0)
       B: sign, if d != 0   (P(1) = 0.5, sign bit 1 = negative)
       C: for k = 1, 2, ... while alive: |d| >= k+1 ?  (P(1) = beta)
-    Returns (data, params, plain_bytes); decoded symbols verified by caller
-    through decode_chunk."""
+    With s4=(head, logq, device), stage-A/C probabilities come from the
+    learned conditional head (decoder recomputes coarse+group+logQ: zero
+    side info); loc stays the static integer median (shipped in params).
+    Returns (data, params, plain_bytes)."""
     locs, p0s, bts = fit_chunk_params(layer, g, ctx)
     if ctx is not None:
         loc = locs[g, ctx]                 # per-symbol: (group, bucket) table
@@ -137,10 +183,23 @@ def code_chunk(layer, g, ctx=None):
         beta = bts[g]
     d = layer.astype(np.int64) - loc
 
+    head, logq, device = s4 if s4 is not None else (None, None, None)
     enc = constriction.stream.queue.RangeEncoder()
-    mA, sA = _bin_ms(1.0 - p0)
-    enc.encode((d != 0).astype(np.int32), _bin_family(),
-               mA.astype(np.float32), sA.astype(np.float32))
+    if head is not None:
+        meanH, sigH = _s4_ms(head, loc, g, logq, device)
+        # stage A: P(d != 0) = 1 - |Phi(meanH) - Phi(meanH-1)|  approximated
+        # by the learned Gaussian's tail mass beyond +-0.5
+        from math import erf
+        ph = lambda x: 0.5 * (1 + np.vectorize(erf)(np.asarray(x, dtype=np.float64) / np.sqrt(2.0)))
+        p_nz = np.clip((ph(meanH + 0.5) - ph(meanH - 0.5)) /
+                       (ph(meanH + 4096) - ph(meanH - 4096)), 1e-4, 1 - 1e-4)
+        mA, sA = _bin_ms(1.0 - p_nz)
+        enc.encode((d != 0).astype(np.int32), _bin_family(),
+                   mA.astype(np.float32), sA.astype(np.float32))
+    else:
+        mA, sA = _bin_ms(1.0 - p0)
+        enc.encode((d != 0).astype(np.int32), _bin_family(),
+                   mA.astype(np.float32), sA.astype(np.float32))
     alive = np.nonzero(d != 0)[0]
     if alive.size:
         mS, sS = _bin_ms(0.5)
@@ -148,13 +207,20 @@ def code_chunk(layer, g, ctx=None):
                    np.full(alive.size, mS, dtype=np.float32),
                    np.full(alive.size, sS, dtype=np.float32))
     mags = np.abs(d[alive]) if alive.size else np.zeros(0, dtype=np.int64)
-    mB_all, sB_all = _bin_ms(beta)
+    # stage-C probabilities for the CURRENT alive set, recomputed each round
     k = 1
     while alive.size:
+        if head is not None:
+            sig_cur = sigH[alive]
+            beta_cur = np.clip(1.0 - 1.0 / np.maximum(sig_cur, 1.05), 0.05, 0.98)
+            mB_cur, sB_cur = _bin_ms(beta_cur)
+        else:
+            mB_cur, sB_cur = _bin_ms(beta)
+            mB_cur, sB_cur = mB_cur[g[alive]], sB_cur[g[alive]]
         bits = (mags >= k + 1).astype(np.int32)
         enc.encode(bits, _bin_family(),
-                   mB_all[alive].astype(np.float32),
-                   sB_all[alive].astype(np.float32))
+                   mB_cur.astype(np.float32),
+                   sB_cur.astype(np.float32))
         alive = alive[bits == 1]
         mags = mags[bits == 1]
         k += 1
@@ -194,7 +260,7 @@ def code_chunk(layer, g, ctx=None):
     return data, params, plain_bytes
 
 
-def decode_chunk(data, g, params, ctx=None):
+def decode_chunk(data, g, params, ctx=None, s4=None):
     locs, p0s, bts = params
     if ctx is not None:
         loc = locs[g, ctx]
@@ -208,7 +274,16 @@ def decode_chunk(data, g, params, ctx=None):
         np.frombuffer(data, dtype=np.uint32))
     n = g.size
     d = np.zeros(n, dtype=np.int64)
-    mA, sA = _bin_ms(1.0 - p0)
+    head, logq, device = s4 if s4 is not None else (None, None, None)
+    if head is not None:
+        meanH, sigH = _s4_ms(head, loc, g, logq, device)
+        from math import erf
+        ph = lambda x: 0.5 * (1 + np.vectorize(erf)(np.asarray(x, dtype=np.float64) / np.sqrt(2.0)))
+        p_nz = np.clip((ph(meanH + 0.5) - ph(meanH - 0.5)) /
+                       (ph(meanH + 4096) - ph(meanH - 4096)), 1e-4, 1 - 1e-4)
+        mA, sA = _bin_ms(1.0 - p_nz)
+    else:
+        mA, sA = _bin_ms(1.0 - p0)
     z = dec.decode(_bin_family(), mA.astype(np.float32), sA.astype(np.float32))
     surv = np.nonzero(z == 1)[0]
     if surv.size:
@@ -218,12 +293,19 @@ def decode_chunk(data, g, params, ctx=None):
                          np.full(surv.size, sS, dtype=np.float32))
         mag = np.ones(surv.size, dtype=np.int64)
         alive_pos = np.arange(surv.size)
-        mB_all, sB_all = _bin_ms(beta)
         k = 1
         while alive_pos.size:
+            cur = surv[alive_pos]
+            if head is not None:
+                sig_cur = sigH[cur]
+                beta_cur = np.clip(1.0 - 1.0 / np.maximum(sig_cur, 1.05), 0.05, 0.98)
+                mB_cur, sB_cur = _bin_ms(beta_cur)
+            else:
+                mB_cur, sB_cur = _bin_ms(beta)
+                mB_cur, sB_cur = mB_cur[g[cur]], sB_cur[g[cur]]
             bits = dec.decode(_bin_family(),
-                              mB_all[surv[alive_pos]].astype(np.float32),
-                              sB_all[surv[alive_pos]].astype(np.float32))
+                              mB_cur.astype(np.float32),
+                              sB_cur.astype(np.float32))
             dead = alive_pos[bits == 0]
             mag[dead] = k
             alive_pos = alive_pos[bits == 1]
@@ -251,6 +333,10 @@ def main():
     ap.add_argument("--bin", dest="bin_out",
                     default="analysis/s2_prefix_sweep/c25_real_bitstream.bin")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--s4-heads", default=None,
+                    help="prefix path of learned entropy heads (s4_head_*.pt); "
+                    "residual layers coded with the learned conditional heads, "
+                    "weights shipped in the bitstream header and counted")
     ap.add_argument("--field-aware", action="store_true",
                     help="per-field ladders: feat/offset 8x-start, scaling "
                     "2x-start (log-domain cliffs at coarser steps)")
@@ -385,6 +471,23 @@ def main():
         g_flat[f] = np.repeat(g, n_cols)
         out_shape[f] = tuple(sym[f].shape)
 
+    # ---- optional learned entropy heads (S4) ----
+    s4_heads = None
+    s4_weight_bytes = 0
+    logq_flat = {}
+    if args.s4_heads:
+        s4_heads = _load_s4_heads(args.s4_heads, dev)
+        for f in fields:
+            # Q_t[f] flat already has one entry per symbol of this field;
+            # residual chunks index the same flat symbol space
+            logq_flat[f] = np.log(Q_t[f].cpu().numpy().reshape(-1)
+                                  ).astype(np.float32)
+        import os
+        s4_weight_bytes = sum(os.path.getsize(f"{args.s4_heads}_{f}.pt")
+                              for f in fields)
+        print(f"[RB] learned entropy heads loaded (S4 apply mode), "
+              f"weights {s4_weight_bytes/1024:.0f} KB", flush=True)
+
     # ---- range-code the ladder (chunks in ladder order) ----
     # residual chunks (li>=1) use layer-conditioned models: per (group,
     # |coarse symbol| bucket) — the bucket is recomputed decoder-side from
@@ -405,8 +508,11 @@ def main():
                 layer = (np.round(q / steps_f[li]).astype(np.int32)
                          - ratio * acc_prev[f])
                 ctx = bucket_of(acc_prev[f])
-            data, params, pbytes = code_chunk(layer, g_flat[f], ctx)
-            back = decode_chunk(data, g_flat[f], params, ctx)
+            s4ctx = None
+            if s4_heads is not None and ctx is not None:
+                s4ctx = (s4_heads[f], logq_flat[f], dev)
+            data, params, pbytes = code_chunk(layer, g_flat[f], ctx, s4ctx)
+            back = decode_chunk(data, g_flat[f], params, ctx, s4ctx)
             exact = bool((back == layer).all())
             assert exact, f"roundtrip mismatch level {li} field {f}"
             if ctx is not None:
@@ -530,7 +636,8 @@ def main():
                 psnrs.append(float("inf") if mse <= 0 else -10.0 * np.log10(mse))
                 del out
         real_bytes = (4 + len(header_bytes) + fixed_bytes + geom_bytes
-                      + chunk_params_total + cum_by_prefix[p])
+                      + chunk_params_total + s4_weight_bytes
+                      + cum_by_prefix[p])
         entry = {
             "prefix": p,
             "field_levels": {f: int(lvl_of_prefix[f][p]) for f in fields},
@@ -554,6 +661,8 @@ def main():
     payload = {
         "run": str(run_dir), "n_alive": int(n_alive), "groups": GROUPS,
         "field_aware": bool(args.field_aware),
+        "s4_apply": s4_heads is not None,
+        "s4_weight_bytes": s4_weight_bytes,
         "field_steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fixed_bytes": fixed_bytes, "geom_bytes": geom_bytes,
         "header_bytes": header_total,

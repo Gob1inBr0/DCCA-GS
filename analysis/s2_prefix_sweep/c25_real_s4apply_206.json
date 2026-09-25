@@ -1,0 +1,278 @@
+{
+ "run": "/mnt/newproject2/dcca_runs/ms206_base_r085_lam0005_s42",
+ "n_alive": 609196,
+ "groups": 32,
+ "field_aware": false,
+ "s4_apply": true,
+ "s4_weight_bytes": 73463,
+ "field_steps": {
+  "feat": [
+   16,
+   8,
+   4,
+   2,
+   1
+  ],
+  "scaling": [
+   16,
+   8,
+   4,
+   2,
+   1
+  ],
+  "offset": [
+   16,
+   8,
+   4,
+   2,
+   1
+  ]
+ },
+ "fixed_bytes": 927716.0,
+ "geom_bytes": 1131042.0,
+ "header_bytes": 702,
+ "chunk_params_total": 10104,
+ "conditional_saved_bytes": -9236840,
+ "coding_s": 441.1,
+ "bin_file": "analysis/s2_prefix_sweep/c25_real_s4apply_206.bin",
+ "bin_size": 40408958,
+ "results": [
+  {
+   "prefix": 4,
+   "field_levels": {
+    "feat": 4,
+    "scaling": 4,
+    "offset": 4
+   },
+   "field_steps": {
+    "feat": 1,
+    "scaling": 1,
+    "offset": 1
+   },
+   "coded_bytes": 40398152,
+   "real_bytes": 42541179.0,
+   "psnr_mean": 26.2223,
+   "psnr_per_view": [
+    25.9773,
+    23.0516,
+    28.4056,
+    26.0771,
+    26.9537,
+    26.3278,
+    28.5798,
+    26.3043,
+    26.1919,
+    26.9131,
+    24.8804,
+    24.4809,
+    25.3536,
+    28.1158,
+    25.6512,
+    26.2925
+   ],
+   "render_s": 11.6
+  },
+  {
+   "prefix": 0,
+   "field_levels": {
+    "feat": 0,
+    "scaling": 0,
+    "offset": 0
+   },
+   "field_steps": {
+    "feat": 16,
+    "scaling": 16,
+    "offset": 16
+   },
+   "coded_bytes": 9529652,
+   "real_bytes": 11672679.0,
+   "psnr_mean": 21.8545,
+   "psnr_per_view": [
+    22.2409,
+    20.4014,
+    24.0134,
+    22.2434,
+    22.1373,
+    22.6353,
+    23.7189,
+    21.0465,
+    20.5249,
+    22.4819,
+    21.3588,
+    20.5223,
+    21.1901,
+    23.1102,
+    20.8748,
+    21.1726
+   ],
+   "render_s": 5.6
+  },
+  {
+   "prefix": 1,
+   "field_levels": {
+    "feat": 1,
+    "scaling": 1,
+    "offset": 1
+   },
+   "field_steps": {
+    "feat": 8,
+    "scaling": 8,
+    "offset": 8
+   },
+   "coded_bytes": 17264160,
+   "real_bytes": 19407187.0,
+   "psnr_mean": 24.6067,
+   "psnr_per_view": [
+    24.76,
+    22.0291,
+    26.4078,
+    24.7199,
+    25.2559,
+    24.7872,
+    26.6615,
+    24.6016,
+    24.1677,
+    25.2121,
+    23.6209,
+    22.9371,
+    23.8449,
+    26.1846,
+    23.9198,
+    24.5972
+   ],
+   "render_s": 5.6
+  },
+  {
+   "prefix": 2,
+   "field_levels": {
+    "feat": 2,
+    "scaling": 2,
+    "offset": 2
+   },
+   "field_steps": {
+    "feat": 4,
+    "scaling": 4,
+    "offset": 4
+   },
+   "coded_bytes": 24960892,
+   "real_bytes": 27103919.0,
+   "psnr_mean": 25.7672,
+   "psnr_per_view": [
+    25.5978,
+    22.7017,
+    27.866,
+    25.6961,
+    26.4748,
+    25.9347,
+    28.0484,
+    25.9297,
+    25.5927,
+    26.435,
+    24.4956,
+    23.9321,
+    24.899,
+    27.6354,
+    25.2209,
+    25.816
+   ],
+   "render_s": 5.6
+  },
+  {
+   "prefix": 3,
+   "field_levels": {
+    "feat": 3,
+    "scaling": 3,
+    "offset": 3
+   },
+   "field_steps": {
+    "feat": 2,
+    "scaling": 2,
+    "offset": 2
+   },
+   "coded_bytes": 32490492,
+   "real_bytes": 34633519.0,
+   "psnr_mean": 26.07,
+   "psnr_per_view": [
+    25.8378,
+    22.9261,
+    28.2485,
+    25.9572,
+    26.791,
+    26.2004,
+    28.3974,
+    26.1704,
+    25.9881,
+    26.7491,
+    24.7473,
+    24.2928,
+    25.207,
+    27.9715,
+    25.5136,
+    26.121
+   ],
+   "render_s": 5.6
+  }
+ ],
+ "s2_selection_reference": [
+  {
+   "ordering": "contribution",
+   "prefix": 0.05,
+   "bytes_est": 1741963.7,
+   "psnr_mean": 14.1372
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 0.1,
+   "bytes_est": 3216761.6,
+   "psnr_mean": 16.492
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 0.25,
+   "bytes_est": 7549006.9,
+   "psnr_mean": 20.6165
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 0.5,
+   "bytes_est": 14371700.2,
+   "psnr_mean": 24.6139
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 1.0,
+   "bytes_est": 22468704.6,
+   "psnr_mean": 26.9533
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.05,
+   "bytes_est": 1348183.9,
+   "psnr_mean": 8.0458
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.1,
+   "bytes_est": 2458946.6,
+   "psnr_mean": 10.2724
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.25,
+   "bytes_est": 5795738.5,
+   "psnr_mean": 14.6638
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.5,
+   "bytes_est": 11354582.4,
+   "psnr_mean": 19.382
+  },
+  {
+   "ordering": "random",
+   "prefix": 1.0,
+   "bytes_est": 22468704.6,
+   "psnr_mean": 26.9533
+  }
+ ]
+}
