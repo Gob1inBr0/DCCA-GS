@@ -33,10 +33,12 @@ bash .agents/skills/check-status/scripts/status_sweep.sh
 `Scaffold-GS training: 74%|...| 22300/30000 [5:04:55<1:27:36, 1.46it/s, anchors=..., loss=...]`
 方括号第二段是剩余时间估计，直接引用为 ETA。30k 一个 run 全程约 10–12 小时。
 
-**run 在哪**：当前主存储是 NFS 上的 `/mnt/newproject2/dcca_runs`，历史 run 在
-`/dev/shm/dcca_runs`。日志和锁是 run 目录的同级文件：`<tag>.log`（训练）、
+**run 在哪**：当前主存储是 NFS 上的 `/mnt/newproject2/dcca_runs`（2026-09-23
+目录整理后这是唯一 run 存储；`/dev/shm/dcca_runs` 已清空废弃，历史 run 已在
+NFS 上）。日志和锁是 run 目录的同级文件：`<tag>.log`（训练）、
 `<tag>.launch.log`（runner 输出，ALL_DONE 在这里）。队列事件日志：
-`/mnt/newproject2/dcca_runs/jr2_total_queue.log`。
+`/mnt/newproject2/dcca_runs/jr2_total_queue.log`。另有一批
+`/mnt/newproject2/runs/`（lyh_p0_* 启动器输出），巡检时一并看。
 
 **什么才算"跑完"**：只有 run 目录下存在 `decoded_eval/metrics.jsonl`
 （压缩 + 解码 + 150 视角评测）才算完整跑完，这个数字才能登记。
