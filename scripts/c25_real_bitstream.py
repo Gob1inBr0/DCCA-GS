@@ -91,6 +91,62 @@ def _bin_family():
     return constriction.stream.model.QuantizedGaussian(0, 1)
 
 
+# ---- S5: learned refine-flag probabilities for offset enhancement layers ----
+# Probe-validated design (scripts/binary_prob_probe.py, 2026-09-26): a tiny
+# MLP on (|coarse symbol|, log Q, ladder level) predicts the stage-A flag
+# P(residual != 0) per symbol. Everything the head sees is recomputed on the
+# decoder side (coarse layer already decoded, Q multiplier is side info), so
+# the zero-side-info contract holds; trained weights ride in the file.
+
+class S5FlagHead(torch.nn.Module):
+    def __init__(self, hidden=32):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(3, hidden), torch.nn.GELU(),
+            torch.nn.Linear(hidden, hidden), torch.nn.GELU(),
+            torch.nn.Linear(hidden, 1))
+
+    def forward(self, abs_coarse, logq, level):
+        x = torch.stack([abs_coarse, logq,
+                         torch.full_like(abs_coarse, float(level))], -1)
+        return self.net(x).squeeze(-1)
+
+
+def _s5_inputs(acc_prev, logq, level, dev):
+    a = torch.from_numpy(np.abs(acc_prev).astype(np.float32)).to(dev)
+    lq = torch.from_numpy(np.asarray(logq, dtype=np.float32)).to(dev)
+    return a, lq, float(level)
+
+
+def _s5_pflag(head, acc_prev, logq, level, dev):
+    """Per-symbol P(flag=1); identical on the encode and decode sides."""
+    with torch.no_grad():
+        a, lq, lv = _s5_inputs(acc_prev, logq, level, dev)
+        return torch.sigmoid(head(a, lq, lv)).cpu().numpy().astype(np.float64)
+
+
+def train_s5_head(layer, loc_sym, acc_prev, logq, level, dev,
+                  epochs=4, bs=131072, lr=1e-3):
+    """Fit the flag head on ALL symbols of this chunk (deployment setting —
+    no holdout: the trained weights ship inside the bitstream file)."""
+    y = torch.from_numpy(((layer.astype(np.int64) - loc_sym) != 0)
+                         .astype(np.float32)).to(dev)
+    a, lq, lv = _s5_inputs(acc_prev, logq, level, dev)
+    head = S5FlagHead().to(dev)
+    opt = torch.optim.Adam(head.parameters(), lr=lr)
+    bce = torch.nn.functional.binary_cross_entropy_with_logits
+    n = y.numel()
+    for _ in range(epochs):
+        perm = torch.randperm(n, device=dev)
+        for s0 in range(0, n, bs):
+            b = perm[s0:s0 + bs]
+            loss = bce(head(a[b], lq[b], lv), y[b])
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+    return head
+
+
 class _S4Head(torch.nn.Module):
     """Learned conditional entropy head: (coarse, group emb, logQ) ->
     (mean, logscale) of a discretized Gaussian for the residual symbol."""
@@ -171,17 +227,20 @@ def fit_chunk_params(layer, g, ctx=None):
     return locs, p0s, bts
 
 
-def code_chunk(layer, g, ctx=None, s4=None):  # s4=(head, logq, dev, base_g)
+def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None):
+    # s4=(head, logq, dev, base_g); s5_flag = per-symbol P(1) for stage A
     """Binary-decomposition range coding of `layer`.
 
     Decisions per symbol d = layer - loc:
-      A: d != 0            (P(1) = 1 - p0)
+      A: d != 0            (P(1) = 1 - p0, or s5_flag per symbol)
       B: sign, if d != 0   (P(1) = 0.5, sign bit 1 = negative)
       C: for k = 1, 2, ... while alive: |d| >= k+1 ?  (P(1) = beta)
     With s4=(head, logq, device), stage-A/C probabilities come from the
     learned conditional head (decoder recomputes coarse+group+logQ: zero
     side info); loc stays the static integer median (shipped in params).
-    Returns (data, params, plain_bytes)."""
+    With s5_flag (S5), stage-A probabilities come from the trained flag
+    head instead; stages B/C are unchanged. Returns (data, params,
+    plain_bytes)."""
     locs, p0s, bts = fit_chunk_params(layer, g, ctx)
     if ctx is not None:
         loc = locs[g, ctx]                 # per-symbol: (group, bucket) table
@@ -195,7 +254,11 @@ def code_chunk(layer, g, ctx=None, s4=None):  # s4=(head, logq, dev, base_g)
 
     head, logq, device, g_base = (s4 + (None,))[:4] if s4 is not None else (None, None, None, None)
     enc = constriction.stream.queue.RangeEncoder()
-    if head is not None:
+    if s5_flag is not None:
+        mA, sA = _bin_ms(s5_flag)
+        enc.encode((d != 0).astype(np.int32), _bin_family(),
+                   mA.astype(np.float32), sA.astype(np.float32))
+    elif head is not None:
         meanH, sigH = _s4_ms(head, loc, g_base, logq, device)
         # stage A: P(d != 0) = 1 - |Phi(meanH) - Phi(meanH-1)|  approximated
         # by the learned Gaussian's tail mass beyond +-0.5
@@ -270,7 +333,7 @@ def code_chunk(layer, g, ctx=None, s4=None):  # s4=(head, logq, dev, base_g)
     return data, params, plain_bytes
 
 
-def decode_chunk(data, g, params, ctx=None, s4=None):
+def decode_chunk(data, g, params, ctx=None, s4=None, s5_flag=None):
     locs, p0s, bts = params
     if ctx is not None:
         loc = locs[g, ctx]
@@ -285,7 +348,9 @@ def decode_chunk(data, g, params, ctx=None, s4=None):
     n = g.size
     d = np.zeros(n, dtype=np.int64)
     head, logq, device, g_base = (s4 + (None,))[:4] if s4 is not None else (None, None, None, None)
-    if head is not None:
+    if s5_flag is not None:
+        mA, sA = _bin_ms(s5_flag)
+    elif head is not None:
         meanH, sigH = _s4_ms(head, loc, g_base, logq, device)
         from math import erf
         ph = lambda x: 0.5 * (1 + np.vectorize(erf)(np.asarray(x, dtype=np.float64) / np.sqrt(2.0)))
@@ -343,9 +408,12 @@ def main():
                     default="analysis/s2_prefix_sweep/c25_real_bitstream.bin")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--s4-heads", default=None,
-                    help="prefix path of learned entropy heads (s4_head_*.pt); "
-                    "residual layers coded with the learned conditional heads, "
-                    "weights shipped in the bitstream header and counted")
+                    help=argparse.SUPPRESS)  # legacy failed apply path
+    ap.add_argument("--s5-offset-mlp", action="store_true",
+                    help="S5: tiny flag-head MLP supplies stage-A "
+                         "(refine-flag) probabilities for OFFSET enhancement "
+                         "layers only; context |coarse sym|+logQ+level, "
+                         "trained in-process, weights ride in the file")
     ap.add_argument("--groups", type=int, default=GROUPS,
                     help="contribution-group count for the condition tables "
                     "(A2: try 64/128)")
@@ -353,6 +421,9 @@ def main():
                     help="per-field ladders: feat/offset 8x-start, scaling "
                     "2x-start (log-domain cliffs at coarser steps)")
     args = ap.parse_args()
+    if args.s4_heads and args.s5_offset_mlp:
+        raise SystemExit("--s4-heads (legacy failed apply path) and "
+                         "--s5-offset-mlp are mutually exclusive")
 
     from scaffold_gs.hacpp import HACPlusCodec
     from scaffold_gs.datasets import ColmapDataset
@@ -514,20 +585,18 @@ def main():
             g_base_alive * 3 + step_tiers[f], n_cols)
         out_shape[f] = tuple(sym[f].shape)
 
-    # ---- optional learned entropy heads (S4) ----
+    # ---- per-symbol log step (context for S4/S5 heads) ----
+    logq_flat = {f: np.log(Q_t[f].cpu().numpy().reshape(-1)
+                           ).astype(np.float32) for f in fields}
+
+    # ---- optional learned entropy heads (S4, legacy failed apply path) ----
     s4_heads = None
     s4_weight_bytes = 0
-    logq_flat = {}
     if args.s4_heads:
         if getattr(args, "groups", GROUPS) != GROUPS:
             raise SystemExit("--s4-heads was trained with 32 groups; "
                              "combine with --groups 32 only")
         s4_heads = _load_s4_heads(args.s4_heads, dev)
-        for f in fields:
-            # Q_t[f] flat already has one entry per symbol of this field;
-            # residual chunks index the same flat symbol space
-            logq_flat[f] = np.log(Q_t[f].cpu().numpy().reshape(-1)
-                                  ).astype(np.float32)
         import os
         s4_weight_bytes = sum(os.path.getsize(f"{args.s4_heads}_{f}.pt")
                               for f in fields)
@@ -541,6 +610,7 @@ def main():
     chunks = []          # dicts: level, field, params, data, decoded, ctx
     acc_prev = {}        # decoded coarse symbols per field (context source)
     plain_bytes = {}     # unconditioned alternative, for the savings report
+    s5_heads = {}        # S5: offset level -> trained flag head
     t0 = time.time()
     for f in fields:
         steps_f = fsteps[f]
@@ -564,8 +634,22 @@ def main():
             s4ctx = None
             if s4_heads is not None and ctx is not None:
                 s4ctx = (s4_heads[f], logq_flat[f], dev, g_flat[f] // 3)
-            data, params, pbytes = code_chunk(layer, g_chunk, ctx, s4ctx)
-            back = decode_chunk(data, g_chunk, params, ctx, s4ctx)
+            s5_flag = None
+            if args.s5_offset_mlp and f == "offset" and li >= 1:
+                locs_t, _, _ = fit_chunk_params(layer, g_chunk, ctx)
+                loc_sym = locs_t[g_chunk, ctx]
+                head_l = train_s5_head(layer, loc_sym, acc_prev[f],
+                                       logq_flat[f], li, dev)
+                s5_heads[li] = head_l
+                s5_flag = _s5_pflag(head_l, acc_prev[f], logq_flat[f],
+                                    li, dev)
+                npar = sum(p.numel() for p in head_l.parameters())
+                print(f"[RB] s5 offset L{li}: flag head trained "
+                      f"({npar} params)", flush=True)
+            data, params, pbytes = code_chunk(layer, g_chunk, ctx, s4ctx,
+                                              s5_flag=s5_flag)
+            back = decode_chunk(data, g_chunk, params, ctx, s4ctx,
+                                s5_flag=s5_flag)
             exact = bool((back == layer).all())
             assert exact, f"roundtrip mismatch level {li} field {f}"
             if ctx is not None:
@@ -589,8 +673,18 @@ def main():
               f"{cond_saved/1e6:.2f} MB", flush=True)
 
     # ---- write the real transmit-able file ----
+    s5_blob = b""
+    if s5_heads:
+        import io
+        buf = io.BytesIO()
+        torch.save({str(k): v.state_dict() for k, v in
+                    sorted(s5_heads.items())}, buf)
+        s5_blob = buf.getvalue()
+    s5_weight_bytes = len(s5_blob)
     header = {
-        "format": "c25_layered_v1" if not args.field_aware else "c25_layered_v2_fieldaware",
+        "format": ("c25_layered_v3_s5" if s5_heads else
+                   "c25_layered_v1" if not args.field_aware
+                   else "c25_layered_v2_fieldaware"),
         "groups": n_groups_eff,
         "step_tiers": 3,
         "steps": {f: [int(s) for s in fsteps[f]] for f in fields},
@@ -598,11 +692,21 @@ def main():
         "chunks": [{"level": c["level"], "field": c["field"]} for c in chunks],
         "n_alive": int(n_alive),
     }
+    if s5_heads:
+        # key present IFF a weights blob follows the header (v1/v2 files
+        # stay byte-identical to pre-S5 writes)
+        header["s5_levels"] = sorted(int(k) for k in s5_heads)
     header_bytes = json.dumps(header).encode("utf-8")
     bin_path = Path(args.bin_out)
     with open(bin_path, "wb") as fh:
         fh.write(len(header_bytes).to_bytes(4, "little"))
         fh.write(header_bytes)
+        if s5_blob:
+            # length-prefixed state-dict blob keyed by ladder level: a
+            # standalone v3 decoder loads this and recomputes stage-A
+            # probabilities from the decoded coarse layer + side-info Q
+            fh.write(len(s5_blob).to_bytes(4, "little"))
+            fh.write(s5_blob)
         for c in chunks:
             locs, p0s, bts = c["params"]
             pb = (locs.astype(np.int32).tobytes()
@@ -691,6 +795,7 @@ def main():
                 del out
         real_bytes = (4 + len(header_bytes) + fixed_bytes + geom_bytes
                       + chunk_params_total + s4_weight_bytes
+                      + s5_weight_bytes + (4 if s5_blob else 0)
                       + cum_by_prefix[p])
         entry = {
             "prefix": p,
@@ -718,6 +823,8 @@ def main():
         "field_aware": bool(args.field_aware),
         "s4_apply": s4_heads is not None,
         "s4_weight_bytes": s4_weight_bytes,
+        "s5_apply": bool(s5_heads),
+        "s5_weight_bytes": s5_weight_bytes,
         "field_steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fixed_bytes": fixed_bytes, "geom_bytes": geom_bytes,
         "header_bytes": header_total,
