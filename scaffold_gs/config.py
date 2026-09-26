@@ -96,6 +96,14 @@ class ModelConfig:
     complexity_scale: float = 0.35
     content_aware_start_iter: int = 20_000
     content_aware_ramp_iters: int = 10_000
+
+    # B3: progressive-aware quantization — late-phase penalty pulling the
+    # pre-quantization symbols onto coarse-ladder multiples (feat/offset 8x,
+    # scaling 2x, matching the layered bitstream base steps) so the base
+    # layer of the progressive stream loses less. Default OFF.
+    coarse_ladder_align: bool = False
+    coarse_ladder_start_iter: int = 24_000
+    coarse_ladder_weight: float = 0.05
     mlp_complexity_hidden: Optional[int] = None
     """Hidden width of the complexity MLP; None -> feat_dim // 2."""
 

@@ -621,6 +621,8 @@ class HACPlusModel(BaseGaussianModel):
         bit_per_scaling_param = None
         bit_per_offsets_param = None
         complexity_logits = None
+        ladder_penalty = None
+        ladder_raw = None
 
         if is_training:
             if 3000 < step <= 10000:
@@ -691,6 +693,22 @@ class HACPlusModel(BaseGaussianModel):
                         _mean_scaling,
                         _mean_offsets,
                     )
+                if getattr(self.cfg, "coarse_ladder_align", False):
+                    # B3: on the PRE-noise continuous symbols with the final
+                    # (content-aware adjusted) Q — the noise below only
+                    # emulates rounding on the rendering path. Skip the
+                    # graph entirely while the ramp is still zero.
+                    ramp = self._coarse_ladder_ramp(step)
+                    if ramp > 0.0:
+                        ladder_raw = self._coarse_ladder_penalty_raw(
+                            feat, grid_scaling, grid_offsets,
+                            Q_feat, Q_scaling, Q_offsets,
+                            binary_grid_masks,
+                        )
+                        ladder_penalty = (
+                            float(self.cfg.coarse_ladder_weight) * ramp
+                            * ladder_raw
+                        )
                 feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
                 grid_scaling = grid_scaling + (
                     torch.rand_like(grid_scaling) - 0.5
@@ -881,6 +899,8 @@ class HACPlusModel(BaseGaussianModel):
             pre_quant_offsets=grid_offsets if sens_active else None,
             complexity_logits=complexity_logits,
             gaussian_anchor_indices=gaussian_anchor_indices,
+            ladder_penalty=ladder_penalty,
+            ladder_penalty_raw=ladder_raw,
         )
 
     def render(self, camera, background, **kwargs):
@@ -1127,6 +1147,41 @@ class HACPlusModel(BaseGaussianModel):
         return self.optim_cfg.lambda_rate * (
             gaussians.bit_per_param + bit_hash / denom
         )
+
+    def _coarse_ladder_ramp(self, step: int) -> float:
+        """Linear 0->1 from coarse_ladder_start_iter to end of training."""
+        start = int(self.cfg.coarse_ladder_start_iter)
+        if step <= start:
+            return 0.0
+        end = getattr(self.optim_cfg, "max_steps", None) if self.optim_cfg else None
+        if not end or int(end) <= start:
+            end = start + 6000
+        return float(min((step - start) / max(int(end) - start, 1), 1.0))
+
+    def _coarse_ladder_penalty_raw(
+        self, feat, grid_scaling, grid_offsets,
+        Q_feat, Q_scaling, Q_offsets, binary_grid_masks,
+    ) -> torch.Tensor:
+        """B3: distance of pre-quantization symbols to ladder multiples.
+
+        The layered bitstream transmits round(x/Q); its base layer is
+        L-times coarser, so the base-layer reconstruction error is
+        (r - L*round(r/L)) * Q with r = x/Q. Penalizing |r - L*round(r/L)|/L
+        on the continuous symbols shrinks that error. Q is DETACHED: the
+        optimizer cannot satisfy the penalty by inflating step sizes, only
+        the attribute values move. L matches the bitstream base steps:
+        feat/offset 8x, scaling 2x. Masked-out offsets are excluded.
+        """
+        def align(x, Q, L):
+            r = x / Q.detach()
+            return ((r - L * torch.round(r / L)) / L).abs()
+
+        pen_feat = align(feat, Q_feat, 8).mean()
+        pen_scaling = align(grid_scaling, Q_scaling, 2).mean()
+        mask3 = binary_grid_masks.detach().to(grid_offsets.dtype).repeat(1, 1, 3)
+        pen_off = (align(grid_offsets, Q_offsets, 8) * mask3).sum() / \
+            mask3.sum().clamp_min(1.0)
+        return pen_feat + pen_scaling + pen_off
 
     def sensitivity_supervision(self, gaussians: NeuralGaussians) -> torch.Tensor:
         """L_sens = weight * MSE(pred multiplier, bounded sensitivity target).

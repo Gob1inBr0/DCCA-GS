@@ -59,6 +59,10 @@ class NeuralGaussians:
     # global anchor index that generated it. Required to compute per-anchor
     # contribution area (fusion-prune coverage / submodular edges).
     gaussian_anchor_indices: Optional[torch.Tensor] = None
+    # B3 coarse-ladder alignment penalty (scalar; weighted value goes into
+    # the training loss, raw value is for logging). None when inactive.
+    ladder_penalty: Optional[torch.Tensor] = None
+    ladder_penalty_raw: Optional[torch.Tensor] = None
 
 
 class AnchorParams(nn.Module):

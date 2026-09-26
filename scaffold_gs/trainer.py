@@ -338,6 +338,16 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         spa_loss_fn = getattr(model, "spa_loss_term", None)
         if spa_loss_fn is not None:
             loss = loss + spa_loss_fn()
+        # B3: coarse-ladder alignment penalty, filled in during render when
+        # coarse_ladder_align is on and past coarse_ladder_start_iter
+        ladder_pen = getattr(out.gaussians, "ladder_penalty", None)
+        if ladder_pen is not None:
+            loss = loss + ladder_pen
+            if iteration % 1000 == 0:
+                raw = getattr(out.gaussians, "ladder_penalty_raw", None)
+                raw_val = float(raw) if raw is not None else float("nan")
+                print(f"[B3] iter {iteration}: ladder raw {raw_val:.4f} "
+                      f"weighted {float(ladder_pen):.5f}", flush=True)
 
         loss.backward()
 
