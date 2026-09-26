@@ -343,7 +343,7 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         ladder_pen = getattr(out.gaussians, "ladder_penalty", None)
         if ladder_pen is not None:
             loss = loss + ladder_pen
-            if iteration % 1000 == 0:
+            if iteration % 500 == 0:
                 raw = getattr(out.gaussians, "ladder_penalty_raw", None)
                 raw_val = float(raw) if raw is not None else float("nan")
                 print(f"[B3] iter {iteration}: ladder raw {raw_val:.4f} "
