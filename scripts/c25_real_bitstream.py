@@ -407,6 +407,10 @@ def main():
     ap.add_argument("--bin", dest="bin_out",
                     default="analysis/s2_prefix_sweep/c25_real_bitstream.bin")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--data-factor", type=int, default=2,
+                    help="GT resolution factor (1 = full res; audit vs "
+                         "decoded_eval needs 1 + max-width 1600)")
+    ap.add_argument("--max-width", type=int, default=None)
     ap.add_argument("--s4-heads", default=None,
                     help=argparse.SUPPRESS)  # legacy failed apply path
     ap.add_argument("--s5-offset-mlp", action="store_true",
@@ -485,51 +489,77 @@ def main():
         np.save(mp, mapped)
         print(f"[RB] mapped generated and cached: {mp}")
     assert n_alive == mapped.size
-    q_cache = out_path.parent / (run_tag + "_q_cache.npz")
-    if q_cache.exists():
-        z = np.load(q_cache)
+    last_q = getattr(model.core, "last_decode_Q", None)
+    if last_q is not None:
         Q_t = {
-            "feat": torch.from_numpy(z["Q_feat"]).to(dev),
-            "scaling": torch.from_numpy(z["Q_scaling"]).to(dev),
-            "offset": torch.from_numpy(z["Q_offsets"]).to(dev),
+            "feat": last_q["feat"].to(dev).float(),
+            "scaling": last_q["scaling"].to(dev).float(),
+            "offset": last_q["offsets"].to(dev).float().reshape(
+                dec_t["offset"].shape),
         }
-        print("[RB] Q loaded from cache")
+        print("[RB] Q taken from codec decode (production grid)")
     else:
-        core = model.core
-        k_off = model.cfg.n_offsets
-        core.current_step = 30000
-        core.current_iter = 30000
-        Q_feat = torch.empty(n_alive, 32, device=dev)
-        Q_scaling = torch.empty(n_alive, 6, device=dev)
-        Q_offsets = torch.empty(n_alive, k_off, 3, device=dev)
-        anchor_dev = model.core.get_anchor
-        with torch.no_grad():
-            for start in range(0, n_alive, 16384):
-                end = min(start + 16384, n_alive)
-                a = anchor_dev[start:end]
-                idx = torch.arange(start, end, device=dev)
-                ctx_in = core.calc_context_feat(a, anchor_indices=idx, caller="rb")
-                (mean, scale, prob, m_sc, s_sc, m_off, s_off, qa, qs, qo) = torch.split(
-                    core.get_grid_mlp(ctx_in),
-                    [32, 32, 32, 6, 6, 3 * k_off, 3 * k_off, 1, 1, 1],
-                    dim=-1,
-                )
-                qf = 1.0 * (1 + torch.tanh(qa.repeat(1, 32)))
-                qs2 = 0.001 * (1 + torch.tanh(qs.repeat(1, 6)))
-                qo2 = 0.2 * (1 + torch.tanh(qo.repeat(1, 3 * k_off))).view(-1, k_off, 3)
-                if core.is_content_aware_quant_active():
-                    msk = core.get_mask[idx]
-                    (qf, qs2, qo2, _, _, _, _) = core._codec_apply_content_aware_quant_params(
-                        "rb", a, msk, qf, qs2, qo2, None, None, None,
-                        m_sc.view(-1, 6), m_off.view(-1, 3 * k_off),
+        print("[RB] WARNING: codec did not expose last_decode_Q; falling back "
+              "to legacy derivation (grid may differ from production!)")
+        q_cache = out_path.parent / (run_tag + "_q_cache.npz")
+        if q_cache.exists():
+            z = np.load(q_cache)
+            Q_t = {
+                "feat": torch.from_numpy(z["Q_feat"]).to(dev),
+                "scaling": torch.from_numpy(z["Q_scaling"]).to(dev),
+                "offset": torch.from_numpy(z["Q_offsets"]).to(dev),
+            }
+            print("[RB] Q loaded from cache")
+        else:
+            core = model.core
+            k_off = model.cfg.n_offsets
+            core.current_step = 30000
+            core.current_iter = 30000
+            Q_feat = torch.empty(n_alive, 32, device=dev)
+            Q_scaling = torch.empty(n_alive, 6, device=dev)
+            Q_offsets = torch.empty(n_alive, k_off, 3, device=dev)
+            anchor_dev = model.core.get_anchor
+            with torch.no_grad():
+                for start in range(0, n_alive, 16384):
+                    end = min(start + 16384, n_alive)
+                    a = anchor_dev[start:end]
+                    idx = torch.arange(start, end, device=dev)
+                    ctx_in = core.calc_context_feat(a, anchor_indices=idx, caller="rb")
+                    (mean, scale, prob, m_sc, s_sc, m_off, s_off, qa, qs, qo) = torch.split(
+                        core.get_grid_mlp(ctx_in),
+                        [32, 32, 32, 6, 6, 3 * k_off, 3 * k_off, 1, 1, 1],
+                        dim=-1,
                     )
-                Q_feat[start:end] = qf
-                Q_scaling[start:end] = qs2
-                Q_offsets[start:end] = qo2
-        np.savez(q_cache, Q_feat=Q_feat.cpu().numpy(), Q_scaling=Q_scaling.cpu().numpy(),
-                 Q_offsets=Q_offsets.cpu().numpy())
-        Q_t = {"feat": Q_feat, "scaling": Q_scaling, "offset": Q_offsets}
-        print("[RB] per-anchor Q computed via decoder-reproducible path (cached)")
+                    qf = 1.0 * (1 + torch.tanh(qa.repeat(1, 32)))
+                    qs2 = 0.001 * (1 + torch.tanh(qs.repeat(1, 6)))
+                    qo2 = 0.2 * (1 + torch.tanh(qo.repeat(1, 3 * k_off))).view(-1, k_off, 3)
+                    if core.is_content_aware_quant_active():
+                        msk = core.get_mask[idx]
+                        (qf, qs2, qo2, _, _, _, _) = core._codec_apply_content_aware_quant_params(
+                            "rb", a, msk, qf, qs2, qo2, None, None, None,
+                            m_sc.view(-1, 6), m_off.view(-1, 3 * k_off),
+                        )
+                    Q_feat[start:end] = qf
+                    Q_scaling[start:end] = qs2
+                    Q_offsets[start:end] = qo2
+            np.savez(q_cache, Q_feat=Q_feat.cpu().numpy(), Q_scaling=Q_scaling.cpu().numpy(),
+                     Q_offsets=Q_offsets.cpu().numpy())
+            Q_t = {"feat": Q_feat, "scaling": Q_scaling, "offset": Q_offsets}
+            print("[RB] per-anchor Q computed via legacy path (cached)")
+    # grid self-check: symbols derived from the decoded attributes must
+    # re-synthesize them exactly, or the layered stream describes a
+    # DIFFERENT model than the production decoder emits
+    with torch.no_grad():
+        for f in ("feat", "scaling", "offset"):
+            tf = dec_t[f]
+            qf = torch.round(tf / Q_t[f])
+            mism = int((qf * Q_t[f] != tf).sum())
+            print(f"[RB] grid check {f}: mismatch {mism}/{tf.numel()}",
+                  flush=True)
+            if mism:
+                print(f"[RB] WARNING: {f} grid mismatch — layered stream "
+                      "describes a different model than production decode",
+                      flush=True)
     print(f"[RB] model decoded (anchors={n_alive})", flush=True)
 
     fields = ("feat", "scaling", "offset")
@@ -736,7 +766,8 @@ def main():
 
     # ---- dataset (after model, per trainer convention) ----
     dataset = ColmapDataset(
-        data_dir=args.data_dir, data_factor=2, test_every=8,
+        data_dir=args.data_dir, data_factor=args.data_factor, test_every=8,
+        max_width=args.max_width,
         white_background=False, preload_images=False, device=str(dev),
     )
     val = dataset.val_cameras

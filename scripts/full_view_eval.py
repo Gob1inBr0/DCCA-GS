@@ -44,6 +44,10 @@ def main():
     ap.add_argument("--mapped", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--data-factor", type=int, default=2,
+                    help="GT resolution factor (1 = full res; audit vs "
+                         "decoded_eval needs 1 + max-width 1600)")
+    ap.add_argument("--max-width", type=int, default=None)
     args = ap.parse_args()
 
     from scaffold_gs.hacpp import HACPlusCodec
@@ -97,10 +101,21 @@ def main():
                   np.minimum(np.arange(n_alive) * GROUPS // n_alive,
                              GROUPS - 1).astype(np.int16))
 
-    z = np.load(out_path.parent / (run_tag + "_q_cache.npz"))
-    Q_t = {f: torch.from_numpy(z[n]).to(dev)
-           for f, n in (("feat", "Q_feat"), ("scaling", "Q_scaling"),
-                        ("offset", "Q_offsets"))}
+    last_q = getattr(model.core, "last_decode_Q", None)
+    if last_q is not None:
+        Q_t = {f: last_q[n].to(dev).float()
+               for f, n in (("feat", "feat"), ("scaling", "scaling"),
+                            ("offset", "offsets"))}
+        # decode-side offsets Q is flat (N, 3k); align to the view shape
+        Q_t["offset"] = Q_t["offset"].reshape(dec_t["offset"].shape)
+        print("[FV] Q taken from codec decode (production grid)")
+    else:
+        print("[FV] WARNING: falling back to legacy q_cache (grid may differ "
+              "from production decode!)")
+        z = np.load(out_path.parent / (run_tag + "_q_cache.npz"))
+        Q_t = {f: torch.from_numpy(z[n]).to(dev)
+               for f, n in (("feat", "Q_feat"), ("scaling", "Q_scaling"),
+                            ("offset", "Q_offsets"))}
     q_flat, g_flat, out_shape = {}, {}, {}
     for f in FIELDS:
         qf = torch.round(dec_t[f] / Q_t[f]).cpu().numpy().astype(np.int32).reshape(-1)
@@ -136,7 +151,8 @@ def main():
 
     # --- dataset: ALL val views ---
     dataset = ColmapDataset(
-        data_dir=args.data_dir, data_factor=2, test_every=8,
+        data_dir=args.data_dir, data_factor=args.data_factor, test_every=8,
+        max_width=args.max_width,
         white_background=False, preload_images=False, device=str(dev),
     )
     val = dataset.val_cameras
