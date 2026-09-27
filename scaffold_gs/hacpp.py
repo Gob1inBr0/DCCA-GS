@@ -2242,6 +2242,7 @@ class HACPlusModel(BaseGaussianModel):
 
         steps = math.ceil(N / MAX_batch_size)
         feat_list, scaling_list, offsets_list = [], [], []
+        q_store = {"feat": [], "scaling": [], "offsets": []}
         for s in range(steps):
             start = s * MAX_batch_size
             end = min((s + 1) * MAX_batch_size, N)
@@ -2305,6 +2306,9 @@ class HACPlusModel(BaseGaussianModel):
                 Q_scaling = Q_scaling * ov_scaling[start:end]
             if ov_offsets is not None:
                 Q_offsets = Q_offsets * ov_offsets[start:end]
+            q_store["feat"].append(Q_feat.detach().cpu())
+            q_store["scaling"].append(Q_scaling.detach().cpu())
+            q_store["offsets"].append(Q_offsets.detach().cpu())
             Q_feat_flat = Q_feat.contiguous().view(-1)
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
@@ -2424,6 +2428,15 @@ class HACPlusModel(BaseGaussianModel):
         feat = torch.cat(feat_list, dim=0)
         scaling = torch.cat(scaling_list, dim=0)
         offsets = torch.cat(offsets_list, dim=0)
+        # Exact per-element quantization grids used by THIS decode (post
+        # content-aware adjustment, post overrides): consumers that re-derive
+        # symbols from the decoded attributes must use these, or their grid
+        # silently differs from the production one.
+        self.core.last_decode_Q = {
+            "feat": torch.cat(q_store["feat"], dim=0),
+            "scaling": torch.cat(q_store["scaling"], dim=0),
+            "offsets": torch.cat(q_store["offsets"], dim=0),
+        }
         mask = torch.zeros(N, k + 1, 1, device=device)
         mask[:, :k] = masks_decoded
 
