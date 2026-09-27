@@ -13,10 +13,10 @@ plt.rcParams["axes.unicode_minus"] = False
 
 hacpp = [(12.10, 26.868), (16.34, 27.633), (20.03, 27.841), (26.27, 28.211), (40.56, 28.678)]
 base = [(10.67, 27.394), (13.90, 27.695), (19.94, 27.813)]
-prog = [(15.75, 25.011), (20.94, 26.187), (24.55, 26.535), (29.95, 26.703)]
-prog_b3 = [(15.80, 25.267), (19.43, 26.266), (22.06, 26.592), (26.19, 26.763)]
-p004_ctrl = [(6.67, 18.024), (9.73, 22.919), (11.90, 25.342), (14.92, 26.308)]
-p004_b3 = [(7.00, 18.887), (9.35, 22.800), (11.26, 25.229), (14.21, 26.335)]
+prog = [(15.74, 25.826), (20.89, 27.040), (24.67, 27.406), (30.48, 27.601)]
+prog_b3 = [(15.99, 26.085), (19.51, 27.111), (22.12, 27.492), (26.23, 27.684)]
+p004_ctrl = [(6.83, 18.817), (9.95, 23.908), (12.12, 26.265), (15.14, 27.251)]
+p004_b3 = [(7.16, 19.733), (9.47, 23.747), (11.42, 26.183), (14.33, 27.225)]
 
 fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.6))
 
@@ -45,7 +45,7 @@ ax.plot([p[0] for p in base], [p[1] for p in base], "o-", color="#2e7d32",
 ax.plot([p[0] for p in p004_ctrl], [p[1] for p in p004_ctrl], "^-", color="#5b7fa6",
         lw=1.6, ms=6, label="渐进 λ0.004（B3 前）")
 ax.plot([p[0] for p in p004_b3], [p[1] for p in p004_b3], "^--", color="#d9622b",
-        lw=1.8, ms=7, label="渐进 λ0.004 + B3（P0 +0.86 dB）")
+        lw=1.8, ms=7, label="渐进 λ0.004 + B3（P0 +0.92 dB）")
 for i, p in enumerate(p004_b3):
     ax.annotate(f"P{i}", p, textcoords="offset points", xytext=(6, 6),
                 fontsize=9, color="#d9622b")
@@ -59,7 +59,7 @@ ax.set_ylim(17, 28)
 ax.grid(alpha=0.3)
 ax.legend(loc="lower right", fontsize=8.8)
 
-fig.suptitle("1-78：B3 渐进码流 vs 延伸后的 HAC++（全部 150 视角实测）", fontsize=13, y=1.00)
+fig.suptitle("1-78：B3 渐进码流 vs 延伸后的 HAC++（全部 150 视角实测，栅格修复后）", fontsize=13, y=1.00)
 fig.tight_layout()
 out = "docs/figures/b3_progressive_vs_hacpp_measured_20260928.png"
 fig.savefig(out, dpi=160, bbox_inches="tight")
