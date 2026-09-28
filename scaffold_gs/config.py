@@ -97,6 +97,13 @@ class ModelConfig:
     content_aware_start_iter: int = 20_000
     content_aware_ramp_iters: int = 10_000
 
+    # ASG color path (codex/color-asg): decoder supports "asg" mode; the
+    # hac_pp training line never instantiates it, defaults stay rgb.
+    color_mode: str = "rgb"
+    asg_lobes: int = 1
+    asg_latent_dim: int = 8
+    asg_hidden: Optional[int] = None
+
     # B3: progressive-aware quantization — late-phase penalty pulling the
     # pre-quantization symbols onto coarse-ladder multiples (feat/offset 8x,
     # scaling 2x, matching the layered bitstream base steps) so the base

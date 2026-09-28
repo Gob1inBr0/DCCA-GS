@@ -132,7 +132,8 @@ def submodular_greedy_select(
 ) -> tuple[torch.Tensor, float]:
     """Lazy-greedy coverage selection.
 
-    edges_by_view: list of (block_ids, anchor_ids) per rendered view.
+    edges_by_view: list of (ua, ub, counts) triplets per rendered view
+    (unique anchor-block pairs with pixel counts, see view_edges).
     kappa: budget. sens: optional [N] sensitivity for v2 weighting.
     base_scores: [N] linear scores used to build the top-2kappa candidate pool.
     Returns (keep_anchor_indices, elapsed_ms).

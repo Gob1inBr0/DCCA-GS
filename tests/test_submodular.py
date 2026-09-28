@@ -17,10 +17,19 @@ from scaffold_gs.submodular import submodular_greedy_select
 
 
 def _edges(pairs):
-    """One view; pairs = list of (anchor, block) repeated per pixel mass."""
-    anchors = torch.tensor([p[0] for p in pairs], dtype=torch.long)
-    blocks = torch.tensor([p[1] for p in pairs], dtype=torch.long)
-    return [(blocks, anchors)]
+    """One view; pairs = list of (anchor, block) repeated per pixel mass.
+
+    Production format (per-view reduce in submodular.view_edges): each entry
+    is a (ua, ub, counts) TRIPLET of unique (anchor, block) pairs with their
+    pixel counts.
+    """
+    mass = {}
+    for a, b in pairs:
+        mass[(a, b)] = mass.get((a, b), 0) + 1
+    ua = torch.tensor([p[0] for p in mass], dtype=torch.long)
+    ub = torch.tensor([p[1] for p in mass], dtype=torch.long)
+    cnt = torch.tensor([m for m in mass.values()], dtype=torch.float32)
+    return [(ua, ub, cnt)]
 
 
 def _objective(keep, pairs):
