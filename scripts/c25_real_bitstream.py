@@ -703,6 +703,11 @@ def main():
               f"{cond_saved/1e6:.2f} MB", flush=True)
 
     # ---- write the real transmit-able file ----
+    # level-major write order: every quality prefix P_p (all fields' chunks
+    # with level <= p) is a byte-contiguous prefix of the file — a decoder
+    # reads sequentially until EOF. sorted() is stable, so within one level
+    # the field order (feat/scaling/offset) is unchanged.
+    write_order = sorted(chunks, key=lambda c: c["level"])
     s5_blob = b""
     if s5_heads:
         import io
@@ -719,7 +724,7 @@ def main():
         "step_tiers": 3,
         "steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fields": list(fields),
-        "chunks": [{"level": c["level"], "field": c["field"]} for c in chunks],
+        "chunks": [{"level": c["level"], "field": c["field"]} for c in write_order],
         "n_alive": int(n_alive),
     }
     if s5_heads:
@@ -737,7 +742,7 @@ def main():
             # probabilities from the decoded coarse layer + side-info Q
             fh.write(len(s5_blob).to_bytes(4, "little"))
             fh.write(s5_blob)
-        for c in chunks:
+        for c in write_order:
             locs, p0s, bts = c["params"]
             pb = (locs.astype(np.int32).tobytes()
                   + p0s.astype(np.float32).tobytes()
@@ -783,13 +788,21 @@ def main():
         for f in fields
     }
     cum_by_prefix = []
+    params_by_prefix = []
     for p in range(n_prefixes):
         tot = 0
+        par = 0
         for f in fields:
             lf = lvl_of_prefix[f][p]
-            tot += sum(c["bytes"] for c in chunks
-                       if c["field"] == f and c["level"] <= lf)
+            for c in chunks:
+                if c["field"] == f and c["level"] <= lf:
+                    tot += c["bytes"]
+                    locs, p0s, bts = c["params"]
+                    par += 8 + locs.astype(np.int32).tobytes().__len__() \
+                        + p0s.astype(np.float32).tobytes().__len__() \
+                        + bts.astype(np.float32).tobytes().__len__()
         cum_by_prefix.append(tot)
+        params_by_prefix.append(par)
 
     # ---- render prefixes; full precision FIRST as the sanity anchor ----
     results = []
@@ -825,7 +838,7 @@ def main():
                 psnrs.append(float("inf") if mse <= 0 else -10.0 * np.log10(mse))
                 del out
         real_bytes = (4 + len(header_bytes) + fixed_bytes + geom_bytes
-                      + chunk_params_total + s4_weight_bytes
+                      + params_by_prefix[p] + s4_weight_bytes
                       + s5_weight_bytes + (4 if s5_blob else 0)
                       + cum_by_prefix[p])
         entry = {

@@ -125,6 +125,8 @@ def main():
         out_shape[f] = tuple(dec_t[f].shape)
 
     # --- rebuild the ladder exactly as the coding script does ---
+    # NOTE: this evaluator describes the FIELD-AWARE ladder only; .bin files
+    # encoded in uniform mode ([16,8,4,2,1]) would need different steps.
     steps = {f: ([8, 4, 2, 1] if f in ("feat", "offset") else [2, 1])
              for f in FIELDS}  # field-aware ladders
     n_prefixes = max(len(v) for v in steps.values())
