@@ -229,12 +229,20 @@ def build_stream(args):
                            ).astype(np.float32) for f in FIELD_ORDER}
 
     f, li = args.field, args.level
-    assert 1 <= li < len(fsteps[f]), \
+    assert 0 <= li < len(fsteps[f]), \
         f"level {li} outside {f} ladder {fsteps[f]}"
-    acc_prev_f = telescoping_acc(q_flat[f], fsteps[f], li - 1)
-    ratio = fsteps[f][li - 1] // fsteps[f][li]
-    layer = (np.round(q_flat[f] / fsteps[f][li]).astype(np.int32)
-             - ratio * acc_prev_f)
+    base_layer = li == 0
+    if base_layer:
+        # base layer: no coarse context exists yet; the production table
+        # conditions on the contribution group only (ctx=None), so the
+        # isomorphic static baseline must too
+        acc_prev_f = None
+        layer = np.round(q_flat[f] / fsteps[f][0]).astype(np.int32)
+    else:
+        acc_prev_f = telescoping_acc(q_flat[f], fsteps[f], li - 1)
+        ratio = fsteps[f][li - 1] // fsteps[f][li]
+        layer = (np.round(q_flat[f] / fsteps[f][li]).astype(np.int32)
+                 - ratio * acc_prev_f)
     # cross-field accumulators/residuals at the level each earlier field
     # actually sits at when field f's level-li chunk is coded
     cross = {}
@@ -249,8 +257,10 @@ def build_stream(args):
             d_ff = acc_top
         cross[ff] = {"acc": acc_top, "res": d_ff, "level": top}
     return {
-        "field": f, "level": li, "layer": layer, "ctx": bucket_of(acc_prev_f),
-        "g_chunk": g_flat[f], "acc_prev": acc_prev_f, "cross": cross,
+        "field": f, "level": li, "layer": layer,
+        "ctx": None if base_layer else bucket_of(acc_prev_f),
+        "g_chunk": g_flat[f] // 3 if base_layer else g_flat[f],
+        "acc_prev": acc_prev_f, "cross": cross,
         "q_flat": q_flat, "logq_flat": logq_flat, "fsteps": fsteps,
         "n_alive": n_alive, "n_cols": n_cols, "dev": dev,
     }
@@ -259,17 +269,24 @@ def build_stream(args):
 def symbol_features(st, args):
     """Symbol-level feature arrays; every entry decoder-recomputable at the
     moment the symbol is coded (module docstring lists the legality of each
-    group). Returns {name: float32 array (n_symbols, dim)}."""
+    group). Returns {name: float32 array (n_symbols, dim)}.
+
+    Base layer (acc_prev None): coarse-symbol features are zeros (nothing
+    decoded yet); spatial/crosscol keep their shape with zero-filled
+    coarse parts — still decoder-recomputable, just uninformative there.
+    """
     f, n_alive, cols = st["field"], st["n_alive"], st["n_cols"][st["field"]]
     acc = st["acc_prev"]
     layer = st["layer"]
+    zeros = np.zeros(layer.size, dtype=np.float32)
+    a32 = zeros if acc is None else acc.astype(np.float32)
     out = {}
     if "base" in args.context:
-        out["abs_coarse"] = np.abs(acc).astype(np.float32)[:, None]
-        out["coarse"] = acc.astype(np.float32)[:, None]
+        out["abs_coarse"] = np.abs(a32)[:, None]
+        out["coarse"] = a32[:, None]
         out["logq"] = st["logq_flat"][f][:, None]
     if "spatial" in args.context:
-        a2 = acc.reshape(n_alive, cols)
+        a2 = a32.reshape(n_alive, cols)
         nb1 = np.zeros_like(a2)
         nb2 = np.zeros_like(a2)
         nb1[1:] = a2[:-1]
@@ -279,7 +296,7 @@ def symbol_features(st, args):
                                   -1).astype(np.float32)
     if "crosscol" in args.context:
         d2 = layer.reshape(n_alive, cols).astype(np.float32)
-        a2 = acc.reshape(n_alive, cols).astype(np.float32)
+        a2 = a32.reshape(n_alive, cols)
         dc = np.zeros_like(d2)
         ac = np.zeros_like(a2)
         dc[:, 1:] = d2[:, :-1]
@@ -294,7 +311,7 @@ def symbol_features(st, args):
                        ).mean(-1, keepdims=True)
             means.append(np.repeat(m, cols, axis=1).reshape(-1))
         while len(means) < 2:
-            means.append(np.zeros(acc.size, dtype=np.float64))
+            means.append(np.zeros(layer.size, dtype=np.float64))
         out["crossfield"] = np.stack(means[:2], -1).astype(np.float32)
     return out
 
@@ -419,17 +436,20 @@ def main():
     st = build_stream(args)
     layer, ctx, g_chunk = st["layer"], st["ctx"], st["g_chunk"]
     n_alive, cols = st["n_alive"], st["n_cols"][st["field"]]
+    base_layer = ctx is None
 
     # production table (deployment form) supplies the medians and the
     # reference-column probabilities; the decision bits are exactly what
     # code_chunk codes against those medians
     locs, p0s, bts = fit_chunk_params(layer, g_chunk, ctx)
-    loc = locs[g_chunk, ctx]
+    loc = locs[g_chunk] if base_layer else locs[g_chunk, ctx]
     d = layer.astype(np.int64) - loc
 
     n_g = int(g_chunk.max()) + 1
-    n_cells = n_g * N_BUCKETS
-    cell_sym = g_chunk * N_BUCKETS + ctx          # per-symbol cell id
+    n_cells = n_g if base_layer else n_g * N_BUCKETS
+    # per-symbol cell id: group only on the base layer (production table
+    # has no bucket dimension there), group x bucket on enhancement layers
+    cell_sym = g_chunk if base_layer else g_chunk * N_BUCKETS + ctx
 
     # ---- decision stream ----
     if args.stage == "flag":
@@ -439,14 +459,15 @@ def main():
         g_of_dec = g_chunk
         counts = None
         # production reference column: 1 - p0 of the same cells
-        p_prod_all = np.clip(1.0 - p0s[g_chunk, ctx], 1e-4, 1 - 1e-4)
+        prod_p = p0s[g_chunk] if base_layer else p0s[g_chunk, ctx]
+        p_prod_all = np.clip(1.0 - prod_p, 1e-4, 1 - 1e-4)
     else:
         nz = np.nonzero(d != 0)[0]
         bit, sym_of_dec, cell_of_dec, g_of_dec, k_of_dec, counts = \
             _cont_decisions(d, cell_sym, g_chunk)
         # production reference column: the cells' all-fit beta
-        p_prod_all = np.repeat(np.clip(bts[g_chunk[nz], ctx[nz]],
-                                       0.05, 0.98), counts)
+        prod_b = bts[g_chunk[nz]] if base_layer else bts[g_chunk[nz], ctx[nz]]
+        p_prod_all = np.repeat(np.clip(prod_b, 0.05, 0.98), counts)
     print(f"[P4] {args.field} L{args.level} stage={args.stage}: "
           f"decisions={bit.size} positives={int(bit.sum())}", flush=True)
 
@@ -485,16 +506,20 @@ def main():
             (k_of_dec / max(float(k_of_dec.max()), 1.0)
              ).astype(np.float32))[:, None])
     cont_t = torch.cat(cont_cols, -1).to(st["dev"])
+    # base layer: g_chunk IS the group (no tier dimension), bucket zeros
     disc = {
-        "group": torch.from_numpy((g_of_dec // 3).astype(np.int64)),
-        "bucket": torch.from_numpy(ctx[sym_of_dec].astype(np.int64)),
-        "tier": torch.from_numpy((g_of_dec % 3).astype(np.int64)),
+        "group": torch.from_numpy((g_of_dec if base_layer
+                                   else g_of_dec // 3).astype(np.int64)),
+        "bucket": (torch.zeros(bit.size, dtype=torch.int64) if base_layer
+                   else torch.from_numpy(ctx[sym_of_dec].astype(np.int64))),
+        "tier": (torch.zeros(bit.size, dtype=torch.int64) if base_layer
+                 else torch.from_numpy((g_of_dec % 3).astype(np.int64))),
     } if "base" in args.context else {}
     disc = {k: v.to(st["dev"]) for k, v in disc.items()}
     bit_t = torch.from_numpy(bit.astype(np.float32)).to(st["dev"])
     tr_t = torch.from_numpy(np.nonzero(tr_sel)[0]).to(st["dev"])
 
-    mlp = CtxMLP(n_g, args.context, cont_dim).to(st["dev"])
+    mlp = CtxMLP(n_cells, args.context, cont_dim).to(st["dev"])
     opt = torch.optim.Adam(mlp.parameters(), lr=1e-3)
     bce = torch.nn.functional.binary_cross_entropy_with_logits
     for epoch in range(args.epochs):
