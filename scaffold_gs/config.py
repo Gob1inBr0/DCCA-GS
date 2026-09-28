@@ -104,16 +104,6 @@ class ModelConfig:
     asg_latent_dim: int = 8
     asg_hidden: Optional[int] = None
 
-    def __post_init__(self) -> None:
-        if self.color_mode not in ("rgb", "asg"):
-            raise ValueError(f"unknown color_mode: {self.color_mode!r}")
-        if self.asg_lobes < 1:
-            raise ValueError("asg_lobes must be >= 1")
-        if self.asg_latent_dim < 1:
-            raise ValueError("asg_latent_dim must be >= 1")
-        if self.asg_hidden is not None and self.asg_hidden < 1:
-            raise ValueError("asg_hidden must be >= 1 (or None)")
-
     # B3: progressive-aware quantization — late-phase penalty pulling the
     # pre-quantization symbols onto coarse-ladder multiples (feat/offset 8x,
     # scaling 2x, matching the layered bitstream base steps) so the base
@@ -306,6 +296,14 @@ class ModelConfig:
     """Weight of the ADMM score when blended with contribution area."""
 
     def __post_init__(self) -> None:
+        if self.color_mode not in ("rgb", "asg"):
+            raise ValueError(f"unknown color_mode: {self.color_mode!r}")
+        if self.asg_lobes < 1:
+            raise ValueError("asg_lobes must be >= 1")
+        if self.asg_latent_dim < 1:
+            raise ValueError("asg_latent_dim must be >= 1")
+        if self.asg_hidden is not None and self.asg_hidden < 1:
+            raise ValueError("asg_hidden must be >= 1 (or None)")
         if self.content_aware_q_mode != "formula":
             raise ValueError(
                 "content_aware_q_mode must be 'formula' in PHG v1; "
