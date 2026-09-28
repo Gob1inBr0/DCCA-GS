@@ -390,6 +390,37 @@ def decode_chunk(data, g, params, ctx=None, s4=None, s5_flag=None):
     return (loc + d).astype(np.int32)
 
 
+def parse_ladder(spec):
+    """Parse a --ladder spec 'feat=16,8,4,2,1 offset=16,8,4,2,1 ...'.
+
+    Returns {field: [steps, ..., 1]}. Validation (the telescoping
+    reconstruction acc = ratio*acc + residual and the range coder both
+    assume it): steps are powers of two, strictly decreasing, and the last
+    step is 1 (full precision). Fields not named keep their default ladder.
+    """
+    out = {}
+    for part in spec.split():
+        if "=" not in part:
+            raise SystemExit(f"--ladder: expected field=steps, got {part!r}")
+        f, _, s = part.partition("=")
+        if f not in ("feat", "scaling", "offset"):
+            raise SystemExit(f"--ladder: unknown field {f!r}")
+        steps = [int(x) for x in s.split(",") if x.strip()]
+        if not steps or steps[-1] != 1:
+            raise SystemExit(f"--ladder {f}: ladder must end at step 1 "
+                             "(full precision)")
+        for x in steps:
+            if x < 1 or (x & (x - 1)) != 0:
+                raise SystemExit(f"--ladder {f}: steps must be powers of "
+                                 f"two, got {x}")
+        for a, b in zip(steps[:-1], steps[1:]):
+            if b >= a:
+                raise SystemExit(f"--ladder {f}: steps must strictly "
+                                 "decrease")
+        out[f] = steps
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
@@ -423,7 +454,13 @@ def main():
                     "(A2: try 64/128)")
     ap.add_argument("--field-aware", action="store_true",
                     help="per-field ladders: feat/offset 8x-start, scaling "
-                    "2x-start (log-domain cliffs at coarser steps)")
+                         "2x-start (log-domain cliffs at coarser steps)")
+    ap.add_argument("--ladder", default=None,
+                    help="explicit per-field ladder overriding the presets, "
+                         "e.g. 'feat=16,8,4,2,1 offset=16,8,4,2,1 "
+                         "scaling=2,1'; fields not named keep the "
+                         "field-aware preset if --field-aware, else the "
+                         "uniform 16,8,4,2,1 ladder")
     args = ap.parse_args()
     if args.s4_heads and args.s5_offset_mlp:
         raise SystemExit("--s4-heads (legacy failed apply path) and "
@@ -567,7 +604,12 @@ def main():
     # coarsest step is 2x; feat/offset tolerate 8x. Uniform mode = same
     # ladder for all fields (legacy curve).
     FIELD_STEPS = {"feat": [8, 4, 2, 1], "scaling": [2, 1], "offset": [8, 4, 2, 1]}
-    if args.field_aware:
+    if args.ladder:
+        user = parse_ladder(args.ladder)
+        base = FIELD_STEPS if args.field_aware else {f: STEPS for f in fields}
+        fsteps = {f: user.get(f, base[f]) for f in fields}
+        print(f"[RB] mode: USER ladder {fsteps}", flush=True)
+    elif args.field_aware:
         fsteps = {f: FIELD_STEPS[f] for f in fields}
         print("[RB] mode: FIELD-AWARE ladders", flush=True)
     else:
@@ -865,6 +907,7 @@ def main():
         "run": str(run_dir), "n_alive": int(n_alive),
         "groups": int(n_groups_eff),
         "field_aware": bool(args.field_aware),
+        "ladder": args.ladder,
         "s4_apply": s4_heads is not None,
         "s4_weight_bytes": s4_weight_bytes,
         "s5_apply": bool(s5_heads),
