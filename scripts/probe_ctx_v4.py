@@ -499,47 +499,56 @@ def main():
     cont_names = list(feats)
     cont_dim = sum(feats[k].shape[1] for k in cont_names) \
         + (1 if args.stage == "cont" else 0)
-    cont_cols = [torch.from_numpy(np.ascontiguousarray(feats[k]))
-                 for k in cont_names]
-    if args.stage == "cont":
-        cont_cols.append(torch.from_numpy(
-            (k_of_dec / max(float(k_of_dec.max()), 1.0)
-             ).astype(np.float32))[:, None])
-    cont_t = torch.cat(cont_cols, -1).to(st["dev"])
-    # base layer: g_chunk IS the group (no tier dimension), bucket zeros
-    disc = {
-        "group": torch.from_numpy((g_of_dec if base_layer
-                                   else g_of_dec // 3).astype(np.int64)),
-        "bucket": (torch.zeros(bit.size, dtype=torch.int64) if base_layer
-                   else torch.from_numpy(ctx[sym_of_dec].astype(np.int64))),
-        "tier": (torch.zeros(bit.size, dtype=torch.int64) if base_layer
-                 else torch.from_numpy((g_of_dec % 3).astype(np.int64))),
-    } if "base" in args.context else {}
-    disc = {k: v.to(st["dev"]) for k, v in disc.items()}
-    bit_t = torch.from_numpy(bit.astype(np.float32)).to(st["dev"])
-    tr_t = torch.from_numpy(np.nonzero(tr_sel)[0]).to(st["dev"])
+    # CONT arrays stay on CPU: base-layer cont streams reach 2e8 decisions
+    # (~17 GB if the whole batch matrix went to the GPU at once); batches
+    # are sliced on CPU and moved per step
+    cont_np = np.concatenate(
+        [np.ascontiguousarray(feats[k]) for k in cont_names] +
+        ([ (k_of_dec / max(float(k_of_dec.max()), 1.0)
+            ).astype(np.float32)[:, None] ] if args.stage == "cont" else []),
+        axis=1)
+    disc_np = {} if "base" not in args.context else {
+        "group": (g_of_dec if base_layer else g_of_dec // 3).astype(np.int64),
+        "bucket": (np.zeros(bit.size, dtype=np.int64) if base_layer
+                   else ctx[sym_of_dec].astype(np.int64)),
+        "tier": (np.zeros(bit.size, dtype=np.int64) if base_layer
+                 else (g_of_dec % 3).astype(np.int64)),
+    }
+    bit32 = bit.astype(np.float32)
+    tr_idx = np.nonzero(tr_sel)[0]
+    dev = st["dev"]
 
-    mlp = CtxMLP(n_cells, args.context, cont_dim).to(st["dev"])
+    mlp = CtxMLP(n_cells, args.context, cont_dim).to(dev)
     opt = torch.optim.Adam(mlp.parameters(), lr=1e-3)
     bce = torch.nn.functional.binary_cross_entropy_with_logits
     for epoch in range(args.epochs):
-        perm = tr_t[torch.randperm(tr_t.numel(), device=st["dev"])]
+        perm = np.random.permutation(tr_idx)
         tot = 0.0
-        for s0 in range(0, perm.numel(), 131072):
+        for s0 in range(0, perm.size, 131072):
             b = perm[s0:s0 + 131072]
-            loss = bce(mlp(cont_t[b], {k: v[b] for k, v in disc.items()}),
-                       bit_t[b])
+            cont_b = torch.from_numpy(cont_np[b]).to(dev)
+            disc_b = {k: torch.from_numpy(v[b]).to(dev)
+                      for k, v in disc_np.items()}
+            bit_b = torch.from_numpy(bit32[b]).to(dev)
+            loss = bce(mlp(cont_b, disc_b), bit_b)
             opt.zero_grad()
             loss.backward()
             opt.step()
-            tot += float(loss) * b.numel()
+            tot += float(loss) * b.size
         print(f"[P4] mlp epoch {epoch}: train bits/sym "
-              f"{tot / np.log(2) / max(perm.numel(), 1):.4f}", flush=True)
+              f"{tot / np.log(2) / max(perm.size, 1):.4f}", flush=True)
 
     mlp.eval()
+    # chunked inference over ALL decisions (memory-bounded)
+    p_mlp = np.empty(bit.size, dtype=np.float64)
     with torch.no_grad():
-        p_mlp = torch.sigmoid(mlp(cont_t, disc)).cpu().numpy().astype(
-            np.float64)
+        for s0 in range(0, bit.size, 1 << 21):
+            sl = slice(s0, min(s0 + (1 << 21), bit.size))
+            cont_b = torch.from_numpy(cont_np[sl]).to(dev)
+            disc_b = {k: torch.from_numpy(v[sl]).to(dev)
+                      for k, v in disc_np.items()}
+            p_mlp[sl] = torch.sigmoid(mlp(cont_b, disc_b)).cpu().numpy()
+    del cont_np
 
     # ---- evaluation: REAL coder bits on val decisions ----
     val_idx = np.nonzero(val_sel)[0]
