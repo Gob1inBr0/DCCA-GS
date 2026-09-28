@@ -1,0 +1,293 @@
+{
+ "run": "/mnt/newproject2/dcca_runs/ph0c_base_r085_lam0005_s42",
+ "n_alive": 681228,
+ "groups": 32,
+ "field_aware": true,
+ "s4_apply": false,
+ "s4_weight_bytes": 0,
+ "s5_apply": false,
+ "s5_weight_bytes": 0,
+ "field_steps": {
+  "feat": [
+   8,
+   4,
+   2,
+   1
+  ],
+  "scaling": [
+   2,
+   1
+  ],
+  "offset": [
+   8,
+   4,
+   2,
+   1
+  ]
+ },
+ "fixed_bytes": 1057490.0,
+ "geom_bytes": 1289840.0,
+ "header_bytes": 546,
+ "chunk_params_total": 25424,
+ "conditional_saved_bytes": 1895980,
+ "stage_audit": true,
+ "stage_bytes": {
+  "feat_L0": {
+   "A": 2656988,
+   "B": 1168300,
+   "C": 1658240
+  },
+  "feat_L1": {
+   "A": 2370660,
+   "B": 859412,
+   "C": 63288
+  },
+  "feat_L2": {
+   "A": 1925040,
+   "B": 690892,
+   "C": 51148
+  },
+  "feat_L3": {
+   "A": 2271852,
+   "B": 1368588,
+   "C": 101608
+  },
+  "scaling_L0": {
+   "A": 76076,
+   "B": 500876,
+   "C": 3349540
+  },
+  "scaling_L1": {
+   "A": 507968,
+   "B": 254628,
+   "C": 18828
+  },
+  "offset_L0": {
+   "A": 2016396,
+   "B": 609672,
+   "C": 2214092
+  },
+  "offset_L1": {
+   "A": 850340,
+   "B": 263352,
+   "C": 19468
+  },
+  "offset_L2": {
+   "A": 743464,
+   "B": 191104,
+   "C": 14096
+  },
+  "offset_L3": {
+   "A": 1202724,
+   "B": 433548,
+   "C": 31812
+  }
+ },
+ "coding_s": 237.4,
+ "bin_file": "/mnt/newproject2/work_dirs/enh123/analysis/stage_audit/audit.bin",
+ "bin_size": 28509970,
+ "results": [
+  {
+   "prefix": 3,
+   "field_levels": {
+    "feat": 3,
+    "scaling": 1,
+    "offset": 3
+   },
+   "field_steps": {
+    "feat": 1,
+    "scaling": 1,
+    "offset": 1
+   },
+   "coded_bytes": 28484000,
+   "real_bytes": 30857300.0,
+   "psnr_mean": 27.7974,
+   "psnr_per_view": [
+    28.5791,
+    29.4634,
+    25.3649,
+    28.0262,
+    29.3926,
+    29.0347,
+    28.112,
+    27.3942,
+    29.5719,
+    24.1104,
+    24.0763,
+    27.9711,
+    29.9899,
+    27.8233,
+    27.0518,
+    28.7964
+   ],
+   "render_s": 16.5
+  },
+  {
+   "prefix": 0,
+   "field_levels": {
+    "feat": 0,
+    "scaling": 0,
+    "offset": 0
+   },
+   "field_steps": {
+    "feat": 8,
+    "scaling": 2,
+    "offset": 8
+   },
+   "coded_bytes": 14250180,
+   "real_bytes": 16599232.0,
+   "psnr_mean": 26.0066,
+   "psnr_per_view": [
+    26.9263,
+    26.4158,
+    24.5165,
+    26.4397,
+    26.9653,
+    26.5567,
+    26.6414,
+    25.3239,
+    27.8035,
+    23.0493,
+    23.3575,
+    26.3632,
+    27.5743,
+    26.3164,
+    25.2939,
+    26.5615
+   ],
+   "render_s": 4.5
+  },
+  {
+   "prefix": 1,
+   "field_levels": {
+    "feat": 1,
+    "scaling": 1,
+    "offset": 1
+   },
+   "field_steps": {
+    "feat": 4,
+    "scaling": 1,
+    "offset": 4
+   },
+   "coded_bytes": 19458124,
+   "real_bytes": 21817568.0,
+   "psnr_mean": 27.2422,
+   "psnr_per_view": [
+    28.0813,
+    28.6037,
+    25.1244,
+    27.5634,
+    28.6333,
+    28.2354,
+    27.6681,
+    26.6402,
+    28.9716,
+    23.7651,
+    23.863,
+    27.4648,
+    29.3561,
+    27.3522,
+    26.5735,
+    27.9793
+   ],
+   "render_s": 4.5
+  },
+  {
+   "prefix": 2,
+   "field_levels": {
+    "feat": 2,
+    "scaling": 1,
+    "offset": 2
+   },
+   "field_steps": {
+    "feat": 2,
+    "scaling": 1,
+    "offset": 2
+   },
+   "coded_bytes": 23073868,
+   "real_bytes": 25440240.0,
+   "psnr_mean": 27.6181,
+   "psnr_per_view": [
+    28.4227,
+    29.1854,
+    25.287,
+    27.8915,
+    29.1422,
+    28.7515,
+    27.9602,
+    27.1162,
+    29.3288,
+    24.0459,
+    24.0119,
+    27.8157,
+    29.7779,
+    27.6876,
+    26.9051,
+    28.5599
+   ],
+   "render_s": 4.4
+  }
+ ],
+ "s2_selection_reference": [
+  {
+   "ordering": "contribution",
+   "prefix": 0.05,
+   "bytes_est": 1741963.7,
+   "psnr_mean": 14.1372
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 0.1,
+   "bytes_est": 3216761.6,
+   "psnr_mean": 16.492
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 0.25,
+   "bytes_est": 7549006.9,
+   "psnr_mean": 20.6165
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 0.5,
+   "bytes_est": 14371700.2,
+   "psnr_mean": 24.6139
+  },
+  {
+   "ordering": "contribution",
+   "prefix": 1.0,
+   "bytes_est": 22468704.6,
+   "psnr_mean": 26.9533
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.05,
+   "bytes_est": 1348183.9,
+   "psnr_mean": 8.0458
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.1,
+   "bytes_est": 2458946.6,
+   "psnr_mean": 10.2724
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.25,
+   "bytes_est": 5795738.5,
+   "psnr_mean": 14.6638
+  },
+  {
+   "ordering": "random",
+   "prefix": 0.5,
+   "bytes_est": 11354582.4,
+   "psnr_mean": 19.382
+  },
+  {
+   "ordering": "random",
+   "prefix": 1.0,
+   "bytes_est": 22468704.6,
+   "psnr_mean": 26.9533
+  }
+ ]
+}

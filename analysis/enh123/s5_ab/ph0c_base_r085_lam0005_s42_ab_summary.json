@@ -1,0 +1,145 @@
+{
+ "run": "/mnt/newproject2/dcca_runs/ph0c_base_r085_lam0005_s42",
+ "tag": "ph0c_base_r085_lam0005_s42",
+ "field_aware": true,
+ "groups": 32,
+ "commands": {
+  "base": "c25_real_bitstream.py -> /mnt/newproject2/work_dirs/enh123/analysis/s5_ab/ph0c_base_r085_lam0005_s42_baseline.json",
+  "s5": "c25_real_bitstream.py --s5-offset-mlp -> /mnt/newproject2/work_dirs/enh123/analysis/s5_ab/ph0c_base_r085_lam0005_s42_s5.json"
+ },
+ "coding_s": {
+  "base": 1390.8,
+  "s5": 1788.0
+ },
+ "offset_enh_bytes": {
+  "base": 3749908,
+  "s5": 3765812
+ },
+ "s5_weight_bytes_total": 20785,
+ "s5_level_params": {
+  "1": 1217,
+  "2": 1217,
+  "3": 1217
+ },
+ "raw_saving_pct": -0.42,
+ "net_saving_pct": -0.98,
+ "gate_net_pct": 10.0,
+ "per_level": {
+  "1": {
+   "base": 1133160,
+   "s5": 1132792,
+   "saved": 368
+  },
+  "2": {
+   "base": 948664,
+   "s5": 953108,
+   "saved": -4444
+  },
+  "3": {
+   "base": 1668084,
+   "s5": 1679912,
+   "saved": -11828
+  }
+ },
+ "psnr_checks": [
+  {
+   "prefix": 3,
+   "base": 27.7974,
+   "s5": 27.7974,
+   "abs_diff": 0.0
+  },
+  {
+   "prefix": 0,
+   "base": 26.0066,
+   "s5": 26.0066,
+   "abs_diff": 0.0
+  },
+  {
+   "prefix": 1,
+   "base": 27.2422,
+   "s5": 27.2422,
+   "abs_diff": 0.0
+  },
+  {
+   "prefix": 2,
+   "base": 27.6181,
+   "s5": 27.6181,
+   "abs_diff": 0.0
+  }
+ ],
+ "psnr_identical": true,
+ "net_gate_pass": false,
+ "verdict": "FAIL",
+ "full_precision": {
+  "base": {
+   "prefix": 3,
+   "field_levels": {
+    "feat": 3,
+    "scaling": 1,
+    "offset": 3
+   },
+   "field_steps": {
+    "feat": 1,
+    "scaling": 1,
+    "offset": 1
+   },
+   "coded_bytes": 28484000,
+   "real_bytes": 30857300.0,
+   "psnr_mean": 27.7974,
+   "psnr_per_view": [
+    28.5791,
+    29.4634,
+    25.3649,
+    28.0262,
+    29.3926,
+    29.0347,
+    28.112,
+    27.3942,
+    29.5719,
+    24.1104,
+    24.0763,
+    27.9711,
+    29.9899,
+    27.8233,
+    27.0518,
+    28.7964
+   ],
+   "render_s": 30.7
+  },
+  "s5": {
+   "prefix": 3,
+   "field_levels": {
+    "feat": 3,
+    "scaling": 1,
+    "offset": 3
+   },
+   "field_steps": {
+    "feat": 1,
+    "scaling": 1,
+    "offset": 1
+   },
+   "coded_bytes": 28499904,
+   "real_bytes": 30894005.0,
+   "psnr_mean": 27.7974,
+   "psnr_per_view": [
+    28.5791,
+    29.4634,
+    25.3649,
+    28.0262,
+    29.3926,
+    29.0347,
+    28.112,
+    27.3942,
+    29.5719,
+    24.1104,
+    24.0763,
+    27.9711,
+    29.9899,
+    27.8233,
+    27.0518,
+    28.7964
+   ],
+   "render_s": 27.9
+  }
+ }
+}

@@ -1,0 +1,25 @@
+{
+ "run": "/mnt/newproject2/dcca_runs/ph0c_base_r085_lam0005_s42",
+ "field": "feat",
+ "level": 1,
+ "stage": "flag",
+ "context": [
+  "base",
+  "spatial",
+  "crosscol",
+  "crossfield"
+ ],
+ "groups": 32,
+ "ladder": null,
+ "n_decisions": 21799296,
+ "positives": 6830124,
+ "n_val": 2179904,
+ "bits_static_real_val": 1896576,
+ "bits_mlp_real_val": 1856896,
+ "bits_static_prod_ref_val": 1896512,
+ "weight_bytes": 27748,
+ "raw_saving_pct": 2.09,
+ "net_saving_pct": -9.61,
+ "gate_net_pct": 15.0,
+ "verdict": "FAIL"
+}

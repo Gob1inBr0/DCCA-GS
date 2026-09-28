@@ -1,0 +1,173 @@
+{
+ "run": "/mnt/newproject2/dcca_runs/ph0c_base_r085_lam0005_s42",
+ "data_dir": "/mnt/newproject2/data/1-78_train",
+ "stats": null,
+ "data_factor": 2,
+ "max_width": null,
+ "gates": {
+  "p0_target_mb": 7.0,
+  "p0_loss_db": 1.5,
+  "inversion_tol_db": 0.05
+ },
+ "baseline_tag": "baseline_8x",
+ "entries": [
+  {
+   "tag": "baseline_8x",
+   "ladder": "feat=8,4,2,1 offset=8,4,2,1 scaling=2,1",
+   "coding_s": 0.0,
+   "bin": "/mnt/newproject2/work_dirs/enh123/analysis/base16_sweep/baseline_8x.bin",
+   "curve": [
+    {
+     "prefix": 0,
+     "real_bytes": 16599232.0,
+     "psnr_mean": 26.0066
+    },
+    {
+     "prefix": 1,
+     "real_bytes": 21817568.0,
+     "psnr_mean": 27.2422
+    },
+    {
+     "prefix": 2,
+     "real_bytes": 25440240.0,
+     "psnr_mean": 27.6181
+    },
+    {
+     "prefix": 3,
+     "real_bytes": 30857300.0,
+     "psnr_mean": 27.7974
+    }
+   ],
+   "p0_bytes": 16599232.0,
+   "p0_psnr": 26.0066,
+   "full_bytes": 30857300.0,
+   "full_psnr": 27.7974,
+   "inversions": []
+  },
+  {
+   "tag": "base16x",
+   "ladder": "feat=16,8,4,2,1 offset=16,8,4,2,1 scaling=2,1",
+   "coding_s": 0.0,
+   "bin": "/mnt/newproject2/work_dirs/enh123/analysis/base16_sweep/base16x.bin",
+   "curve": [
+    {
+     "prefix": 0,
+     "real_bytes": 13373448.0,
+     "psnr_mean": 22.9136
+    },
+    {
+     "prefix": 1,
+     "real_bytes": 18563412.0,
+     "psnr_mean": 26.0269
+    },
+    {
+     "prefix": 2,
+     "real_bytes": 22996860.0,
+     "psnr_mean": 27.2422
+    },
+    {
+     "prefix": 3,
+     "real_bytes": 26619532.0,
+     "psnr_mean": 27.6181
+    },
+    {
+     "prefix": 4,
+     "real_bytes": 32036592.0,
+     "psnr_mean": 27.7974
+    }
+   ],
+   "p0_bytes": 13373448.0,
+   "p0_psnr": 22.9136,
+   "full_bytes": 32036592.0,
+   "full_psnr": 27.7974,
+   "inversions": [],
+   "p0_bytes_delta_mb": -3.226,
+   "p0_psnr_delta": -3.093,
+   "full_psnr_delta": 0.0
+  },
+  {
+   "tag": "base16x_sc4x",
+   "ladder": "feat=16,8,4,2,1 offset=16,8,4,2,1 scaling=4,2,1",
+   "coding_s": 0.0,
+   "bin": "/mnt/newproject2/work_dirs/enh123/analysis/base16_sweep/base16x_sc4x.bin",
+   "curve": [
+    {
+     "prefix": 0,
+     "real_bytes": 12862249.0,
+     "psnr_mean": 22.8955
+    },
+    {
+     "prefix": 1,
+     "real_bytes": 17815569.0,
+     "psnr_mean": 26.0066
+    },
+    {
+     "prefix": 2,
+     "real_bytes": 23033905.0,
+     "psnr_mean": 27.2422
+    },
+    {
+     "prefix": 3,
+     "real_bytes": 26656577.0,
+     "psnr_mean": 27.6181
+    },
+    {
+     "prefix": 4,
+     "real_bytes": 32073637.0,
+     "psnr_mean": 27.7974
+    }
+   ],
+   "p0_bytes": 12862249.0,
+   "p0_psnr": 22.8955,
+   "full_bytes": 32073637.0,
+   "full_psnr": 27.7974,
+   "inversions": [],
+   "p0_bytes_delta_mb": -3.737,
+   "p0_psnr_delta": -3.111,
+   "full_psnr_delta": 0.0
+  },
+  {
+   "tag": "offset16x",
+   "ladder": "feat=8,4,2,1 offset=16,8,4,2,1 scaling=2,1",
+   "coding_s": 0.0,
+   "bin": "/mnt/newproject2/work_dirs/enh123/analysis/base16_sweep/offset16x.bin",
+   "curve": [
+    {
+     "prefix": 0,
+     "real_bytes": 15646253.0,
+     "psnr_mean": 25.2733
+    },
+    {
+     "prefix": 1,
+     "real_bytes": 21000665.0,
+     "psnr_mean": 26.9393
+    },
+    {
+     "prefix": 2,
+     "real_bytes": 24807833.0,
+     "psnr_mean": 27.5347
+    },
+    {
+     "prefix": 3,
+     "real_bytes": 29505473.0,
+     "psnr_mean": 27.7579
+    },
+    {
+     "prefix": 4,
+     "real_bytes": 31177021.0,
+     "psnr_mean": 27.7974
+    }
+   ],
+   "p0_bytes": 15646253.0,
+   "p0_psnr": 25.2733,
+   "full_bytes": 31177021.0,
+   "full_psnr": 27.7974,
+   "inversions": [],
+   "p0_bytes_delta_mb": -0.953,
+   "p0_psnr_delta": -0.733,
+   "full_psnr_delta": 0.0
+  }
+ ],
+ "winner": null,
+ "verdict": "FAIL"
+}
