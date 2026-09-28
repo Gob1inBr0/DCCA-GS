@@ -154,7 +154,56 @@ def evaluate(
     return metrics
 
 
+@torch.no_grad()
+def holdout_psnr(
+    model: BaseGaussianModel,
+    dataset: ColmapDataset,
+    cams,
+    iteration: int,
+) -> float:
+    """Quick fixed-camera PSNR probe for the Phase-2a recovery gate.
+
+    MSE-based (no metric deps), ~8 renders per projection cycle, decode-like
+    path (model.eval + is_training=False) so it tracks quantized quality.
+    appearance_id=0 matches the zero-appearance protocol of every round-2
+    arm; revisit if appearance conditioning is ever enabled.
+    """
+    model.eval()
+    try:
+        background = dataset.background
+        mses = []
+        for cam in cams:
+            out = model.render(
+                cam,
+                background,
+                is_training=False,
+                appearance_id=0,
+                step=iteration,
+            )
+            pred = out.image[0].permute(2, 0, 1).clamp(0.0, 1.0)
+            gt = dataset.get_image(cam).clamp(0.0, 1.0)
+            mses.append(torch.mean((pred - gt) ** 2).item())
+    finally:
+        model.train()
+    mse = float(np.mean(mses)) if mses else 1.0
+    return -10.0 * np.log10(max(mse, 1e-12))
+
+
 def run_training(cfg: TrainConfig) -> Dict[str, float]:
+    print(
+        "[TrainerVer] post_branch=loaded "
+        f"spa_post_ratio={getattr(cfg.model, 'spa_post_ratio', 'MISSING')} "
+        f"spa_post_window={getattr(cfg.model, 'spa_post_window', 'MISSING')} "
+        f"mini_splat_enabled={cfg.model.mini_splat_enabled} "
+        f"spa_rate_aware={getattr(cfg.model, 'spa_rate_aware', 'MISSING')} "
+        f"spa_rate_tau={getattr(cfg.model, 'spa_rate_tau', 'MISSING')} "
+        f"spa_bit_budget={getattr(cfg.model, 'spa_bit_budget', 'MISSING')} "
+        f"sensitivity_target_mode={getattr(cfg.model, 'sensitivity_target_mode', 'MISSING')} "
+        f"sensitivity_use_fisher={getattr(cfg.model, 'sensitivity_use_fisher', 'MISSING')} "
+        f"sensitivity_second_order={getattr(cfg.model, 'sensitivity_second_order', 'MISSING')} "
+        f"spa_holdout_gate={getattr(cfg.model, 'spa_holdout_gate', 'MISSING')}",
+        flush=True,
+    )
     set_random_seed(cfg.seed)
     device = cfg.device
     result_dir = Path(cfg.data.result_dir)
@@ -188,7 +237,57 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
 
     background = dataset.background
     train_cams = list(dataset.train_cameras)
+
+    fusion_pool: list = []
+    fusion_views = int(getattr(cfg.model, "mini_splat_views", 8))
+    if getattr(cfg.model, "fusion_prune", False) and getattr(
+        cfg.model, "mini_splat_enabled", False
+    ):
+        # Pass the FULL camera pool: hacpp.adjust_anchor rotates an 8-view
+        # window every projection, so coverage accumulates over the whole
+        # training set instead of 8 fixed (never-rotating) views.
+        fusion_pool = list(train_cams)
+        print(
+            f"[FusionPrune] rotating coverage pool: {len(fusion_pool)} cams "
+            f"x {fusion_views} views/cycle",
+            flush=True,
+        )
     optim = cfg.optim
+
+    # D4b (Phase 2a) holdout gate: fixed training-camera probe; fires when
+    # the probe PSNR drops beyond max(3*sigma_recent, eps) below its EMA
+    # baseline and freezes the post-reinit kappa ramp via core state.
+    holdout_state = None
+    if getattr(cfg.model, "spa_holdout_gate", False):
+        if float(getattr(cfg.model, "spa_post_ratio", 1.0)) >= 1.0:
+            # The gate freezes the post-phase kappa ramp; with no post phase
+            # there is nothing to freeze — say so instead of arming silently.
+            print(
+                "[HoldoutGate] NOT armed: spa_post_ratio=1.0 leaves no "
+                "post-phase ramp to freeze",
+                flush=True,
+            )
+        elif len(train_cams) > 0:
+            rng = random.Random(cfg.seed)
+            n_hold = max(
+                1,
+                min(
+                    int(getattr(cfg.model, "spa_holdout_views", 8)),
+                    len(train_cams),
+                ),
+            )
+            holdout_state = {
+                "cams": rng.sample(train_cams, n_hold),
+                "hist": [],
+                "baseline": None,
+                "triggers": 0,
+            }
+            print(
+                f"[HoldoutGate] armed: {n_hold} cams, "
+                f"eps={float(getattr(cfg.model, 'spa_holdout_gate_eps', 0.05)):.3f}dB "
+                f"freeze={int(getattr(cfg.model, 'spa_holdout_freeze_window', 2))} cycles",
+                flush=True,
+            )
 
     pbar = tqdm.tqdm(range(1, optim.max_steps + 1), desc="Scaffold-GS training")
     final_metrics: Dict[str, float] = {}
@@ -207,7 +306,16 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
 
         gt = dataset.get_image(cam)
         pred = out.image[0].permute(2, 0, 1)
-        ll1 = l1_loss(pred, gt).mean()
+        if getattr(cfg.model, "importance_weighted_loss", False):
+            w = out.alpha[0, :, :, 0].detach()          # [H,W] rendered opacity
+            w = w / w.max().clamp_min(1e-8)
+            floor = float(getattr(cfg.model, "importance_weight_floor", 0.2))
+            scale = float(getattr(cfg.model, "importance_weight_scale", 1.0))
+            w = floor + (scale - floor) * w
+            diff = (pred - gt).abs().mean(dim=0)        # [H,W]
+            ll1 = (w * diff).sum() / w.sum()
+        else:
+            ll1 = l1_loss(pred, gt).mean()
         ssim = ssim_loss(pred[None], gt[None])
         if out.gaussians.xyz.shape[0] > 0:
             scale_reg = out.gaussians.scales.prod(dim=1).mean()
@@ -230,6 +338,16 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         spa_loss_fn = getattr(model, "spa_loss_term", None)
         if spa_loss_fn is not None:
             loss = loss + spa_loss_fn()
+        # B3: coarse-ladder alignment penalty, filled in during render when
+        # coarse_ladder_align is on and past coarse_ladder_start_iter
+        ladder_pen = getattr(out.gaussians, "ladder_penalty", None)
+        if ladder_pen is not None:
+            loss = loss + ladder_pen
+            if iteration % 500 == 0:
+                raw = getattr(out.gaussians, "ladder_penalty_raw", None)
+                raw_val = float(raw) if raw is not None else float("nan")
+                print(f"[B3] iter {iteration}: ladder raw {raw_val:.4f} "
+                      f"weighted {float(ladder_pen):.5f}", flush=True)
 
         loss.backward()
 
@@ -249,6 +367,31 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 out.meta["gaussian_ids"],
                 out.meta["height"],
             )
+        if iteration % 250 == 0:
+            print(
+                f"[PostDebug] iter={iteration} post_ratio="
+                f"{getattr(cfg.model, 'spa_post_ratio', None)} "
+                f"ms_enabled={getattr(cfg.model, 'mini_splat_enabled', None)} "
+                f"ms_done={getattr(model.core, 'mini_splat_done', None)}",
+                flush=True,
+            )
+        if (
+            iteration > int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            and iteration <= int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            + int(getattr(cfg.model, "spa_post_window", 2000)) + 300
+            and iteration % optim.update_interval == 0
+        ):
+            c1 = float(getattr(cfg.model, "spa_post_ratio", 1.0)) < 1.0
+            c2 = (
+                getattr(model.core, "mini_splat_done", False)
+                or not getattr(cfg.model, "mini_splat_enabled", False)
+            )
+            c3 = iteration % optim.update_interval == 0
+            print(
+                f"[PostDebug2] iter={iteration} c1_ratio={c1} c2_doneorenabled={c2} "
+                f"c3_interval={c3} fire={c1 and c2 and c3}",
+                flush=True,
+            )
         if (
             optim.update_from < iteration < optim.update_until
             and iteration % optim.update_interval == 0
@@ -258,9 +401,125 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 success_threshold=optim.success_threshold,
                 grad_threshold=optim.densify_grad_threshold,
                 min_opacity=optim.min_opacity,
+                fusion_pool=fusion_pool,
+                fusion_views=fusion_views,
+                background=background,
+                post_phase=False,
+            )
+        elif (
+            float(getattr(cfg.model, "spa_post_ratio", 1.0)) < 1.0
+            and (
+                getattr(model.core, "mini_splat_done", False)
+                or not getattr(cfg.model, "mini_splat_enabled", False)
+            )
+            and iteration > int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            and iteration <= int(getattr(cfg.model, "mini_splat_reinit_iter", 0))
+            + int(getattr(cfg.model, "spa_post_window", 2000))
+            and iteration % optim.update_interval == 0
+        ):
+            # Phase 0 post-reinit selection: pure selection (no growth) while
+            # kappa ramps down to spa_post_ratio of the post-reinit count.
+            # With mini-splat disabled there is no reinit event; the window
+            # still anchors at reinit_iter so ±depth-reinit arms share the
+            # schedule (core falls back to kappa = spa_final_n * spa_ratio).
+            model.adjust_anchor(
+                check_interval=optim.update_interval,
+                success_threshold=optim.success_threshold,
+                grad_threshold=optim.densify_grad_threshold,
+                min_opacity=optim.min_opacity,
+                fusion_pool=fusion_pool,
+                fusion_views=fusion_views,
+                background=background,
+                post_phase=True,
             )
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            if holdout_state is not None:
+                p = holdout_psnr(
+                    model, dataset, holdout_state["cams"], iteration
+                )
+                hist = holdout_state["hist"]
+                hist.append(p)
+                if len(hist) > 10:
+                    hist.pop(0)
+                sigma = float(np.std(hist)) if len(hist) >= 3 else 0.0
+                eps_eff = max(
+                    3.0 * sigma,
+                    float(getattr(cfg.model, "spa_holdout_gate_eps", 0.05)),
+                )
+                core = model.core
+                frozen = int(getattr(core, "spa_gate_freeze_cycles", 0)) > 0
+                max_trig = int(
+                    getattr(cfg.model, "spa_holdout_max_triggers", 5)
+                )
+                if holdout_state["baseline"] is None:
+                    holdout_state["baseline"] = p
+                if frozen:
+                    # Frozen window: hold the baseline, wait for the ramp to
+                    # resume (core decrements its counter per projection).
+                    print(
+                        f"[HoldoutGate] iter={iteration} psnr={p:.3f} "
+                        f"baseline={holdout_state['baseline']:.3f} "
+                        f"eps={eps_eff:.3f} FROZEN "
+                        f"left={int(core.spa_gate_freeze_cycles)}",
+                        flush=True,
+                    )
+                else:
+                    # Judge against the pre-drift baseline, THEN drift it on
+                    # healthy cycles (drift-first would raise the effective
+                    # threshold by 1/0.9).
+                    dropped = holdout_state["baseline"] - p
+                    if (
+                        holdout_state["triggers"] < max_trig
+                        and dropped > eps_eff
+                    ):
+                        holdout_state["triggers"] += 1
+                        core.spa_gate_fired = (
+                            getattr(core, "spa_gate_fired", 0) + 1
+                        )
+                        # Same source as the core ramp formula
+                        # (spa_reinit_step, not the configured iteration) so
+                        # the frozen progress matches the schedule it holds.
+                        reinit_step = int(
+                            getattr(core, "spa_reinit_step", iteration)
+                        )
+                        w = max(
+                            1, int(getattr(cfg.model, "spa_post_window", 2000))
+                        )
+                        core.spa_gate_frozen_progress = min(
+                            1.0,
+                            max(0.0, (iteration - reinit_step) / float(w)),
+                        )
+                        core.spa_gate_freeze_cycles = int(
+                            getattr(cfg.model, "spa_holdout_freeze_window", 2)
+                        )
+                        print(
+                            f"[HoldoutGate] FIRED "
+                            f"#{holdout_state['triggers']} iter={iteration} "
+                            f"psnr={p:.3f} baseline={holdout_state['baseline']:.3f} "
+                            f"eps={eps_eff:.3f} -> kappa ramp frozen at "
+                            f"progress={core.spa_gate_frozen_progress:.3f}",
+                            flush=True,
+                        )
+                        if int(getattr(core, "spa_post_base", 0)) <= 0:
+                            print(
+                                "[HoldoutGate] WARNING spa_post_base=0: no "
+                                "post-phase ramp exists, freeze is inert",
+                                flush=True,
+                            )
+                    else:
+                        # Healthy cycle: the baseline drifts with the model,
+                        # so slow training-wide improvements never trip it.
+                        holdout_state["baseline"] = (
+                            0.9 * holdout_state["baseline"] + 0.1 * p
+                        )
+                        print(
+                            f"[HoldoutGate] iter={iteration} psnr={p:.3f} "
+                            f"baseline={holdout_state['baseline']:.3f} "
+                            f"eps={eps_eff:.3f} "
+                            f"triggers={holdout_state['triggers']}",
+                            flush=True,
+                        )
 
         if (
             getattr(cfg.model, "semantic_enabled", False)

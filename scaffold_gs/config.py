@@ -96,6 +96,14 @@ class ModelConfig:
     complexity_scale: float = 0.35
     content_aware_start_iter: int = 20_000
     content_aware_ramp_iters: int = 10_000
+
+    # B3: progressive-aware quantization — late-phase penalty pulling the
+    # pre-quantization symbols onto coarse-ladder multiples (feat/offset 8x,
+    # scaling 2x, matching the layered bitstream base steps) so the base
+    # layer of the progressive stream loses less. Default OFF.
+    coarse_ladder_align: bool = False
+    coarse_ladder_start_iter: int = 24_000
+    coarse_ladder_weight: float = 0.05
     mlp_complexity_hidden: Optional[int] = None
     """Hidden width of the complexity MLP; None -> feat_dim // 2."""
 
@@ -166,6 +174,13 @@ class ModelConfig:
     """ADMM augmented-Lagrange weight for ||a - z + u||^2."""
     spa_u_clamp: float = 1.0
     """Clamp bound for the ADMM multiplier u."""
+    spa_post_ratio: float = 1.0
+    """Post-reinit budget ratio (Phase 0): after depth-reinit, kappa ramps
+    from the post-reinit anchor count down to post_base * spa_post_ratio over
+    spa_post_window steps (selection-only, growth disabled). 1.0 reproduces
+    the legacy protocol exactly (no post-reinit selection)."""
+    spa_post_window: int = 2000
+    """Soft-start ramp length (steps) for the post-reinit budget."""
 
     # Mini-Splatting anchor spatial re-organization (depth reinitialization).
     # ON by default (primary path with SPA): depth-reinit re-places anchors onto
@@ -180,6 +195,98 @@ class ModelConfig:
     """Number of training cameras used to sample the scene surface."""
     mini_splat_voxel: float = 0.0
     """Voxel size for depth-surface anchor sampling; <=0 uses model voxel_size."""
+    mini_splat_full: bool = False
+    """Enable blur split + intersection-preserving simplification (full version)."""
+    mini_splat_blur_threshold: float = 0.01
+    """Max-contribution area fraction above which an anchor is blur-split."""
+    mini_splat_importance_weight: float = 0.25
+    fusion_prune: bool = False
+    """Blend render-sensitivity into the SPA prune score (importance-aware pruning)."""
+    fusion_sensitivity_weight: float = 0.3
+    """Sensitivity share w in imp=(1-w)*cov+w*sens; hard-capped at 0.3 in the
+    projection so coverage always dominates (low-budget collapse fix)."""
+    fusion_gamma: float = 0.25
+    """Multiplicative importance modulation: score=(a+u)*(1+gamma*imp_norm),
+    gamma hard-capped at 1.0 (keeps the calibrated ADMM ranking dominant)."""
+    fusion_uncap: bool = False
+    """0d safety-regression arm: lift the 0.3 coverage-dominance cap so the
+    uncapped fusion (expected collapse) can be measured. Never enable in any
+    reported configuration."""
+    submodular_mode: str = "off"
+    """Phase 1 selection operator: 'off' = linear ADMM score top-k;
+    'cover' = submodular set-cover greedy (v1, pure block mass);
+    'cover_sens' = v2, block mass weighted by anchor sensitivity."""
+    submodular_sens_weighted: bool = False
+    """v2: weight each (anchor, block) edge by 1+sens[anchor] inside the greedy."""
+    coverage_ema_decay: float = 0.95
+    """EMA decay for rotating-view coverage accumulation across projections."""
+    spa_coverage_constraint: bool = False
+    """ADMM hard-projection coverage constraint: keep >=1 anchor per coarse cell."""
+    spa_coverage_cell_size: float = 0.01
+    """Coarse 3D grid cell size (scene coords) for the coverage constraint."""
+    spa_coverage_min_per_cell: int = 1
+    """Minimum anchors the coverage constraint keeps per occupied cell."""
+
+    # Journal round 2 (docs/02-design/期刊版第二轮_四方向设计与查新.md).
+    # D1: rate-aware selection. The budget currency changes from anchor count
+    # to estimated coded bits; bits come from the entropy-model 5% subsample
+    # (same estimate the RD loss uses) accumulated into a per-anchor EMA.
+    spa_rate_aware: bool = False
+    """Rank the projection score by rate-discounted importance
+    scores / bits^tau; anchors without a bits estimate yet rank neutrally."""
+    spa_rate_tau: float = 1.0
+    """Rate-discount exponent tau (0 disables the discount, 2 is the cap)."""
+    spa_bit_budget: bool = False
+    """Full arm: convert the anchor-count budget into a bit budget
+    B = kappa * median(bits) and greedily keep top-score anchors until the
+    cumulative estimated bits reach B. Exclusive with submodular_mode."""
+    sensitivity_second_order: bool = False
+    """D4a: accumulate E[g^2] EMA buffers alongside the first-order EMA
+    (empirical-Fisher material; zero extra backward passes)."""
+    sensitivity_use_fisher: bool = False
+    """D4a: the sensitivity vector consumed by selection scores switches from
+    log1p(E|g|) to log1p(E[g^2]) (OBD-style significance)."""
+    sensitivity_target_mode: str = "sens"
+    """D3: complexity-multiplier supervision target. 'sens' = I6 unchanged;
+    'sens_per_bit' = sensitivity divided by the per-anchor estimated bits, so
+    fine steps concentrate where importance per coded bit is highest."""
+    spa_holdout_gate: bool = False
+    """D4b (Phase 2a): per-projection holdout PSNR; a drop beyond
+    max(3*sigma_recent, spa_holdout_gate_eps) freezes the post-reinit kappa
+    ramp for spa_holdout_freeze_window cycles."""
+    spa_holdout_views: int = 8
+    """Fixed training cameras used by the holdout gate."""
+    spa_holdout_gate_eps: float = 0.05
+    """Gate threshold floor in dB (above run-to-run noise, below real damage)."""
+    spa_holdout_freeze_window: int = 2
+    """Projection cycles the kappa ramp stays frozen after one trigger."""
+    spa_holdout_max_triggers: int = 5
+    """Lifetime trigger cap (anti-loop)."""
+
+    # 方案 C: background-feature codebook (design doc 背景场 §2.3). Encoder
+    # measures background flags from the coverage-area dump; background
+    # anchors' features are replaced by k-means centroids and skipped by the
+    # feat arithmetic coder — the bitstream carries indices + fp16 codebook
+    # + packed flags instead.
+    bg_codebook_enabled: bool = False
+    bg_codebook_size: int = 256
+    """Codebook entries (K); indices cost 1 byte per anchor while K<=256."""
+    bg_area_quantile: float = 0.9
+    """Anchors above the (1-q) area cut count as background."""
+    bg_codebook_iters: int = 25
+    """Lloyd iterations for the encoder-side clustering."""
+    bg_flags_path: Optional[str] = None
+    """Path to the per-anchor area dump (anchor_stats.npz: 'area'+'seen', or
+    a precomputed 'flags'). Required when bg_codebook_enabled."""
+
+    importance_weighted_loss: bool = False
+    """Weight the reconstruction L1 by rendered opacity (importance-aware loss)."""
+    importance_weight_floor: float = 0.2
+    """Lower clamp of the importance weight (keeps background from being ignored)."""
+    importance_weight_scale: float = 1.0
+    """Upper scale of the importance weight."""
+    """Weight of the sensitivity term inside the fused prune importance."""
+    """Weight of the ADMM score when blended with contribution area."""
 
     def __post_init__(self) -> None:
         if self.content_aware_q_mode != "formula":
@@ -187,10 +294,43 @@ class ModelConfig:
                 "content_aware_q_mode must be 'formula' in PHG v1; "
                 f"got {self.content_aware_q_mode!r}"
             )
+        # Enum-valued switches must fail loudly on typos: a misspelled value
+        # would otherwise silently run the baseline arm (audit lesson 3).
+        if self.sensitivity_target_mode not in ("sens", "sens_per_bit"):
+            raise ValueError(
+                "sensitivity_target_mode must be 'sens' or 'sens_per_bit'; "
+                f"got {self.sensitivity_target_mode!r}"
+            )
+        if self.submodular_mode not in ("off", "cover", "cover_sens"):
+            raise ValueError(
+                "submodular_mode must be 'off', 'cover' or 'cover_sens'; "
+                f"got {self.submodular_mode!r}"
+            )
+        if self.bg_codebook_enabled:
+            if not self.bg_flags_path:
+                raise ValueError(
+                    "bg_codebook_enabled requires bg_flags_path "
+                    "(per-anchor area dump)"
+                )
+        if not 0.0 < self.bg_area_quantile < 1.0:
+            raise ValueError(
+                f"bg_area_quantile must be in (0, 1), got {self.bg_area_quantile}"
+            )
+        if self.bg_codebook_size < 1 or self.bg_codebook_iters < 1:
+            raise ValueError(
+                "bg_codebook_size and bg_codebook_iters must be >= 1, got "
+                f"{self.bg_codebook_size}/{self.bg_codebook_iters}"
+            )
         if self.mini_splat_enabled and self.mini_splat_reinit_iter < 1:
             raise ValueError("mini_splat_reinit_iter must be >= 1")
         if self.mini_splat_max_new < 0:
             raise ValueError("mini_splat_max_new must be >= 0")
+        if not (0.0 < self.mini_splat_blur_threshold < 1.0):
+            raise ValueError(
+                "mini_splat_blur_threshold must be in (0, 1)"
+            )
+        if self.mini_splat_importance_weight < 0.0:
+            raise ValueError("mini_splat_importance_weight must be >= 0")
         if self.mlp_complexity_layers < 1:
             raise ValueError("mlp_complexity_layers must be >= 1")
         if not (0.0 <= self.level_threshold_low < self.level_threshold_high <= 1.0):

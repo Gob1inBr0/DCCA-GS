@@ -135,6 +135,7 @@ def _empty_gaussians(model: "HACPlusModel", n_total: int) -> NeuralGaussians:
         selection_mask=empty.clone().bool(),
         visible_mask=torch.zeros(n_total, dtype=torch.bool, device=device),
         anchor_indices=empty.clone().long(),
+        gaussian_anchor_indices=empty.clone().long(),
     )
 
 
@@ -188,6 +189,65 @@ class HACPlusModel(BaseGaussianModel):
         self.core.spa_ratio = float(cfg.spa_ratio)
         self.core.spa_rho = float(cfg.spa_rho)
         self.core.spa_u_clamp = float(cfg.spa_u_clamp)
+        self.core.mini_splat_importance = torch.zeros(
+            0, 1, device=self.device
+        )
+        self.core.mini_splat_full_selected = False
+        self.core.mini_splat_importance_weight = float(
+            cfg.mini_splat_importance_weight
+        )
+        self.core.fusion_prune = bool(cfg.fusion_prune)
+        self.core.fusion_sensitivity_weight = float(cfg.fusion_sensitivity_weight)
+        self.core.fusion_gamma = float(getattr(cfg, "fusion_gamma", 0.25))
+        self.core.coverage_ema_decay = float(
+            getattr(cfg, "coverage_ema_decay", 0.95)
+        )
+        # 0d safety-regression switch: lift the 0.3 coverage-dominance cap so
+        # the uncapped fusion arm (expected collapse) can be measured.
+        self.core.fusion_uncap = bool(getattr(cfg, "fusion_uncap", False))
+        # Submodular v2 (cover_sens) needs this copy: the projection reads it
+        # via getattr with a False default, so a missing copy silently degrades
+        # cover_sens to pure coverage (2026-09-19 provenance audit: every
+        # historical A3 run executed v1 semantics — see ckpt evidence in
+        # docs/03-reports/A3臂实现核查与来源调查_20260919.md).
+        self.core.submodular_sens_weighted = bool(
+            getattr(cfg, "submodular_sens_weighted", False)
+        ) or str(getattr(cfg, "submodular_mode", "off")) == "cover_sens"
+        print(
+            "[Submod] mode={} sens_weighted={}".format(
+                getattr(cfg, "submodular_mode", "off"),
+                self.core.submodular_sens_weighted,
+            ),
+            flush=True,
+        )
+        # Phase 0 post-reinit budget: MUST be copied onto the core — the
+        # projection reads these via getattr with no-op defaults (1.0/2000),
+        # and a missing copy silently reproduces the legacy protocol.
+        self.core.spa_post_ratio = float(getattr(cfg, "spa_post_ratio", 1.0))
+        self.core.spa_post_window = int(getattr(cfg, "spa_post_window", 2000))
+        self.core.spa_coverage_constraint = bool(cfg.spa_coverage_constraint)
+        self.core.spa_coverage_cell_size = float(cfg.spa_coverage_cell_size)
+        self.core.spa_coverage_min_per_cell = int(cfg.spa_coverage_min_per_cell)
+        # Journal round 2 (rate-aware selection / Fisher / sens_per_bit).
+        # Same discipline as spa_post_ratio above: every core-consumed flag is
+        # copied explicitly — a missing copy silently disables the mechanism.
+        self.core.spa_rate_aware = bool(getattr(cfg, "spa_rate_aware", False))
+        self.core.spa_rate_tau = float(getattr(cfg, "spa_rate_tau", 1.0))
+        self.core.spa_bit_budget = bool(getattr(cfg, "spa_bit_budget", False))
+        self.core.sensitivity_second_order = bool(
+            getattr(cfg, "sensitivity_second_order", False)
+        )
+        self.core.sensitivity_use_fisher = bool(
+            getattr(cfg, "sensitivity_use_fisher", False)
+        )
+        self.core.sensitivity_target_mode = str(
+            getattr(cfg, "sensitivity_target_mode", "sens")
+        )
+        self.core.bits_ema_enabled = bool(
+            getattr(cfg, "spa_rate_aware", False)
+            or getattr(cfg, "spa_bit_budget", False)
+            or self.core.sensitivity_target_mode == "sens_per_bit"
+        )
         if cfg.semantic_enabled:
             if cfg.semantic_proj_head:
                 hidden = self.core.mlp_complexity[0].out_features
@@ -262,6 +322,10 @@ class HACPlusModel(BaseGaussianModel):
             "spa_final_n": self.core.spa_final_n,
             "spa_ref_n": self.core.spa_ref_n,
         }
+        sd["_mini_splat_state"] = {
+            "importance": self.core.mini_splat_importance,
+            "full_selected": self.core.mini_splat_full_selected,
+        }
         return sd
 
     def load_state_dict(self, *args, **kwargs):
@@ -285,6 +349,14 @@ class HACPlusModel(BaseGaussianModel):
             self.core.spa_u = spa_state["spa_u"].to(self.device)
             self.core.spa_final_n = int(spa_state.get("spa_final_n", 0))
             self.core.spa_ref_n = int(spa_state.get("spa_ref_n", 0))
+        if "_mini_splat_state" in sd:
+            mini_state = sd.pop("_mini_splat_state")
+            self.core.mini_splat_importance = mini_state[
+                "importance"
+            ].to(self.device)
+            self.core.mini_splat_full_selected = bool(
+                mini_state.get("full_selected", False)
+            )
         elif self.core.spa_enabled and self.num_anchors > 0:
             self.core.spa_z = torch.zeros(
                 self.num_anchors, 1, device=self.device
@@ -341,6 +413,17 @@ class HACPlusModel(BaseGaussianModel):
             self.core.sensitivity_offsets = torch.zeros(n, 1, device=self.device)
             self.core.sensitivity_mean = torch.zeros(3, device=self.device)
             self.core.sensitivity_var = torch.ones(3, device=self.device)
+        for name in (
+            "sensitivity_sq_feat", "sensitivity_sq_scaling",
+            "sensitivity_sq_offsets", "bits_ema",
+        ):
+            tensor = getattr(self.core, name, None)
+            if (tensor is None or tensor.numel() == 0) and self.num_anchors > 0:
+                setattr(
+                    self.core,
+                    name,
+                    torch.zeros(self.num_anchors, 1, device=self.device),
+                )
         return result
 
     def train(self, mode: bool = True):
@@ -418,6 +501,10 @@ class HACPlusModel(BaseGaussianModel):
         core.sensitivity_feat = torch.zeros(n, 1, device=device)
         core.sensitivity_scaling = torch.zeros(n, 1, device=device)
         core.sensitivity_offsets = torch.zeros(n, 1, device=device)
+        core.sensitivity_sq_feat = torch.zeros(n, 1, device=device)
+        core.sensitivity_sq_scaling = torch.zeros(n, 1, device=device)
+        core.sensitivity_sq_offsets = torch.zeros(n, 1, device=device)
+        core.bits_ema = torch.zeros(n, 1, device=device)
         core.sensitivity_mean = torch.zeros(3, device=device)
         core.sensitivity_var = torch.ones(3, device=device)
         core.update_anchor_bound()
@@ -534,6 +621,8 @@ class HACPlusModel(BaseGaussianModel):
         bit_per_scaling_param = None
         bit_per_offsets_param = None
         complexity_logits = None
+        ladder_penalty = None
+        ladder_raw = None
 
         if is_training:
             if 3000 < step <= 10000:
@@ -604,6 +693,22 @@ class HACPlusModel(BaseGaussianModel):
                         _mean_scaling,
                         _mean_offsets,
                     )
+                if getattr(self.cfg, "coarse_ladder_align", False):
+                    # B3: on the PRE-noise continuous symbols with the final
+                    # (content-aware adjusted) Q — the noise below only
+                    # emulates rounding on the rendering path. Skip the
+                    # graph entirely while the ramp is still zero.
+                    ramp = self._coarse_ladder_ramp(step)
+                    if ramp > 0.0:
+                        ladder_raw = self._coarse_ladder_penalty_raw(
+                            feat, grid_scaling, grid_offsets,
+                            Q_feat, Q_scaling, Q_offsets,
+                            binary_grid_masks,
+                        )
+                        ladder_penalty = (
+                            float(self.cfg.coarse_ladder_weight) * ramp
+                            * ladder_raw
+                        )
                 feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
                 grid_scaling = grid_scaling + (
                     torch.rand_like(grid_scaling) - 0.5
@@ -707,6 +812,7 @@ class HACPlusModel(BaseGaussianModel):
             [],
             [],
         )
+        gaussian_anchor_parts = []
         chunk = 16_384
         for start in range(0, n, chunk):
             end = min(start + chunk, n)
@@ -726,6 +832,12 @@ class HACPlusModel(BaseGaussianModel):
             sel = (no.reshape(-1) > 0.0)
             neural_opacity_parts.append(no)
             selection_parts.append(sel)
+            anchor_rep = (
+                anchor_indices[start:end]
+                .unsqueeze(1)
+                .expand(c, k)
+                .reshape(-1)[sel]
+            )
 
             color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
             scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[sel]
@@ -750,12 +862,14 @@ class HACPlusModel(BaseGaussianModel):
                 opacity_c = opacity_c[keep]
                 scales_c = scales_c[keep]
                 quats_c = quats_c[keep]
+                anchor_rep = anchor_rep[keep]
 
             xyz_parts.append(xyz_c)
             color_parts.append(color)
             opacity_parts.append(opacity_c)
             scale_parts.append(scales_c)
             quat_parts.append(quats_c)
+            gaussian_anchor_parts.append(anchor_rep)
 
         neural_opacity = torch.cat(neural_opacity_parts, dim=0)
         selection_mask = torch.cat(selection_parts, dim=0)
@@ -764,6 +878,7 @@ class HACPlusModel(BaseGaussianModel):
         opacity = torch.cat(opacity_parts, dim=0)
         scales = torch.cat(scale_parts, dim=0)
         quats = torch.cat(quat_parts, dim=0)
+        gaussian_anchor_indices = torch.cat(gaussian_anchor_parts, dim=0)
 
         return NeuralGaussians(
             xyz=xyz,
@@ -783,6 +898,9 @@ class HACPlusModel(BaseGaussianModel):
             pre_quant_scaling=grid_scaling if sens_active else None,
             pre_quant_offsets=grid_offsets if sens_active else None,
             complexity_logits=complexity_logits,
+            gaussian_anchor_indices=gaussian_anchor_indices,
+            ladder_penalty=ladder_penalty,
+            ladder_penalty_raw=ladder_raw,
         )
 
     def render(self, camera, background, **kwargs):
@@ -811,13 +929,81 @@ class HACPlusModel(BaseGaussianModel):
         check_interval: int,
         success_threshold: float,
         grad_threshold: float,
-        min_opacity: float,
+        min_opacity: int,
+        fusion_pool=None,
+        fusion_views: int = 8,
+        background: Optional[torch.Tensor] = None,
+        post_phase: bool = False,
     ) -> None:
+        provider = None
+        sub_edges_box = []
+        sub_select = None
+        if (
+            getattr(self.cfg, "fusion_prune", False)
+            and getattr(self.cfg, "mini_splat_enabled", False)
+            and fusion_pool
+        ):
+            from .mini_splat import compute_contribution_areas
+
+            pool = list(fusion_pool)
+            views = max(1, min(int(fusion_views), len(pool)))
+            stride = max(1, len(pool) // views)
+            # Deterministic rotation: cycle k samples a different 8-view
+            # window, so ~N/8 cycles cover every training camera once.
+            self._fusion_cycle = getattr(self, "_fusion_cycle", 0) + 1
+            start = (self._fusion_cycle * views) % len(pool)
+            cams = [pool[(start + i * stride) % len(pool)] for i in range(views)]
+
+            submod_mode = str(getattr(self.cfg, "submodular_mode", "off"))
+
+            def provider():
+                if submod_mode != "off":
+                    from .mini_splat import (
+                        render_scene_depth,
+                        _intersection_weights,
+                    )
+                    from .submodular import view_edges
+
+                    n = int(self.num_anchors)
+                    edges = []
+                    area = torch.zeros(n, device=self.device)
+                    for cam in cams:
+                        _, _, gaussians, gids, meta = render_scene_depth(
+                            self, cam, background, self.device
+                        )
+                        if gaussians is None or gids is None or meta is None:
+                            continue
+                        e = view_edges(self, cam, background, self.device, gids, meta)
+                        if e is not None:
+                            edges.append(e)
+                        counts = _intersection_weights(meta, self.device)
+                        if counts is not None:
+                            gi = meta.get("gaussian_ids")
+                            if gi is not None and gi.numel() > 0:
+                                anchor_gids = gids.long()[gi.long()]
+                                area.scatter_add_(0, anchor_gids, counts)
+                    sub_edges_box.clear()
+                    sub_edges_box.append(edges)
+                    return area
+
+                return compute_contribution_areas(
+                    self, cams, background, self.device
+                )
+
+            if submod_mode != "off":
+                from .submodular import submodular_greedy_select
+
+                sub_select = submodular_greedy_select
+
         self.core.adjust_anchor(
             check_interval=check_interval,
             success_threshold=success_threshold,
             grad_threshold=grad_threshold,
             min_opacity=min_opacity,
+            importance_provider=provider,
+            post_phase=post_phase,
+            submodular_box=sub_edges_box,
+            submodular_select=sub_select,
         )
 
     @torch.no_grad()
@@ -826,18 +1012,21 @@ class HACPlusModel(BaseGaussianModel):
         dataset,
         background: torch.Tensor,
     ) -> int:
-        """Mini-Splatting depth-reinit densification at the growth-stop point.
+        """Mini-Splatting re-organisation at the growth-stop point.
 
-        Back-projects depth from a sample of training cameras to world-surface
-        points, voxelises them into candidate anchors, and appends them *while
-        pinning the SPA budget to the pre-densification anchor count*.  SPA's
-        top-k projection then only re-allocates *which* anchors survive, so the
-        added surface anchors compete on merit without inflating the budget --
-        this isolates "placement" from "count" (the Mini-Splatting hypothesis).
+        The default ``mini_splat_full=False`` reproduces the previous
+        depth-reinit-only cell. With ``mini_splat_full=True`` it adds blur
+        splitting and a per-pixel contribution-area based
+        intersection-preserving simplification before handing control back to
+        SPA.
         """
         if not self.cfg.mini_splat_enabled:
             return 0
-        from .mini_splat import collect_depth_surface_anchors
+        from .mini_splat import (
+            collect_blur_split_anchors,
+            collect_depth_surface_anchors,
+            compute_contribution_areas,
+        )
 
         cores = self.core
         n_before = int(cores.get_anchor.shape[0])
@@ -858,19 +1047,92 @@ class HACPlusModel(BaseGaussianModel):
             idx = [int(i * stride) for i in range(views)]
             idx = sorted(set(i for i in idx if i < len(cams)))
             cams = [cams[i] for i in idx]
-        candidates = collect_depth_surface_anchors(
+        max_new = int(self.cfg.mini_splat_max_new)
+        if not self.cfg.mini_splat_full:
+            candidates = collect_depth_surface_anchors(
+                self,
+                cams,
+                background,
+                voxel,
+                max_new,
+                self.device,
+            )
+            if candidates.shape[0] == 0:
+                print("[MiniSplat] no depth-reinit anchors collected", flush=True)
+                return 0
+            added = cores.append_depth_anchors(
+                candidates, voxel, str(self.device)
+            )
+            # Post-reinit selection baseline (Phase 0): kappa ramps from this
+            # count down to spa_post_base * spa_post_ratio after reinit.
+            cores.spa_post_base = int(cores.get_anchor.shape[0])
+            cores.spa_reinit_step = int(cores.current_step)
+            return added
+
+        # Full mode: depth reinit + blur split share the same max_new budget.
+        depth_budget = max(1, max_new // 2)
+        depth_candidates = collect_depth_surface_anchors(
             self,
             cams,
             background,
             voxel,
-            int(self.cfg.mini_splat_max_new),
+            depth_budget,
             self.device,
         )
-        if candidates.shape[0] == 0:
-            print("[MiniSplat] no depth-reinit anchors collected", flush=True)
-            return 0
-        added = cores.append_depth_anchors(candidates, voxel, str(self.device))
-        return added
+        depth_added = cores.append_depth_anchors(
+            depth_candidates, voxel, str(self.device)
+        )
+
+        blur_budget = max(0, max_new - depth_added)
+        area = compute_contribution_areas(self, cams, background, self.device)
+        blur_candidates = collect_blur_split_anchors(
+            self,
+            cams,
+            background,
+            area,
+            float(self.cfg.mini_splat_blur_threshold),
+            voxel,
+            blur_budget,
+            self.device,
+        )
+        blur_added = cores.append_depth_anchors(
+            blur_candidates, voxel, str(self.device)
+        )
+
+        # Recompute after all densification, then intersection-preserving
+        # simplification to the same fixed anchor budget.
+        area = compute_contribution_areas(self, cams, background, self.device)
+        scores = area.squeeze(-1)
+        if scores.numel() == 0 or not torch.isfinite(scores).any():
+            scores = cores.get_mask.mean(dim=1).detach().squeeze(-1)
+        n_after = int(cores.get_anchor.shape[0])
+        if cores.spa_enabled:
+            kappa = max(1, int(round(n_before * float(cores.spa_ratio))))
+        else:
+            kappa = max(1, n_before)
+        kappa = min(kappa, n_after)
+        keep = torch.topk(scores, kappa).indices
+        prune_mask = torch.ones(n_after, dtype=torch.bool, device=self.device)
+        prune_mask[keep] = False
+        if prune_mask.any():
+            cores.prune_anchor(prune_mask)
+
+        cores.spa_final_n = kappa
+        cores.spa_ratio = 1.0
+        cores.mini_splat_full_selected = True
+        cores.mini_splat_importance = scores[keep].unsqueeze(-1).contiguous()
+        # Post-reinit selection baseline: the full path must set these too,
+        # otherwise the post-phase kappa branch (and the holdout gate's
+        # freeze consumer) never engages.
+        cores.spa_post_base = int(cores.get_anchor.shape[0])
+        cores.spa_reinit_step = int(cores.current_step)
+        print(
+            "[MiniSplat-full] depth="
+            f"{depth_added} blur={blur_added} keep={kappa} "
+            f"pruned={int(prune_mask.sum())}",
+            flush=True,
+        )
+        return depth_added + blur_added
 
     def rate_loss_term(self, gaussians: NeuralGaussians, iteration: int) -> torch.Tensor:
         del iteration
@@ -885,6 +1147,41 @@ class HACPlusModel(BaseGaussianModel):
         return self.optim_cfg.lambda_rate * (
             gaussians.bit_per_param + bit_hash / denom
         )
+
+    def _coarse_ladder_ramp(self, step: int) -> float:
+        """Linear 0->1 from coarse_ladder_start_iter to end of training."""
+        start = int(self.cfg.coarse_ladder_start_iter)
+        if step <= start:
+            return 0.0
+        end = getattr(self.optim_cfg, "max_steps", None) if self.optim_cfg else None
+        if not end or int(end) <= start:
+            end = start + 6000
+        return float(min((step - start) / max(int(end) - start, 1), 1.0))
+
+    def _coarse_ladder_penalty_raw(
+        self, feat, grid_scaling, grid_offsets,
+        Q_feat, Q_scaling, Q_offsets, binary_grid_masks,
+    ) -> torch.Tensor:
+        """B3: distance of pre-quantization symbols to ladder multiples.
+
+        The layered bitstream transmits round(x/Q); its base layer is
+        L-times coarser, so the base-layer reconstruction error is
+        (r - L*round(r/L)) * Q with r = x/Q. Penalizing |r - L*round(r/L)|/L
+        on the continuous symbols shrinks that error. Q is DETACHED: the
+        optimizer cannot satisfy the penalty by inflating step sizes, only
+        the attribute values move. L matches the bitstream base steps:
+        feat/offset 8x, scaling 2x. Masked-out offsets are excluded.
+        """
+        def align(x, Q, L):
+            r = x / Q.detach()
+            return ((r - L * torch.round(r / L)) / L).abs()
+
+        pen_feat = align(feat, Q_feat, 8).mean()
+        pen_scaling = align(grid_scaling, Q_scaling, 2).mean()
+        mask3 = binary_grid_masks.detach().to(grid_offsets.dtype).repeat(1, 1, 3)
+        pen_off = (align(grid_offsets, Q_offsets, 8) * mask3).sum() / \
+            mask3.sum().clamp_min(1.0)
+        return pen_feat + pen_scaling + pen_off
 
     def sensitivity_supervision(self, gaussians: NeuralGaussians) -> torch.Tensor:
         """L_sens = weight * MSE(pred multiplier, bounded sensitivity target).
@@ -914,9 +1211,57 @@ class HACPlusModel(BaseGaussianModel):
         # s_norm = accum / (mean(accum) + eps). The variance-EMA z-score
         # never converges from its unit init at alpha=0.99 and flattens the
         # signal (grad norms span several orders of magnitude per anchor).
-        z_score = (ema - core.sensitivity_mean) / core.sensitivity_mean.clamp_min(
-            1e-12
-        )
+        if (
+            core.sensitivity_target_mode == "sens_per_bit"
+            and core.bits_ema.numel() == core.get_anchor.shape[0]
+        ):
+            # D3 entropy-aware step allocation: divide the sensitivity signal
+            # by the per-anchor estimated coded bits (detached), so fine steps
+            # concentrate where importance per coded bit is highest. Bits are
+            # normalized by their positive median and clamped to [0.25, 4]:
+            # a stale estimate can rescale the target, never flip it.
+            b = core.bits_ema[idx].squeeze(-1)
+            pos = b[b > 0]
+            if pos.numel() > 0:
+                b_med = pos.median().clamp_min(1e-8)
+                # Mask-dead anchors hold stale estimates: charge them the
+                # median (neutral) instead of letting the 0.25 clamp give
+                # them a 4x "cheap" bonus.
+                dead = core.get_mask_anchor[idx].squeeze(-1).detach() <= 0.5
+                b = torch.where(dead, b_med.expand_as(b), b)
+                b_rel = (b / b_med).clamp(0.25, 4.0)
+                ema = ema / b_rel.clamp_min(0.25).unsqueeze(-1)
+                z_score = ema / ema.mean().clamp_min(1e-12) - 1.0
+                if not getattr(core, "_spb_engaged", False):
+                    core._spb_engaged = True
+                    print(
+                        "[SensPerBit] engaged (per-bit target active)",
+                        flush=True,
+                    )
+            else:
+                z_score = (
+                    ema - core.sensitivity_mean
+                ) / core.sensitivity_mean.clamp_min(1e-12)
+        else:
+            if (
+                core.sensitivity_target_mode == "sens_per_bit"
+                and core.current_step > 12000
+                and not getattr(core, "_spb_warned", False)
+            ):
+                # Audit rule: a requested target mode falling back must not
+                # be silent (fusion-gate lesson). Past the bits warm-up a
+                # misaligned buffer means the mechanism never engaged.
+                core._spb_warned = True
+                print(
+                    "[SensPerBit] requested but bits_ema misaligned "
+                    f"(bits_N={int(core.bits_ema.numel())} vs "
+                    f"N={int(core.get_anchor.shape[0])}); "
+                    "using plain sens target",
+                    flush=True,
+                )
+            z_score = (
+                ema - core.sensitivity_mean
+            ) / core.sensitivity_mean.clamp_min(1e-12)
         strength = self.cfg.sensitivity_strength
         pred = 1.0 + strength * torch.tanh(gaussians.complexity_logits)
         target = sensitivity_multiplier(z_score, strength).detach()
@@ -1055,6 +1400,36 @@ class HACPlusModel(BaseGaussianModel):
         ):
             ema_tensor.mul_(alpha)
             ema_tensor.index_add_(0, idx, (1.0 - alpha) * g)
+        if (
+            bool(getattr(self.cfg, "sensitivity_second_order", False))
+            and core.sensitivity_sq_feat.numel() == core.get_anchor.shape[0]
+        ):
+            # Empirical-Fisher material: per-anchor E[g^2] EMA (OBD-style
+            # significance). Reuses the first-order pass's gradients, so the
+            # upgrade costs zero extra backward passes (survey §8.4).
+            for ema_sq, g in zip(
+                (
+                    core.sensitivity_sq_feat,
+                    core.sensitivity_sq_scaling,
+                    core.sensitivity_sq_offsets,
+                ),
+                grads,
+            ):
+                ema_sq.mul_(alpha)
+                ema_sq.index_add_(0, idx, (1.0 - alpha) * g * g)
+        elif (
+            bool(getattr(self.cfg, "sensitivity_second_order", False))
+            and not getattr(core, "_sq_warned", False)
+        ):
+            # Audit rule: silent skips become invisible failures later.
+            core._sq_warned = True
+            print(
+                "[Fisher] sq buffers misaligned "
+                f"(sq_N={int(core.sensitivity_sq_feat.numel())} vs "
+                f"N={int(core.get_anchor.shape[0])}); "
+                "E[g^2] accumulation skipped",
+                flush=True,
+            )
         batch_mean = torch.stack([g.mean() for g in grads])
         batch_var = torch.stack([g.var(unbiased=False) for g in grads])
         core.sensitivity_mean.mul_(alpha).add_((1.0 - alpha) * batch_mean)
@@ -1206,6 +1581,32 @@ class HACPlusModel(BaseGaussianModel):
         )
         bit_offsets = bit_offsets * mask_anchor_c * masks_c
 
+        if getattr(core, "bits_ema_enabled", False):
+            # Per-anchor coded-bits estimate: sum over the three coded groups
+            # for each subsampled anchor, EMA-accumulated from the same 5%
+            # subsample the RD loss already pays for. Every anchor is covered
+            # within ~100 steps at decay 0.995. Detached; training-only.
+            with torch.no_grad():
+                n_all = int(core.get_anchor.shape[0])
+                if core.bits_ema.numel() != n_all:
+                    core.bits_ema = torch.zeros(n_all, 1, device=self.device)
+                bits_sub = (
+                    bit_feat.sum(dim=-1, keepdim=True)
+                    + bit_scaling.sum(dim=-1, keepdim=True)
+                    + bit_offsets.sum(dim=-1, keepdim=True)
+                ).float()
+                idx_sub = choose.nonzero(as_tuple=True)[0]
+                if idx_sub.numel() > 0:
+                    decay = float(getattr(core, "bits_ema_decay", 0.995))
+                    # Sample-only EMA: rows without a fresh estimate keep
+                    # their value instead of decaying toward zero — a whole
+                    # -buffer mul_ would park every row at ~5% of its true
+                    # bit count under the 5% subsample.
+                    updated = decay * core.bits_ema[idx_sub] + (
+                        1.0 - decay
+                    ) * bits_sub
+                    core.bits_ema.index_copy_(0, idx_sub, updated)
+
         s_feat, n_feat = torch.sum(bit_feat), bit_feat.numel()
         s_scaling, n_scaling = torch.sum(bit_scaling), bit_scaling.numel()
         s_offsets, n_offsets = torch.sum(bit_offsets), bit_offsets.numel()
@@ -1299,6 +1700,53 @@ class HACPlusModel(BaseGaussianModel):
         offsets = offsets[sorted_indices]
         scaling = scaling[sorted_indices]
         masks = masks[sorted_indices]
+        # 方案 C: background-feature codebook. Applied AFTER the Morton sort
+        # so the payload's row order matches the coded row order. Background
+        # rows are replaced by centroids and excluded from the feat
+        # arithmetic coder; the payload (indices + fp16 codebook + packed
+        # flags) travels alongside the bitstream.
+        bg_mask_sorted: Optional[torch.Tensor] = None
+        bg_payload_bytes = 0
+        if self.cfg.bg_codebook_enabled:
+            from . import bg_codebook
+
+            if not self.cfg.bg_flags_path:
+                raise ValueError(
+                    "bg_codebook_enabled requires cfg.bg_flags_path "
+                    "(per-anchor area dump)"
+                )
+            flags_all = bg_codebook.flags_from_npz(
+                self.cfg.bg_flags_path, n_total, self.cfg.bg_area_quantile
+            )
+            with np.load(self.cfg.bg_flags_path) as _dump:
+                if "anchor_sha256" not in _dump.files:
+                    print(
+                        "[BGCodebook] WARNING: area dump carries no "
+                        "anchor_sha256 — flag identity is unverified. "
+                        "Regenerate the dump from THIS checkpoint before "
+                        "trusting the bg/fg split.",
+                        flush=True,
+                    )
+            flags_kept = torch.from_numpy(flags_all).to(device)[mask_anchor]
+            bg_mask_sorted = flags_kept[sorted_indices.to(device)]
+            feat, bg_payload = bg_codebook.build_codebook(
+                feat,
+                bg_mask_sorted,
+                codebook_size=self.cfg.bg_codebook_size,
+                iters=self.cfg.bg_codebook_iters,
+            )
+            # Bind the payload to this exact coded anchor set: decode checks
+            # it against the header's anchor_int_sha256.
+            bg_payload["anchor_sorted_sha256"] = _tensor_sha256(anchor_int)
+            bg_payload_bytes = bg_codebook.save_payload(
+                bg_payload, out_dir / bg_codebook.BG_CODEBOOK_FILENAME
+            )
+            print(
+                f"[BGCodebook] {int(bg_mask_sorted.sum().item())}/{N} "
+                f"background anchors, K={bg_payload['codebook'].shape[0]}, "
+                f"payload {bg_payload_bytes} B",
+                flush=True,
+            )
         ov_feat = _load_override(q_override_feat, N, device)
         ov_scaling = _load_override(q_override_scaling, N, device)
         ov_offsets = _load_override(q_override_offsets, N, device)
@@ -1346,6 +1794,13 @@ class HACPlusModel(BaseGaussianModel):
             "anchor_int_sha256": _tensor_sha256(anchor_int),
             "masks_sha256": _tensor_sha256(masks),
         }
+        if bg_mask_sorted is not None:
+            codec_header[bg_codebook.BG_CODEBOOK_HEADER_KEY] = {
+                "enabled": True,
+                "codebook_size": int(bg_payload["codebook"].shape[0]),
+                "num_bg_anchors": int(bg_mask_sorted.sum().item()),
+                "payload_file": bg_codebook.BG_CODEBOOK_FILENAME,
+            }
         with open(out_dir / CODEC_HEADER_FILENAME, "w") as f:
             json.dump(codec_header, f, indent=2, sort_keys=True)
 
@@ -1433,38 +1888,76 @@ class HACPlusModel(BaseGaussianModel):
             Q_scaling_flat = Q_scaling.contiguous().view(-1)
             Q_offsets_flat = Q_offsets.contiguous().view(-1)
 
-            # features (channel-context, cg channels per step)
+            # features (channel-context, cg channels per step). Background
+            # rows are codebook lookups — not coded; both sides restrict the
+            # channel-autoregressive coding to the foreground rows of the
+            # slice. feat_q_all (bg rows = centroids) stays full-length for
+            # the attr_ctx conditioning path, whose output must cover all
+            # rows of the scaling coder.
             feat_slice = feat[start:end]
-            feat_q = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
-            mean_scale = torch.cat([mean, scale, prob], dim=-1)
-            scale = scale.clamp(min=1e-9)
+            feat_q_all = STE_multistep.apply(feat_slice, Q_feat, self._view.anchor_feat.mean())
+            if bg_mask_sorted is not None:
+                bg_local = bg_mask_sorted[start:end]
+                if bg_local.any():
+                    # The decoded model serves raw centroids for bg rows, so
+                    # the attr_ctx conditioning must see the un-STE'd values
+                    # too (STE would project them onto the Q grid, a value
+                    # the decoder never reconstructs).
+                    feat_q_all = torch.where(
+                        bg_local.unsqueeze(-1), feat_slice, feat_q_all
+                    )
+                fg_local = (~bg_local).nonzero(as_tuple=True)[0]
+            else:
+                fg_local = None
+            if fg_local is not None:
+                feat_q = feat_q_all[fg_local]
+                Q_feat_sel = Q_feat[fg_local]
+                mean_sel = mean[fg_local]
+                scale_sel = scale[fg_local]
+                prob_sel = prob[fg_local]
+            else:
+                feat_q = feat_q_all
+                Q_feat_sel = Q_feat
+                mean_sel = mean
+                scale_sel = scale
+                prob_sel = prob
+            mean_scale = torch.cat([mean_sel, scale_sel, prob_sel], dim=-1)
+            scale_sel = scale_sel.clamp(min=1e-9)
+            n_sel = int(feat_q.shape[0])
             bit_feat = 0
-            for cc in range(self.cfg.feat_dim // cg):
-                mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
-                    feat_q, mean_scale, to_dec=cc
-                )
-                probs = torch.softmax(
-                    torch.stack([prob[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
-                    dim=-1,
-                )
-                feat_tmp = feat_q[:, cc * cg : cc * cg + cg].contiguous().view(-1)
-                Q_tmp = Q_feat[:, cc * cg : cc * cg + cg].contiguous().view(-1)
-                bit_feat += encoder_gaussian_mixed_chunk(
-                    feat_tmp,
-                    [
-                        mean[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        mean_adj.contiguous().view(-1),
-                    ],
-                    [
-                        scale[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        scale_adj.contiguous().view(-1),
-                    ],
-                    [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
-                    Q_tmp,
-                    file_name=feat_b.replace(".b", f"_{cc}.b"),
-                    chunk_size=500_000,
-                )
-            bit_feat_list.append(bit_feat)
+            if n_sel == 0:
+                # All-background batch: the coder file must still exist
+                # (empty), the decoder mirrors with a no-read guard.
+                for cc in range(self.cfg.feat_dim // cg):
+                    Path(feat_b.replace(".b", f"_{cc}.b")).write_bytes(b"")
+                bit_feat_list.append(0)
+            else:
+                for cc in range(self.cfg.feat_dim // cg):
+                    mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
+                        feat_q, mean_scale, to_dec=cc
+                    )
+                    probs = torch.softmax(
+                        torch.stack([prob_sel[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
+                        dim=-1,
+                    )
+                    feat_tmp = feat_q[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                    Q_tmp = Q_feat_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                    bit_feat += encoder_gaussian_mixed_chunk(
+                        feat_tmp,
+                        [
+                            mean_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            mean_adj.contiguous().view(-1),
+                        ],
+                        [
+                            scale_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            scale_adj.contiguous().view(-1),
+                        ],
+                        [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
+                        Q_tmp,
+                        file_name=feat_b.replace(".b", f"_{cc}.b"),
+                        chunk_size=500_000,
+                    )
+                bit_feat_list.append(bit_feat)
 
             # scaling
             scaling_slice = scaling[start:end].view(-1)
@@ -1478,7 +1971,7 @@ class HACPlusModel(BaseGaussianModel):
                     attr_pred,
                     mean_scaling.view(-1, 6).detach(),
                     scale_scaling.view(-1, 6).detach(),
-                    feat_q.detach(),
+                    feat_q_all.detach(),
                     ctx.detach(),
                 )
                 mean_scaling = m_adj.reshape(-1)
@@ -1508,7 +2001,7 @@ class HACPlusModel(BaseGaussianModel):
                     attr_pred,
                     mean_offsets.view(-1, 3 * k).detach(),
                     scale_offsets.view(-1, 3 * k).detach(),
-                    feat_q.detach(),
+                    feat_q_all.detach(),
                     scaling_q.detach(),
                     masks_slice.reshape(-1, k).detach(),
                     ctx.detach(),
@@ -1547,6 +2040,7 @@ class HACPlusModel(BaseGaussianModel):
             * 32
         )
         bit_bounds = 32 * 3 * 2
+        bit_bg_codebook = int(bg_payload_bytes) * 8
         total_bits = (
             bits_xyz
             + sum(bit_feat_list)
@@ -1557,6 +2051,7 @@ class HACPlusModel(BaseGaussianModel):
             + attr_ctx_bits
             + bit_mlp
             + bit_bounds
+            + bit_bg_codebook
         )
         aux_bytes = (out_dir / CODEC_HEADER_FILENAME).stat().st_size
         if (out_dir / CONTENT_AWARE_Q_META_FILENAME).exists():
@@ -1581,6 +2076,12 @@ class HACPlusModel(BaseGaussianModel):
             "bit_mlp": int(bit_mlp),
             "bit_bounds": int(bit_bounds),
             "bit_header": int(aux_bytes * 8),
+            "bit_bg_codebook": int(bit_bg_codebook),
+            "num_bg_anchors": (
+                int(bg_mask_sorted.sum().item())
+                if bg_mask_sorted is not None
+                else 0
+            ),
             "total_bits": int(total_bits),
             "total_MB": round(total_bits / bit2MB_scale, 4),
         }
@@ -1684,6 +2185,61 @@ class HACPlusModel(BaseGaussianModel):
         ).float()
         hash_decoded = (hash_decoded * 2 - 1).view(-1, core.n_features_per_level)
 
+        # 方案 C payload: bg rows are codebook lookups, never arithmetic-
+        # coded. The deform-MLP context is row-wise, so pre-filling bg rows
+        # with (fp16) centroids keeps the fg autoregression identical to the
+        # encoder's fg-only pass.
+        bg_mask_sorted: Optional[torch.Tensor] = None
+        bg_centroids: Optional[torch.Tensor] = None
+        bg_indices: Optional[torch.Tensor] = None
+        bg_info = codec_header.get("bg_codebook")
+        if bg_info and bg_info.get("enabled"):
+            from . import bg_codebook
+
+            bg_payload = bg_codebook.load_payload(
+                artifact_dir / bg_info["payload_file"]
+            )
+            bg_mask_sorted = bg_codebook.unpack_flags(bg_payload, device)
+            if bg_mask_sorted.shape[0] != N:
+                raise RuntimeError(
+                    f"bg flags length {bg_mask_sorted.shape[0]} != N {N}"
+                )
+            if int(bg_info.get("num_bg_anchors", -1)) != int(
+                bg_mask_sorted.sum().item()
+            ):
+                raise RuntimeError(
+                    "bg_codebook header/payload anchor-count mismatch"
+                )
+            bg_centroids = torch.from_numpy(
+                bg_payload["codebook"].astype(np.float32)
+            ).to(device)
+            bg_indices = torch.from_numpy(
+                bg_payload["indices"].astype(np.int64)
+            ).to(device)
+            if (
+                bg_indices.numel()
+                and int(bg_indices.max().item()) >= bg_centroids.shape[0]
+            ):
+                raise RuntimeError("bg index out of codebook range")
+            if int(bg_info.get("codebook_size", -1)) != int(
+                bg_centroids.shape[0]
+            ):
+                raise RuntimeError(
+                    "bg_codebook header codebook_size != payload rows"
+                )
+            payload_sha = bg_payload.get("anchor_sorted_sha256")
+            if payload_sha is not None and payload_sha != codec_header.get(
+                "anchor_int_sha256"
+            ):
+                raise RuntimeError(
+                    "bg_codebook payload was built for a different anchor set"
+                )
+            print(
+                f"[BGCodebook] decode: {int(bg_mask_sorted.sum().item())}/{N} "
+                "background rows from payload",
+                flush=True,
+            )
+
         steps = math.ceil(N / MAX_batch_size)
         feat_list, scaling_list, offsets_list = [], [], []
         q_store = {"feat": [], "scaling": [], "offsets": []}
@@ -1759,32 +2315,62 @@ class HACPlusModel(BaseGaussianModel):
 
             n_num = end - start
             feat_decoded = torch.zeros(n_num, self.cfg.feat_dim, device=device)
-            mean_scale = torch.cat([mean, scale, prob], dim=-1)
-            scale = scale.clamp(min=1e-9)
-            for cc in range(self.cfg.feat_dim // cg):
-                mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
-                    feat_decoded, mean_scale, to_dec=cc
-                )
-                probs = torch.softmax(
-                    torch.stack([prob[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
-                    dim=-1,
-                )
-                Q_tmp = Q_feat[:, cc * cg : cc * cg + cg].contiguous().view(-1)
-                dec = decoder_gaussian_mixed_chunk(
-                    [
-                        mean[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        mean_adj.contiguous().view(-1),
-                    ],
-                    [
-                        scale[:, cc * cg : cc * cg + cg].contiguous().view(-1),
-                        scale_adj.contiguous().view(-1),
-                    ],
-                    [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
-                    Q_tmp,
-                    file_name=feat_b.replace(".b", f"_{cc}.b"),
-                    chunk_size=500_000,
-                )
-                feat_decoded[:, cc * cg : cc * cg + cg] = dec.view(n_num, cg)
+            if bg_mask_sorted is not None:
+                bg_local = bg_mask_sorted[start:end]
+                fg_local = (~bg_local).nonzero(as_tuple=True)[0]
+                if bg_local.any():
+                    # bg_indices is compacted over background rows only —
+                    # address it with the cumulative bg offset of this batch,
+                    # not with global row numbers.
+                    bg_base = int(bg_mask_sorted[:start].sum().item())
+                    n_bg_local = int(bg_local.sum().item())
+                    feat_decoded[bg_local] = bg_centroids[
+                        bg_indices[bg_base : bg_base + n_bg_local]
+                    ]
+                feat_fg = feat_decoded[fg_local]
+            else:
+                fg_local = None
+                feat_fg = feat_decoded
+            if fg_local is not None:
+                Q_feat_sel = Q_feat[fg_local]
+                mean_sel = mean[fg_local]
+                scale_sel = scale[fg_local]
+                prob_sel = prob[fg_local]
+            else:
+                Q_feat_sel = Q_feat
+                mean_sel = mean
+                scale_sel = scale
+                prob_sel = prob
+            mean_scale = torch.cat([mean_sel, scale_sel, prob_sel], dim=-1)
+            scale_sel = scale_sel.clamp(min=1e-9)
+            n_sel = int(feat_fg.shape[0])
+            if n_sel > 0:
+                for cc in range(self.cfg.feat_dim // cg):
+                    mean_adj, scale_adj, prob_adj = core.get_deform_mlp.forward(
+                        feat_fg, mean_scale, to_dec=cc
+                    )
+                    probs = torch.softmax(
+                        torch.stack([prob_sel[:, cc * cg : cc * cg + cg], prob_adj], dim=-1),
+                        dim=-1,
+                    )
+                    Q_tmp = Q_feat_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1)
+                    dec = decoder_gaussian_mixed_chunk(
+                        [
+                            mean_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            mean_adj.contiguous().view(-1),
+                        ],
+                        [
+                            scale_sel[:, cc * cg : cc * cg + cg].contiguous().view(-1),
+                            scale_adj.contiguous().view(-1),
+                        ],
+                        [probs[..., 0].contiguous().view(-1), probs[..., 1].contiguous().view(-1)],
+                        Q_tmp,
+                        file_name=feat_b.replace(".b", f"_{cc}.b"),
+                        chunk_size=500_000,
+                    )
+                    feat_fg[:, cc * cg : cc * cg + cg] = dec.view(n_sel, cg)
+            if fg_local is not None:
+                feat_decoded[fg_local] = feat_fg
 
             if attr_pred is not None:
                 from .attr_ctx import adjust_scaling

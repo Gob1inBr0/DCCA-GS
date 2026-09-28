@@ -85,17 +85,5 @@ CUDA_VISIBLE_DEVICES="$GPU" python scripts/eval_decoded.py \
   --data-factor 1 --max-width 1600 --no-preload-images > "$R/eval.log" 2>&1
 echo "EVAL_BASELINE_DONE tag=$TAG $(date)"
 
-echo "MLP_QUANT_START tag=$TAG $(date)"
-CUDA_VISIBLE_DEVICES="$GPU" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-  python scripts/mlp_quant_sweep.py \
-  --ckpt "$R/ckpts/ckpt_${MAX_STEPS}.pth" \
-  --data-dir "$DATA" \
-  --result-dir "$R/mlp_quant_cd8_rest16" \
-  --data-factor 1 --max-width 1600 --no-preload-images \
-  --skip-baseline \
-  --group-bits mlp_complexity:8 mlp_deform:8 mlp_opacity:16 mlp_cov:16 \
-               mlp_color:16 mlp_grid:16 \
-  > "$R/mlp_quant.log" 2>&1
-echo "MLP_QUANT_DONE tag=$TAG $(date)"
 
 echo "ALL_DONE tag=$TAG lambda=$LAMBDA scene=$SCENE $(date)"
