@@ -38,6 +38,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts"))
 
 import constriction  # noqa: E402
+from c25_container import BUCKETS, params_bytes, write_container  # noqa: E402
 
 N_VIEWS = 16
 GROUPS = 32
@@ -58,13 +59,62 @@ def fit_laplace(symbols):
     return loc, max(b, 1e-3)
 
 
-BUCKETS = 3  # residual context: |coarse symbol| in {0}, {1}, {>=2}
-
-
 def bucket_of(acc_prev):
     """Context bucket from the already-decoded coarse symbol: 0 / 1 / >=2."""
     a = np.abs(acc_prev)
     return np.minimum(a, 2).astype(np.int16)
+
+
+def area_rank_groups(area, n_groups):
+    """Contribution-area rank buckets: descending area -> group 0..n-1."""
+    n = area.shape[0]
+    rank = np.empty(n, dtype=np.int64)
+    rank[np.argsort(-area, kind="stable")] = np.arange(n)
+    return np.minimum(rank * n_groups // n, n_groups - 1).astype(np.int16)
+
+
+def uniform_groups(n, n_groups):
+    """Uniform row-order buckets (documented fallback without stats)."""
+    return np.minimum(np.arange(n) * n_groups // n,
+                      n_groups - 1).astype(np.int16)
+
+
+def per_anchor_step_tiers(qmul_flat, n_alive):
+    """Per-anchor step-multiplier tercile tier.
+
+    Decoder-side recomputable: the multiplier comes from the Q side info and
+    the 1/3, 2/3 quantile cut points are fixed by convention (zero side
+    info contract).
+    """
+    cols = qmul_flat.size // n_alive
+    qmul_anchor = qmul_flat.reshape(-1, cols)[:, 0]
+    t1, t2 = np.quantile(qmul_anchor, [1 / 3, 2 / 3])
+    return np.digitize(qmul_anchor, [t1, t2]).astype(np.int16)
+
+
+def ensure_mapped(run_dir, model, n_trained, mapped_arg, cache_dir, run_tag,
+                  dev):
+    """Decoded->trained row map: load --mapped, else match decoded anchors
+    to checkpoint anchors by nearest position and cache beside outputs."""
+    if mapped_arg and Path(mapped_arg).exists():
+        print(f"[RB] mapped loaded: {mapped_arg}")
+        return np.load(mapped_arg).astype(np.int64)
+    ck = torch.load(run_dir / "ckpts" / "ckpt_30000.pth", map_location="cpu",
+                    weights_only=False)
+    trained_xyz = ck["model_state"]["_anchor"].to(dev)
+    assert trained_xyz.shape[0] == n_trained
+    decoded_xyz = model.core.get_anchor
+    mapped = np.empty(decoded_xyz.shape[0], dtype=np.int64)
+    with torch.no_grad():
+        for start in range(0, decoded_xyz.shape[0], 1024):
+            end = min(start + 1024, decoded_xyz.shape[0])
+            d = torch.cdist(decoded_xyz[start:end], trained_xyz)
+            mapped[start:end] = d.min(dim=1)[1].cpu().numpy()
+            del d
+    mp = Path(cache_dir) / (run_tag + ".mapped.npy")
+    np.save(mp, mapped)
+    print(f"[RB] mapped generated and cached: {mp}")
+    return mapped
 
 
 # ---- binary-decomposition range coding ("geometric-binary") ----
@@ -442,13 +492,9 @@ def main():
     # groups: contribution-area buckets when stats exist; otherwise uniform
     # buckets over the (Morton-ordered) decoded rows — documented fallback
     if args.stats and Path(args.stats).exists():
-        stats = np.load(args.stats)
-        area = stats["area"].astype(np.float64)
+        area = np.load(args.stats)["area"].astype(np.float64)
         assert area.shape[0] == n_trained
-        rank = np.empty(n_trained, dtype=np.int64)
-        rank[np.argsort(-area, kind="stable")] = np.arange(n_trained)
-        group_of_trained = np.minimum(rank * GROUPS // n_trained,
-                                      GROUPS - 1).astype(np.int16)
+        group_of_trained = area_rank_groups(area, GROUPS)
         group_source = "contribution-area"
     else:
         group_of_trained = None
@@ -469,25 +515,8 @@ def main():
         "offset": view.offset.data.detach().float(),
     }
     run_tag = Path(args.run).name
-    if args.mapped and Path(args.mapped).exists():
-        mapped = np.load(args.mapped).astype(np.int64)
-        print(f"[RB] mapped loaded: {args.mapped}")
-    else:
-        ck = torch.load(run_dir / "ckpts" / "ckpt_30000.pth", map_location="cpu",
-                        weights_only=False)
-        trained_xyz = ck["model_state"]["_anchor"].to(dev)
-        assert trained_xyz.shape[0] == n_trained
-        decoded_xyz = model.core.get_anchor
-        mapped = np.empty(decoded_xyz.shape[0], dtype=np.int64)
-        with torch.no_grad():
-            for start in range(0, decoded_xyz.shape[0], 1024):
-                end = min(start + 1024, decoded_xyz.shape[0])
-                d = torch.cdist(decoded_xyz[start:end], trained_xyz)
-                mapped[start:end] = d.min(dim=1)[1].cpu().numpy()
-                del d
-        mp = out_path.parent / (run_tag + ".mapped.npy")
-        np.save(mp, mapped)
-        print(f"[RB] mapped generated and cached: {mp}")
+    mapped = ensure_mapped(run_dir, model, n_trained, args.mapped,
+                           out_path.parent, run_tag, dev)
     assert n_alive == mapped.size
     last_q = getattr(model.core, "last_decode_Q", None)
     if last_q is not None:
@@ -579,30 +608,19 @@ def main():
     # (decoder recomputes both the multiplier and the tier cut points are
     # fixed at 1/3, 2/3 quantiles of the same array — zero side info)
     n_groups_eff = getattr(args, "groups", GROUPS)
-    step_tiers = {}
-    for f in fields:
-        qmul = Q_t[f].cpu().numpy().reshape(-1)
-        # per-symbol multiplier is constant across an anchor's columns:
-        qmul_anchor = qmul.reshape(-1, qmul.size // n_alive)[:, 0]
-        t1, t2 = np.quantile(qmul_anchor, [1 / 3, 2 / 3])
-        tier = np.digitize(qmul_anchor, [t1, t2]).astype(np.int16)
-        step_tiers[f] = tier  # per-anchor; repeated per column below
+    step_tiers = {f: per_anchor_step_tiers(Q_t[f].cpu().numpy().reshape(-1),
+                                           n_alive) for f in fields}
     if n_groups_eff != GROUPS:
         # finer contribution grouping: re-derive from area order
         if args.stats and Path(args.stats).exists():
-            area = np.load(args.stats)["area"].astype(np.float64)
-            rank = np.empty(n_trained, dtype=np.int64)
-            rank[np.argsort(-area, kind="stable")] = np.arange(n_trained)
-            g_tr = np.minimum(rank * n_groups_eff // n_trained,
-                              n_groups_eff - 1).astype(np.int16)
+            g_tr = area_rank_groups(np.load(args.stats)["area"].astype(
+                np.float64), n_groups_eff)
         else:
-            g_tr = np.minimum(np.arange(n_trained) * n_groups_eff // n_trained,
-                              n_groups_eff - 1).astype(np.int16)
+            g_tr = uniform_groups(n_trained, n_groups_eff)
         g_base_alive = g_tr[mapped]
     else:
         g_base_alive = (group_of_trained[mapped] if group_of_trained is not None
-                        else np.minimum(np.arange(n_alive) * GROUPS // n_alive,
-                                        GROUPS - 1).astype(np.int16))
+                        else uniform_groups(n_alive, GROUPS))
     print(f"[RB] condition: groups={n_groups_eff} x step-tiers=3 "
           f"(composite={n_groups_eff*3})", flush=True)
 
@@ -733,25 +751,14 @@ def main():
         header["s5_levels"] = sorted(int(k) for k in s5_heads)
     header_bytes = json.dumps(header).encode("utf-8")
     bin_path = Path(args.bin_out)
-    with open(bin_path, "wb") as fh:
-        fh.write(len(header_bytes).to_bytes(4, "little"))
-        fh.write(header_bytes)
-        if s5_blob:
-            # length-prefixed state-dict blob keyed by ladder level: a
-            # standalone v3 decoder loads this and recomputes stage-A
-            # probabilities from the decoded coarse layer + side-info Q
-            fh.write(len(s5_blob).to_bytes(4, "little"))
-            fh.write(s5_blob)
-        for c in write_order:
-            locs, p0s, bts = c["params"]
-            pb = (locs.astype(np.int32).tobytes()
-                  + p0s.astype(np.float32).tobytes()
-                  + bts.astype(np.float32).tobytes())
-            fh.write(len(pb).to_bytes(4, "little"))
-            fh.write(pb)
-            fh.write(len(c["data"]).to_bytes(4, "little"))
-            fh.write(c["data"])
-    bin_size = bin_path.stat().st_size
+    # s5 blob (when present) is a length-prefixed state-dict blob keyed by
+    # ladder level, placed before all chunk data: a standalone v3 decoder
+    # loads it and recomputes stage-A probabilities from the decoded coarse
+    # layer + side-info Q
+    bin_size = write_container(
+        bin_path, header_bytes, s5_blob if s5_blob else None,
+        [params_bytes(c["params"]) for c in write_order],
+        [c["data"] for c in write_order])
     print(f"[RB] wrote {bin_path} ({bin_size/1e6:.2f} MB)", flush=True)
 
     # ---- fixed payload carried once (from the real hac_meta accounting) ----
@@ -873,6 +880,12 @@ def main():
         "fixed_bytes": fixed_bytes, "geom_bytes": geom_bytes,
         "header_bytes": header_total,
         "chunk_params_total": chunk_params_total,
+        "chunks_summary": [{"level": int(c["level"]), "field": c["field"],
+                            "bytes": int(c["bytes"])} for c in write_order],
+        "s5_level_params": ({str(k): int(sum(p.numel()
+                                             for p in v.parameters()))
+                             for k, v in s5_heads.items()} if s5_heads
+                            else {}),
         "conditional_saved_bytes": int(cond_saved),
         "coding_s": round(coding_s, 1),
         "bin_file": str(bin_path), "bin_size": bin_size,
