@@ -43,6 +43,11 @@ N_VIEWS = 16
 GROUPS = 32
 FACTORS = [16, 8, 4, 2]
 STEPS = FACTORS + [1]
+# field-aware ladders: scaling is log-domain (cliffs at 4x+), so its
+# coarsest step is 2x; feat/offset tolerate 8x. Uniform mode = the same
+# STEPS ladder for all fields (legacy curve).
+FIELD_STEPS = {"feat": [8, 4, 2, 1], "scaling": [2, 1],
+               "offset": [8, 4, 2, 1]}
 N_LEVELS = len(STEPS)
 FAMILY_RANGE = 4096
 
@@ -227,20 +232,18 @@ def fit_chunk_params(layer, g, ctx=None):
     return locs, p0s, bts
 
 
-def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None):
-    # s4=(head, logq, dev, base_g); s5_flag = per-symbol P(1) for stage A
-    """Binary-decomposition range coding of `layer`.
+def _chunk_stage_probs(layer, g, ctx=None, s4=None, s5_flag=None):
+    """Per-symbol stage probabilities, shared by the encoder and the
+    --stage-audit re-encodes.
 
-    Decisions per symbol d = layer - loc:
-      A: d != 0            (P(1) = 1 - p0, or s5_flag per symbol)
-      B: sign, if d != 0   (P(1) = 0.5, sign bit 1 = negative)
-      C: for k = 1, 2, ... while alive: |d| >= k+1 ?  (P(1) = beta)
-    With s4=(head, logq, device), stage-A/C probabilities come from the
-    learned conditional head (decoder recomputes coarse+group+logQ: zero
-    side info); loc stays the static integer median (shipped in params).
-    With s5_flag (S5), stage-A probabilities come from the trained flag
-    head instead; stages B/C are unchanged. Returns (data, params,
-    plain_bytes)."""
+    Returns (d, (mA, sA), (mC, sC), params): residual d = layer - loc,
+    stage-A (nonzero flag) and stage-C (magnitude continuation) probability
+    arrays per symbol; stage B (sign) is fixed 0.5. Both arrays are
+    elementwise maps over symbols, so indexing them by the alive set
+    reproduces the historical per-round recomputation exactly (and fixes
+    the legacy s4 path, which indexed a subset-sized array with full-size
+    symbol indices).
+    """
     locs, p0s, bts = fit_chunk_params(layer, g, ctx)
     if ctx is not None:
         loc = locs[g, ctx]                 # per-symbol: (group, bucket) table
@@ -252,12 +255,11 @@ def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None):
         beta = bts[g]
     d = layer.astype(np.int64) - loc
 
-    head, logq, device, g_base = (s4 + (None,))[:4] if s4 is not None else (None, None, None, None)
-    enc = constriction.stream.queue.RangeEncoder()
+    head, logq, device, g_base = ((s4 + (None,))[:4] if s4 is not None
+                                  else (None, None, None, None))
     if s5_flag is not None:
         mA, sA = _bin_ms(s5_flag)
-        enc.encode((d != 0).astype(np.int32), _bin_family(),
-                   mA.astype(np.float32), sA.astype(np.float32))
+        mC, sC = _bin_ms(beta)
     elif head is not None:
         meanH, sigH = _s4_ms(head, loc, g_base, logq, device)
         # stage A: P(d != 0) = 1 - |Phi(meanH) - Phi(meanH-1)|  approximated
@@ -267,39 +269,69 @@ def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None):
         p_nz = np.clip((ph(meanH + 0.5) - ph(meanH - 0.5)) /
                        (ph(meanH + 4096) - ph(meanH - 4096)), 1e-4, 1 - 1e-4)
         mA, sA = _bin_ms(1.0 - p_nz)
-        enc.encode((d != 0).astype(np.int32), _bin_family(),
-                   mA.astype(np.float32), sA.astype(np.float32))
+        mC, sC = _bin_ms(np.clip(1.0 - 1.0 / np.maximum(sigH, 1.05),
+                                 0.05, 0.98))
     else:
         mA, sA = _bin_ms(1.0 - p0)
-        enc.encode((d != 0).astype(np.int32), _bin_family(),
-                   mA.astype(np.float32), sA.astype(np.float32))
+        mC, sC = _bin_ms(beta)
+    return (d, (mA.astype(np.float32), sA.astype(np.float32)),
+            (mC.astype(np.float32), sC.astype(np.float32)),
+            (locs, p0s, bts))
+
+
+def _encode_stages(d, pA, pC, upto=3):
+    """Range-code the decision stages up to `upto` (1=A flag, 2=+sign,
+    3=+magnitude). Cumulative lengths give the per-stage byte attribution
+    for --stage-audit; upto=3 is byte-identical to the historical inline
+    encode."""
+    mA, sA = pA
+    enc = constriction.stream.queue.RangeEncoder()
+    if upto >= 1:
+        enc.encode((d != 0).astype(np.int32), _bin_family(), mA, sA)
     alive = np.nonzero(d != 0)[0]
-    if alive.size:
+    if upto >= 2 and alive.size:
         mS, sS = _bin_ms(0.5)
         enc.encode((d[alive] < 0).astype(np.int32), _bin_family(),
                    np.full(alive.size, mS, dtype=np.float32),
                    np.full(alive.size, sS, dtype=np.float32))
-    mags = np.abs(d[alive]) if alive.size else np.zeros(0, dtype=np.int64)
-    # stage-C probabilities for the CURRENT alive set, recomputed each round
-    k = 1
-    while alive.size:
-        if head is not None:
-            sig_cur = sigH[alive]
-            beta_cur = np.clip(1.0 - 1.0 / np.maximum(sig_cur, 1.05), 0.05, 0.98)
-            mB_cur, sB_cur = _bin_ms(beta_cur)
-        else:
-            mB_cur, sB_cur = _bin_ms(beta)
-        bits = (mags >= k + 1).astype(np.int32)
-        enc.encode(bits, _bin_family(),
-                   mB_cur[alive].astype(np.float32),
-                   sB_cur[alive].astype(np.float32))
-        alive = alive[bits == 1]
-        mags = mags[bits == 1]
-        k += 1
-        if k > (1 << 20):
-            raise RuntimeError("unbounded magnitude stages")
-    data = enc.get_compressed().tobytes()
-    params = (locs, p0s, bts)
+    if upto >= 3:
+        mags = np.abs(d[alive]) if alive.size else np.zeros(0, dtype=np.int64)
+        k = 1
+        while alive.size:
+            bits = (mags >= k + 1).astype(np.int32)
+            enc.encode(bits, _bin_family(), pC[0][alive], pC[1][alive])
+            alive = alive[bits == 1]
+            mags = mags[bits == 1]
+            k += 1
+            if k > (1 << 20):
+                raise RuntimeError("unbounded magnitude stages")
+    return enc.get_compressed().tobytes()
+
+
+def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None, stage_bytes=False):
+    # s4=(head, logq, dev, base_g); s5_flag = per-symbol P(1) for stage A
+    """Binary-decomposition range coding of `layer`.
+
+    Decisions per symbol d = layer - loc:
+      A: d != 0            (P(1) = 1 - p0, or s5_flag per symbol)
+      B: sign, if d != 0   (P(1) = 0.5, sign bit 1 = negative)
+      C: for k = 1, 2, ... while alive: |d| >= k+1 ?  (P(1) = beta)
+    With s4=(head, logq, device), stage-A/C probabilities come from the
+    learned conditional head (decoder recomputes coarse+group+logQ: zero
+    side info); loc stays the static integer median (shipped in params).
+    With s5_flag (S5), stage-A probabilities come from the trained flag
+    head instead; stages B/C are unchanged.
+    With stage_bytes=True, additionally re-encodes cumulatively to
+    attribute the chunk's bytes to stages A/B/C. Returns (data, params,
+    plain_bytes) or (data, params, plain_bytes, stage_sizes)."""
+    d, pA, pC, params = _chunk_stage_probs(layer, g, ctx, s4, s5_flag)
+    data = _encode_stages(d, pA, pC, upto=3)
+    stages = None
+    if stage_bytes:
+        a = len(_encode_stages(d, pA, pC, upto=1))
+        b = len(_encode_stages(d, pA, pC, upto=2))
+        stages = {"A": a, "B": b - a, "C": len(data) - b}
+    locs, p0s, bts = params
 
     plain_bytes = None
     if ctx is not None:
@@ -330,6 +362,8 @@ def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None):
                 mags2 = mags2[bits2 == 1]
                 kk += 1
         plain_bytes = len(enc2.get_compressed().tobytes())
+    if stage_bytes:
+        return data, params, plain_bytes, stages
     return data, params, plain_bytes
 
 
@@ -361,6 +395,14 @@ def decode_chunk(data, g, params, ctx=None, s4=None, s5_flag=None):
         mA, sA = _bin_ms(1.0 - p0)
     z = dec.decode(_bin_family(), mA.astype(np.float32), sA.astype(np.float32))
     surv = np.nonzero(z == 1)[0]
+    # per-symbol stage-C probabilities, computed once (full symbol index
+    # space): the legacy head path used to recompute them on the alive
+    # subset and then index with full-size symbol indices (out of bounds)
+    if head is not None:
+        mC_all, sC_all = _bin_ms(np.clip(
+            1.0 - 1.0 / np.maximum(sigH, 1.05), 0.05, 0.98))
+    else:
+        mC_all, sC_all = _bin_ms(beta)
     if surv.size:
         mS, sS = _bin_ms(0.5)
         sgn = dec.decode(_bin_family(),
@@ -371,15 +413,9 @@ def decode_chunk(data, g, params, ctx=None, s4=None, s5_flag=None):
         k = 1
         while alive_pos.size:
             cur = surv[alive_pos]
-            if head is not None:
-                sig_cur = sigH[cur]
-                beta_cur = np.clip(1.0 - 1.0 / np.maximum(sig_cur, 1.05), 0.05, 0.98)
-                mB_cur, sB_cur = _bin_ms(beta_cur)
-            else:
-                mB_cur, sB_cur = _bin_ms(beta)
             bits = dec.decode(_bin_family(),
-                              mB_cur[cur].astype(np.float32),
-                              sB_cur[cur].astype(np.float32))
+                              mC_all[cur].astype(np.float32),
+                              sC_all[cur].astype(np.float32))
             dead = alive_pos[bits == 0]
             mag[dead] = k
             alive_pos = alive_pos[bits == 1]
@@ -418,6 +454,11 @@ def main():
                          "(refine-flag) probabilities for OFFSET enhancement "
                          "layers only; context |coarse sym|+logQ+level, "
                          "trained in-process, weights ride in the file")
+    ap.add_argument("--stage-audit", action="store_true",
+                    help="attribute each chunk's bytes to decision stages "
+                         "A (nonzero flag) / B (sign) / C (magnitude) via "
+                         "cumulative re-encoding; reported in the output "
+                         "JSON (payloads in chunks_summary)")
     ap.add_argument("--groups", type=int, default=GROUPS,
                     help="contribution-group count for the condition tables "
                     "(A2: try 64/128)")
@@ -563,10 +604,6 @@ def main():
     print(f"[RB] model decoded (anchors={n_alive})", flush=True)
 
     fields = ("feat", "scaling", "offset")
-    # field-aware ladders: scaling is log-domain (cliffs at 4x+), so its
-    # coarsest step is 2x; feat/offset tolerate 8x. Uniform mode = same
-    # ladder for all fields (legacy curve).
-    FIELD_STEPS = {"feat": [8, 4, 2, 1], "scaling": [2, 1], "offset": [8, 4, 2, 1]}
     if args.field_aware:
         fsteps = {f: FIELD_STEPS[f] for f in fields}
         print("[RB] mode: FIELD-AWARE ladders", flush=True)
@@ -676,8 +713,9 @@ def main():
                 npar = sum(p.numel() for p in head_l.parameters())
                 print(f"[RB] s5 offset L{li}: flag head trained "
                       f"({npar} params)", flush=True)
-            data, params, pbytes = code_chunk(layer, g_chunk, ctx, s4ctx,
-                                              s5_flag=s5_flag)
+            data, params, pbytes, stages = code_chunk(
+                layer, g_chunk, ctx, s4ctx, s5_flag=s5_flag,
+                stage_bytes=args.stage_audit)
             back = decode_chunk(data, g_chunk, params, ctx, s4ctx,
                                 s5_flag=s5_flag)
             exact = bool((back == layer).all())
@@ -686,7 +724,10 @@ def main():
                 plain_bytes[(li, f)] = pbytes
             chunks.append({"level": li, "field": f, "params": params,
                            "data": data, "decoded": back, "bytes": len(data),
-                           "ctx": ctx})
+                           "ctx": ctx, "stage_bytes": stages})
+            if stages:
+                print(f"[RB]   stages A/B/C: {stages['A']} / {stages['B']} / "
+                      f"{stages['C']} bytes", flush=True)
             acc_prev[f] = ((steps_f[li] if li == 0 else ratio) * 0
                            + (np.round(q / steps_f[li]).astype(np.int32)
                               if li == 0 else
@@ -874,6 +915,10 @@ def main():
         "header_bytes": header_total,
         "chunk_params_total": chunk_params_total,
         "conditional_saved_bytes": int(cond_saved),
+        "stage_audit": bool(args.stage_audit),
+        "stage_bytes": ({f"{c['field']}_L{c['level']}": c["stage_bytes"]
+                         for c in chunks if c.get("stage_bytes")}
+                        if args.stage_audit else {}),
         "coding_s": round(coding_s, 1),
         "bin_file": str(bin_path), "bin_size": bin_size,
         "results": results,
