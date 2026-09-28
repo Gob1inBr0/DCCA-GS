@@ -79,6 +79,31 @@ ax.annotate("B3：P0 +0.92 dB", f04_b3[0], xytext=(8.3, 18.9), fontsize=10,
             color="#b3501e", fontweight="bold",
             arrowprops=dict(arrowstyle="->", color="#b3501e", lw=1.2))
 
+
+def pct_labels(pts, color, first_offset=(0, 10)):
+    """Percent of the full bitstream already received at each tier (same model)."""
+    full = pts[-1][0]
+    pcts = [round(100 * x / full) for x, _ in pts]
+    for i, (pt, p) in enumerate(zip(pts, pcts)):
+        if i == len(pts) - 1:   # 100% goes to the left of the endpoint
+            ax.annotate(f"{p}%", pt, textcoords="offset points", xytext=(-30, 1),
+                        fontsize=8, color=color, ha="right")
+        elif i == 0:
+            ax.annotate(f"{p}%", pt, textcoords="offset points", xytext=first_offset,
+                        fontsize=8, color=color, ha="center")
+        else:                   # intermediate tiers go above the point
+            ax.annotate(f"{p}%", pt, textcoords="offset points", xytext=(0, 10),
+                        fontsize=8, color=color, ha="center")
+
+
+pct_labels(f05_b3, FAM05_C)
+# orange P0's default above-spot sits on the solid ctrl line (steep knee) — go upper-left
+pct_labels(f04_b3, FAM04_C, first_offset=(-12, 13))
+ax.text(5.2, 17.15,
+        "注：空心点旁的百分数 = 收到该档时已传字节占同一模型完整码流的比例（B3 臂）\n"
+        "两族对照臂（实心）的比例分别为 52 / 69 / 81% 与 45 / 66 / 80%",
+        fontsize=8.5, color="#555555", va="bottom")
+
 ax.set_xlabel("码流体积（MB）")
 ax.set_ylabel("PSNR（dB，150 视角）")
 ax.set_title("1-78 全家族同图：两族渐进曲线（不同 λ 训练的模型各切 4 档）vs HAC++ 与 base\n"
