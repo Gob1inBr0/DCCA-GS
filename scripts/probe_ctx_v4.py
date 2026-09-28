@@ -319,7 +319,8 @@ class CtxMLP(nn.Module):
             nn.Linear(hidden, 1))
 
     def forward(self, cont, disc):
-        parts = list(cont)
+        # cont arrives as one pre-concatenated (n, cont_dim) tensor
+        parts = [cont]
         if "base" in self.ctx_groups:
             parts += [self.emb_group(disc["group"]),
                       self.emb_bucket(disc["bucket"]),
