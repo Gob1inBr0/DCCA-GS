@@ -60,8 +60,15 @@ def run_encoder(args, ladder, out_json, out_bin):
 
 
 def curve(payload):
+    """Per-prefix curve ordered by prefix index.
+
+    The encoder writes results with the FULL-precision prefix first (it
+    doubles as the sanity anchor), then P0..P(n-1); ordering by the
+    'prefix' field restores the natural P0..Pfull sequence.
+    """
+    rs = sorted(payload["results"], key=lambda r: r["prefix"])
     return [{"prefix": r["prefix"], "real_bytes": r["real_bytes"],
-             "psnr_mean": r["psnr_mean"]} for r in payload["results"]]
+             "psnr_mean": r["psnr_mean"]} for r in rs]
 
 
 def main():
@@ -79,6 +86,9 @@ def main():
                          "the default grid")
     ap.add_argument("--p0-target-mb", type=float, default=7.0)
     ap.add_argument("--p0-loss-db", type=float, default=1.5)
+    ap.add_argument("--summarize-only", action="store_true",
+                    help="skip encoding; rebuild the summary from the "
+                         "per-config JSONs already in --out-dir")
     args = ap.parse_args()
 
     if args.configs:
@@ -97,7 +107,10 @@ def main():
     for i, (tag, ladder) in enumerate(configs):
         out_json = out_dir / f"{tag}.json"
         out_bin = out_dir / f"{tag}.bin"
-        t = run_encoder(args, ladder, out_json, out_bin)
+        if args.summarize_only and out_json.exists():
+            t = 0.0
+        else:
+            t = run_encoder(args, ladder, out_json, out_bin)
         payload = json.loads(out_json.read_text())
         cv = curve(payload)
         p0, full = cv[0], cv[-1]
