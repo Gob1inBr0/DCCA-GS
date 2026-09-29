@@ -24,7 +24,10 @@ ax.plot([p[0] for p in hacpp], [p[1] for p in hacpp], "D-", color="#8a8a8a", lw=
 ax.plot([p[0] for p in pcgs], [p[1] for p in pcgs], "^-", color="#7b4ea3", lw=1.8, ms=8,
         label="PCGS（渐进压缩，4 步）")
 ax.plot([p[0] for p in prog_b3], [p[1] for p in prog_b3], "s--", color="#d9622b", lw=1.8, ms=7,
-        label="渐进 + B3（单文件四档）")
+        label="渐进 λ0.0005 + B3（单文件四档）")
+p004_b3 = [(7.13, 19.733), (9.46, 23.747), (11.41, 26.183), (14.33, 27.225)]
+ax.plot([p[0] for p in p004_b3], [p[1] for p in p004_b3], "^--", color="#e8743d", lw=1.8, ms=7,
+        label="渐进 λ0.004 + B3（低码率族）")
 ax.plot([p[0] for p in base], [p[1] for p in base], "o-", color="#2e7d32", lw=1.6, ms=6,
         label="我们 base 单码率")
 ax.axhline(24.94, color="#3f6fb5", lw=1.2, ls=":", alpha=0.8)
@@ -32,7 +35,7 @@ ax.text(9.0, 24.68, "Octree-GS 40k：24.94 dB（392 MB 无压缩 PLY，表示方
 ax.set_xlabel("码流体积（MB）")
 ax.set_ylabel("PSNR（dB，150 视角）")
 ax.set_title("全范围定位（1-78）", fontsize=12)
-ax.set_xlim(8, 58)
+ax.set_xlim(5, 58)
 ax.set_ylim(24.4, 29.0)
 ax.grid(alpha=0.3)
 ax.legend(loc="lower right", fontsize=8.8)
