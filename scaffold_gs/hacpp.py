@@ -1177,7 +1177,10 @@ class HACPlusModel(BaseGaussianModel):
             return ((r - L * torch.round(r / L)) / L).abs()
 
         pen_feat = align(feat, Q_feat, 8).mean()
-        pen_scaling = align(grid_scaling, Q_scaling, 2).mean()
+        if getattr(self.cfg, "coarse_ladder_skip_scaling", False):
+            pen_scaling = torch.zeros((), device=feat.device, dtype=feat.dtype)
+        else:
+            pen_scaling = align(grid_scaling, Q_scaling, 2).mean()
         mask3 = binary_grid_masks.detach().to(grid_offsets.dtype).repeat(1, 1, 3)
         pen_off = (align(grid_offsets, Q_offsets, 8) * mask3).sum() / \
             mask3.sum().clamp_min(1.0)

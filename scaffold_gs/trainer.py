@@ -346,8 +346,12 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             if iteration % 500 == 0:
                 raw = getattr(out.gaussians, "ladder_penalty_raw", None)
                 raw_val = float(raw) if raw is not None else float("nan")
+                skip_sc = bool(getattr(
+                    getattr(model, "cfg", None), "coarse_ladder_skip_scaling",
+                    False))
                 print(f"[B3] iter {iteration}: ladder raw {raw_val:.4f} "
-                      f"weighted {float(ladder_pen):.5f}", flush=True)
+                      f"weighted {float(ladder_pen):.5f} "
+                      f"skip_scaling={skip_sc}", flush=True)
 
         loss.backward()
 

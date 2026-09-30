@@ -111,6 +111,10 @@ class ModelConfig:
     coarse_ladder_align: bool = False
     coarse_ladder_start_iter: int = 24_000
     coarse_ladder_weight: float = 0.05
+    # Exclude the scaling field from the B3 penalty. Suspected main source of
+    # the full-precision cost at lam0005 w=0.05 (-0.482 dB): scaling's Q base
+    # is 0.001, so its penalty gradient is amplified ~1/Q relative to feat.
+    coarse_ladder_skip_scaling: bool = False
     mlp_complexity_hidden: Optional[int] = None
     """Hidden width of the complexity MLP; None -> feat_dim // 2."""
 
