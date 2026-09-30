@@ -25,8 +25,10 @@ bash .agents/skills/check-status/scripts/status_sweep.sh
 ## 2. 判读规则
 
 **GPU 归属**：我们的单卡任务约占 6 GB 显存；别人占的卡显存 35 GB 上下。
-**卡位政策（2026-09-23 起）**：卡 2、3、4、5、6、7 归我们使用，空闲即可
-大胆提交任务；卡 0、1 不碰（不提交、不操作）。别人的进程只读报告，
+**卡位政策（2026-09-23 写定；2026-10-01 更新为现实规则）**：占卡器 v2
+无名单特判，理论上任意卡都可发任务；实际让位文件目录在 `/home/project2/`（`RELEASE-<卡号>`）。卡 0/1 的让位目录在 `/mnt/newproject2/competitors/` 下，
+该盘 2026-09-30 起对 root 封锁（Permission denied），恢复前卡 0/1 无法
+使用——当前实际可用卡为 2、3、4、5、6、7。别人的进程只读报告，
 不做任何操作。
 
 **进度与 ETA**：进度行形如
@@ -39,6 +41,13 @@ NFS 上）。日志和锁是 run 目录的同级文件：`<tag>.log`（训练）
 `<tag>.launch.log`（runner 输出，ALL_DONE 在这里）。队列事件日志：
 `/mnt/newproject2/dcca_runs/jr2_total_queue.log`。另有一批
 `/mnt/newproject2/runs/`（lyh_p0_* 启动器输出），巡检时一并看。
+
+**路径更新（2026-10-01）**：runs 根目录已迁至 `/home/project2/dcca_runs`
+（新存储，2026-10-01 起），代码目录为 `/home/project2/DCCA-GS`，1-78
+数据集在 `/dev/shm/octree_178`（内存盘，重启即失，用前先确认还在）。
+`/mnt/newproject2` 自 2026-09-30 起对 root Permission denied（NFS 权限
+收紧，管理员未恢复），恢复前无法从该盘收数；上一段中的 /mnt 路径保留
+原文供历史追溯。
 
 **什么才算"跑完"**：只有 run 目录下存在 `decoded_eval/metrics.jsonl`
 （压缩 + 解码 + 150 视角评测）才算完整跑完，这个数字才能登记。
