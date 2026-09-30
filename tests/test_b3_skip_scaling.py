@@ -22,7 +22,9 @@ def _fake_self(skip_scaling: bool) -> types.SimpleNamespace:
 def _inputs():
     torch.manual_seed(0)
     feat = torch.randn(4, 5, 32, requires_grad=True)
-    scaling = torch.randn(4, 5, 3, requires_grad=True) * 3.0
+    # leaf tensor so the grad-isolation assertion in the skip case is
+    # meaningful (a non-leaf result of `randn * 3.0` never gets .grad)
+    scaling = (torch.randn(4, 5, 3) * 3.0).requires_grad_(True)
     offsets = torch.randn(4, 5, 9, requires_grad=True)
     q_feat = torch.full((), 0.01)
     q_scaling = torch.full((), 0.001)
