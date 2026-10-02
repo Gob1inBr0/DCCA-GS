@@ -39,10 +39,13 @@ class STE_binary(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input):
         ctx.save_for_backward(input)
-        # 符号在 clamp(-1,1) 下不变（NaN 两侧同为假、输出同为 -1），直接
-        # 对原输入判号即可；0 映到 +1 与旧布尔写法一致（torch.sign 会把
-        # 0 映到 0，数值不等价）。旧写法每次前向多跑 4 个全网格 kernel。
-        out = torch.where(input >= 0, 1.0, -1.0)
+        # 与旧布尔写法逐位一致的三值判号：x>=0 → +1（含 0 和 -0），x<0 →
+        # -1，NaN 两个比较都为假 → 0（旧实现两个加项都为 0）。不能省成
+        # 单个 where（NaN 会错成 -1），也不能用 torch.sign（0 会错成 0、
+        # NaN 会透传）。clamp(-1,1) 不改符号，旧实现先 clamp 是多余的。
+        out = torch.where(
+            input >= 0, 1.0, torch.where(input < 0, -1.0, 0.0)
+        )
         return out
     @staticmethod
     def backward(ctx, grad_output):
