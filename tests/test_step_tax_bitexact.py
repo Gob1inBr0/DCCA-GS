@@ -273,8 +273,36 @@ def test_remove_existing_cells_key_boundary():
 
 
 # ---------------------------------------------------------------------------
-# mlp_quant 静态算术编码
+# 布尔掩码取值 vs 一次 nonzero + 索引取值（generate_gaussians 的改写依据）
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_index_gather_equals_bool_mask(seed):
+    """x[sel] 与 x[nonzero(sel).squeeze(-1)] 前向逐位一致；每行来源唯一、
+    反向无累加冲突，梯度也逐位一致。含全 False 空掩码边界。"""
+    gen = torch.Generator().manual_seed(seed)
+    for n, d in [(997, 3), (513, 7), (1000, 1)]:
+        for all_false in (False, True):
+            x = torch.randn(n, d, generator=gen)
+            sel = torch.zeros(n, dtype=torch.bool)
+            if not all_false:
+                sel = torch.rand(n, generator=gen) > 0.3
+                sel[0] = False
+                sel[-1] = False
+
+            x_old = x.clone().requires_grad_(True)
+            y_old = x_old[sel]
+            g_old = torch.randn(y_old.shape, generator=gen)
+            (gx_old,) = torch.autograd.grad((y_old * g_old).sum(), x_old)
+
+            x_new = x.clone().requires_grad_(True)
+            idx = torch.nonzero(sel).squeeze(-1)
+            y_new = x_new[idx]
+            (gx_new,) = torch.autograd.grad((y_new * g_old).sum(), x_new)
+
+            assert torch.equal(y_old, y_new)
+            assert torch.equal(gx_old, gx_new)
 
 
 @pytest.mark.parametrize("seed", [0, 1])

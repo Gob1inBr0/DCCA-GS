@@ -98,7 +98,10 @@ def prefilter_anchors(
         gids = meta["gaussian_ids"]  # [nnz]
         radii = meta["radii"]  # [nnz, 2]
         vis_rows = (radii > 0).all(dim=-1)
-        visible[start:end][gids[vis_rows]] = True
+        # 布尔取值 gids[vis_rows] 内部即 nonzero+索引取值，每次强制一次
+        # CPU-GPU 同步；提到一次 nonzero 后走索引，行序与结果逐位一致。
+        vis_idx = torch.nonzero(vis_rows).squeeze(-1)
+        visible[start:end][gids[vis_idx]] = True
     return visible
 
 

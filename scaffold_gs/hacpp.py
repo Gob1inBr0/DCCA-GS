@@ -832,37 +832,43 @@ class HACPlusModel(BaseGaussianModel):
             sel = (no.reshape(-1) > 0.0)
             neural_opacity_parts.append(no)
             selection_parts.append(sel)
+            # 布尔掩码取值 x[sel] 内部等价于 nonzero + 索引取值；这里把
+            # nonzero 提到每段一次，八个字段共用同一批索引（升序，行序与
+            # 掩码取值逐位一致）。原写法每段 8 次 nonzero，每次内部强制
+            # 一次 CPU-GPU 同步——68 万锚点、42 段时每步约 336 次。
+            idx = torch.nonzero(sel).squeeze(-1)
             anchor_rep = (
                 anchor_indices[start:end]
                 .unsqueeze(1)
                 .expand(c, k)
-                .reshape(-1)[sel]
+                .reshape(-1)[idx]
             )
 
-            color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[sel]
-            scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[sel]
-            offsets_c = go.reshape(-1, 3)[sel]
+            color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[idx]
+            scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[idx]
+            offsets_c = go.reshape(-1, 3)[idx]
             scaling_repeat = (
-                gs.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 6)[sel]
+                gs.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 6)[idx]
             )
-            anchor_repeat = a.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 3)[sel]
+            anchor_repeat = a.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 3)[idx]
             scales_c = scaling_repeat[:, 3:] * torch.sigmoid(scale_rot[:, :3])
             quats_c = F.normalize(scale_rot[:, 3:7], dim=-1)
             xyz_c = anchor_repeat + offsets_c * scaling_repeat[:, :3]
 
-            binary_flat = bm.reshape(-1)[sel]
-            opacity_c = no.reshape(-1)[sel]
+            binary_flat = bm.reshape(-1)[idx]
+            opacity_c = no.reshape(-1)[idx]
             if is_training:
                 opacity_c = opacity_c * binary_flat
                 scales_c = scales_c * binary_flat.unsqueeze(-1)
             else:
                 keep = binary_flat.bool()
-                xyz_c = xyz_c[keep]
-                color = color[keep]
-                opacity_c = opacity_c[keep]
-                scales_c = scales_c[keep]
-                quats_c = quats_c[keep]
-                anchor_rep = anchor_rep[keep]
+                idx2 = torch.nonzero(keep).squeeze(-1)
+                xyz_c = xyz_c[idx2]
+                color = color[idx2]
+                opacity_c = opacity_c[idx2]
+                scales_c = scales_c[idx2]
+                quats_c = quats_c[idx2]
+                anchor_rep = anchor_rep[idx2]
 
             xyz_parts.append(xyz_c)
             color_parts.append(color)
