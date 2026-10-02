@@ -12,11 +12,17 @@ from pathlib import Path
 
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from profile_step_tax import build  # noqa: E402  复用同一套模型重建流程
+
+def _build_fn():
+    """dump 分支才需要模型构建；compare 分支只读 .pt，不依赖仓库代码。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from profile_step_tax import build  # 复用同一套模型重建流程
+
+    return build
 
 
 def dump(args):
+    build = _build_fn()
     device = torch.device("cuda")
     model, dataset, _optim = build(
         args.ckpt, args.data_dir, args.data_factor, args.max_width, device
