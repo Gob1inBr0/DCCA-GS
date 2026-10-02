@@ -298,9 +298,10 @@ def arith_encode(values: torch.Tensor) -> Tuple[bytes, List[int], List[int]]:
     vals_l, counts_l, cdf, total = _build_table(values)
     if len(vals_l) == 1:
         return b"", vals_l, counts_l
+    freq_of = dict(zip(vals_l, counts_l))
     enc = _ArithEncoder()
     for v in values.tolist():
-        enc.encode(cdf[v], counts_l[vals_l.index(v)])
+        enc.encode(cdf[v], freq_of[v])
     return enc.finish(), vals_l, counts_l
 
 
@@ -314,25 +315,29 @@ def arith_decode(
     if len(vals_l) == 1:
         return [vals_l[0]] * n
     cdf = {}
+    freq_of = {}
     acc = 0
     for v, c in zip(vals_l, counts_l):
         cdf[v] = acc
+        freq_of[v] = c
         acc += c
     dec = _ArithDecoder(data)
     out = []
     for _ in range(n):
+        # target 只依赖当前区间，与候选符号无关；旧版把它放进候选循环里
+        # 每次重算，并用 list.index 做线性查找。
+        r = dec.high - dec.low + 1
+        target = ((dec.code - dec.low + 1) * AC_FREQ_TOTAL - 1) // r
         sym = None
         for v in vals_l:
-            r = dec.high - dec.low + 1
-            target = ((dec.code - dec.low + 1) * AC_FREQ_TOTAL - 1) // r
             cum = cdf[v]
-            freq = counts_l[vals_l.index(v)]
+            freq = freq_of[v]
             if cum <= target < cum + freq:
                 sym = v
                 break
         if sym is None:
             raise ValueError("arithmetic decode: no symbol for target")
-        dec.decode(cdf[sym], counts_l[vals_l.index(sym)])
+        dec.decode(cdf[sym], freq_of[sym])
         out.append(sym)
     return out
 

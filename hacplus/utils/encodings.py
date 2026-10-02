@@ -29,26 +29,27 @@ def get_binary_vxl_size(binary_vxl):
     neg_bit = neg_num * (-torch.log2(neg_prob))
     ttl_bit = pos_bit + neg_bit
     ttl_bit += 32  # Pg
-    # print('binary_vxl:', Pg.item(), ttl_bit.item(), ttl_num, pos_num.item(), neg_num.item())
-    return Pg, ttl_bit, ttl_bit.item()/8.0/1024/1024, ttl_num
+    # 旧版在这里对 ttl_bit 无条件 .item()——RD 损失路径每个训练步一次
+    # GPU 同步。全部调用方（hacpp.rate_loss_term / gaussian_model /
+    # codec_efficiency）要么只要第 2 个返回值、要么自己再 .item()，
+    # 第 3 个返回值无人使用，改为返回张量、不做同步。
+    return Pg, ttl_bit, ttl_bit / 8.0 / 1024 / 1024, ttl_num
 
 class STE_binary(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input):
         ctx.save_for_backward(input)
-        input = torch.clamp(input, min=-1, max=1)
-        # out = torch.sign(input)
-        p = (input >= 0) * (+1.0)
-        n = (input < 0) * (-1.0)
-        out = p + n
+        # 符号在 clamp(-1,1) 下不变（NaN 两侧同为假、输出同为 -1），直接
+        # 对原输入判号即可；0 映到 +1 与旧布尔写法一致（torch.sign 会把
+        # 0 映到 0，数值不等价）。旧写法每次前向多跑 4 个全网格 kernel。
+        out = torch.where(input >= 0, 1.0, -1.0)
         return out
     @staticmethod
     def backward(ctx, grad_output):
         # mask: to ensure x belongs to (-1, 1)
         input, = ctx.saved_tensors
-        i2 = input.clone().detach()
-        i3 = torch.clamp(i2, -1, 1)
-        mask = (i3 == i2) + 0.0
+        # clamp(x,-1,1)==x 逐位等价于 |x|<=1（NaN 时两侧都为假）。
+        mask = (input.abs() <= 1).to(grad_output.dtype)
         return grad_output * mask
 
 
