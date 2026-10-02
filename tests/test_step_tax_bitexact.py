@@ -136,11 +136,11 @@ def test_low_bound_forward_backward_bitexact(seed):
 
     x_old = x0.clone().requires_grad_(True)
     y_old = _LowBoundOld.apply(x_old)
-    (g_old,) = torch.autograd.grad(y_old * g0, x_old)
+    (g_old,) = torch.autograd.grad((y_old * g0).sum(), x_old)
 
     x_new = x0.clone().requires_grad_(True)
     y_new = Low_bound.apply(x_new)
-    (g_new,) = torch.autograd.grad(y_new * g0, x_new)
+    (g_new,) = torch.autograd.grad((y_new * g0).sum(), x_new)
 
     assert torch.equal(y_old, y_new)
     assert torch.equal(g_old, g_new)
@@ -186,11 +186,11 @@ def test_ste_binary_bitexact():
 
     x_old = x0.clone().requires_grad_(True)
     y_old = _STEBinaryOld.apply(x_old)
-    (g_old,) = torch.autograd.grad(y_old * g0, x_old)
+    (g_old,) = torch.autograd.grad((y_old * g0).sum(), x_old)
 
     x_new = x0.clone().requires_grad_(True)
     y_new = STE_binary.apply(x_new)
-    (g_new,) = torch.autograd.grad(y_new * g0, x_new)
+    (g_new,) = torch.autograd.grad((y_new * g0).sum(), x_new)
 
     assert torch.equal(y_old, y_new)
     assert torch.equal(g_old, g_new)
