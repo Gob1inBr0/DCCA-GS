@@ -362,9 +362,10 @@ def code_chunk(layer, g, ctx=None, s4=None, s5_flag=None, stage_bytes=False):
                 mags2 = mags2[bits2 == 1]
                 kk += 1
         plain_bytes = len(enc2.get_compressed().tobytes())
-    if stage_bytes:
-        return data, params, plain_bytes, stages
-    return data, params, plain_bytes
+    # Caller (main loop) unpacks 4 values unconditionally; plain_bytes is
+    # None for base-layer chunks (no ctx) and stages stays None unless
+    # stage_bytes=True. Always return the 4-tuple.
+    return data, params, plain_bytes, stages
 
 
 def decode_chunk(data, g, params, ctx=None, s4=None, s5_flag=None):
