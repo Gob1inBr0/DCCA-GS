@@ -644,7 +644,6 @@ class HACPlusModel(BaseGaussianModel):
         retain_grad: bool = False,
     ) -> NeuralGaussians:
         del appearance_id
-        global _DECODE_CHUNK_BROKEN
         core = self.core
         device = self.device
         if step > 0:
@@ -920,6 +919,7 @@ class HACPlusModel(BaseGaussianModel):
                         k, core.mlp_opacity, core.mlp_color, core.mlp_cov,
                     )
                 except Exception as exc:
+                    global _DECODE_CHUNK_BROKEN
                     if not _DECODE_CHUNK_BROKEN:
                         print(
                             f"[compile] 解码编译失败（{type(exc).__name__}: {exc}），"
