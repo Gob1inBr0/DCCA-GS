@@ -67,6 +67,12 @@ class ModelConfig:
     """gsplat rasterization tile size; larger values cut packed-intersection
     memory (intersections scale as 1/tile_size^2) at a small speed cost."""
 
+    compile_decode: bool = False
+    """torch.compile the per-chunk neural-Gaussian decode (training path only).
+    Chunks are padded to a fixed 16384 rows so exactly one graph is compiled;
+    pad rows are excluded via the opacity mask. Numerics may differ from eager
+    (inductor reorders float ops) — treat as paired-judgement class."""
+
     update_depth: int = 3
     update_init_factor: int = 16
     update_hierachy_factor: int = 4

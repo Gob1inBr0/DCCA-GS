@@ -97,6 +97,59 @@ def sensitivity_multiplier(z, strength: float):
     return (1.0 + float(strength) * torch.tanh(-z)).clamp(0.1, 2.0)
 
 
+# --------------------------------------------------------------------------
+# torch.compile 试验（docs/02-design/GPU第二三层优化_五项实验计划.md 实验 A）
+# --------------------------------------------------------------------------
+
+_DECODE_CHUNK_COMPILED = None
+_DECODE_CHUNK_BROKEN = False
+
+
+def _decode_chunk_forward(f, a, go, gs, camera_center, c_count, k,
+                          mlp_opacity, mlp_color, mlp_cov):
+    """固定形状的单段解码前向（可编译）。
+
+    f/a/go/gs 形状 [R, ...]，R 恒为 16384（末段补齐）；c_count 是 0 维张量，
+    给出真实行数——pad 行的 opacity 被置 -1，选中掩码据此天然排除。返回
+    全行张量，选中行的 gather 留在 eager（数据依赖形状不进编译区）。
+    """
+    ob_view = a - camera_center
+    ob_dist = ob_view.norm(dim=1, keepdim=True)
+    ob_view = ob_view / ob_dist.clamp_min(1e-8)
+    cat_local_view = torch.cat([f, ob_view, ob_dist], dim=-1)
+    no = mlp_opacity(cat_local_view)
+    pad = (torch.arange(f.shape[0], device=f.device) >= c_count).unsqueeze(1)
+    no = torch.where(pad, torch.full_like(no, -1.0), no)
+    color_full = mlp_color(cat_local_view).reshape(-1, 3)
+    cov_full = mlp_cov(cat_local_view).reshape(-1, 7)
+    scaling_rep = gs.unsqueeze(1).expand(-1, k, -1).reshape(-1, 6)
+    anchor_rep = a.unsqueeze(1).expand(-1, k, -1).reshape(-1, 3)
+    scales_full = scaling_rep[:, 3:] * torch.sigmoid(cov_full[:, :3])
+    quats_full = F.normalize(cov_full[:, 3:7], dim=-1)
+    xyz_full = anchor_rep + go.reshape(-1, 3) * scaling_rep[:, :3]
+    return no, color_full, scales_full, quats_full, xyz_full, scaling_rep, anchor_rep
+
+
+def _get_decode_chunk_fn(compile_enabled: bool):
+    """按需构建并缓存编译版解码函数；不可用时退回 eager。"""
+    global _DECODE_CHUNK_COMPILED
+    if not compile_enabled:
+        return _decode_chunk_forward
+    if _DECODE_CHUNK_COMPILED is None:
+        try:
+            _DECODE_CHUNK_COMPILED = torch.compile(
+                _decode_chunk_forward,
+                mode="max-autotune-no-cudagraphs",
+                fullgraph=False,
+            )
+        except Exception as exc:  # pragma: no cover
+            print(f"[compile] torch.compile 不可用（{exc}），使用 eager",
+                  flush=True)
+            _DECODE_CHUNK_COMPILED = _decode_chunk_forward
+    return _DECODE_CHUNK_COMPILED
+
+
+
 class _ParamsView:
     """Duck-typed accessor so the shared gsplat prefilter/renderer can consume
     the HAC++ core without a Scaffold-style ``AnchorParams`` module."""
@@ -814,28 +867,89 @@ class HACPlusModel(BaseGaussianModel):
         )
         gaussian_anchor_parts = []
         chunk = 16_384
-        for start in range(0, n, chunk):
-            end = min(start + chunk, n)
+        use_compile = (
+            is_training
+            and bool(getattr(self.cfg, "compile_decode", False))
+            and not _DECODE_CHUNK_BROKEN
+        )
+        if use_compile and n % chunk != 0:
+            # pad 到整段：全 step 只有一种形状，只编译一份图。pad 行的
+            # opacity 在编译函数内置 -1，选中掩码天然排除；neural_opacity /
+            # selection 拼接前再按真实行数切片，绝不进入统计。
+            n_out = ((n + chunk - 1) // chunk) * chunk
+            pad_n = n_out - n
+            anchor = torch.cat([anchor, torch.zeros(pad_n, 3, device=device)])
+            feat = torch.cat([feat, torch.zeros(pad_n, feat.shape[1], device=device)])
+            grid_offsets = torch.cat(
+                [grid_offsets, torch.zeros(pad_n, k, 3, device=device)]
+            )
+            grid_scaling = torch.cat(
+                [grid_scaling, torch.zeros(pad_n, 6, device=device)]
+            )
+            binary_grid_masks = torch.cat(
+                [binary_grid_masks, torch.ones(pad_n, k, 1, device=device)]
+            )
+            anchor_indices = torch.cat(
+                [
+                    anchor_indices,
+                    torch.zeros(pad_n, device=device, dtype=anchor_indices.dtype),
+                ]
+            )
+        else:
+            n_out = n
+        decode_fn = _get_decode_chunk_fn(use_compile)
+        row_counts = torch.arange(n_out + 1, device=device)
+        for start in range(0, n_out, chunk):
+            end = min(start + chunk, n_out)
+            c = end - start
             a = anchor[start:end]
             f = feat[start:end]
             go = grid_offsets[start:end]
             gs = grid_scaling[start:end]
             bm = binary_grid_masks[start:end]
-            c = end - start
 
-            ob_view = a - camera_center
-            ob_dist = ob_view.norm(dim=1, keepdim=True)
-            ob_view = ob_view / ob_dist.clamp_min(1e-8)
-            cat_local_view = torch.cat([f, ob_view, ob_dist], dim=-1)
+            compiled = use_compile and c == chunk and not _DECODE_CHUNK_BROKEN
+            if compiled:
+                try:
+                    c_actual = min(n, end) - start
+                    (no, color_full, scales_full, quats_full, xyz_full,
+                     scaling_rep_full, anchor_rep_full) = decode_fn(
+                        f, a, go, gs, camera_center,
+                        row_counts[c_actual],
+                        k, core.mlp_opacity, core.mlp_color, core.mlp_cov,
+                    )
+                except Exception as exc:
+                    global _DECODE_CHUNK_BROKEN
+                    if not _DECODE_CHUNK_BROKEN:
+                        print(
+                            f"[compile] 解码编译失败（{type(exc).__name__}: {exc}），"
+                            "本进程退回 eager",
+                            flush=True,
+                        )
+                    _DECODE_CHUNK_BROKEN = True
+                    compiled = False
+            if not compiled:
+                ob_view = a - camera_center
+                ob_dist = ob_view.norm(dim=1, keepdim=True)
+                ob_view = ob_view / ob_dist.clamp_min(1e-8)
+                cat_local_view = torch.cat([f, ob_view, ob_dist], dim=-1)
+                no = core.get_opacity_mlp(cat_local_view)  # [c, K]
+                color_full = core.get_color_mlp(cat_local_view).reshape(-1, 3)
+                cov_full = core.get_cov_mlp(cat_local_view).reshape(-1, 7)
+                scaling_rep_full = gs.unsqueeze(1).repeat(1, k, 1).reshape(-1, 6)
+                anchor_rep_full = a.unsqueeze(1).repeat(1, k, 1).reshape(-1, 3)
+                scales_full = scaling_rep_full[:, 3:] * torch.sigmoid(cov_full[:, :3])
+                quats_full = F.normalize(cov_full[:, 3:7], dim=-1)
+                xyz_full = anchor_rep_full + go.reshape(-1, 3) * scaling_rep_full[:, :3]
+                c_actual = c
 
-            no = core.get_opacity_mlp(cat_local_view)  # [c, K]
             sel = (no.reshape(-1) > 0.0)
-            neural_opacity_parts.append(no)
-            selection_parts.append(sel)
             # 布尔掩码取值 x[sel] 内部等价于 nonzero + 索引取值；这里把
             # nonzero 提到每段一次，八个字段共用同一批索引（升序，行序与
-            # 掩码取值逐位一致）。原写法每段 8 次 nonzero，每次内部强制
-            # 一次 CPU-GPU 同步——68 万锚点、42 段时每步约 336 次。
+            # 掩码取值一致）。neural_opacity/selection 拼接前按真实行数
+            # 切片——编译路径的 pad 行（opacity=-1）绝不进入统计。
+            neural_opacity_parts.append(no[:c_actual])
+            selection_parts.append(sel.reshape(c, k)[:c_actual].reshape(-1))
             idx = torch.nonzero(sel).squeeze(-1)
             anchor_rep = (
                 anchor_indices[start:end]
@@ -844,16 +958,13 @@ class HACPlusModel(BaseGaussianModel):
                 .reshape(-1)[idx]
             )
 
-            color = core.get_color_mlp(cat_local_view).reshape(c * k, 3)[idx]
-            scale_rot = core.get_cov_mlp(cat_local_view).reshape(c * k, 7)[idx]
+            color = color_full[idx]
             offsets_c = go.reshape(-1, 3)[idx]
-            scaling_repeat = (
-                gs.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 6)[idx]
-            )
-            anchor_repeat = a.unsqueeze(1).repeat(1, k, 1).reshape(c * k, 3)[idx]
-            scales_c = scaling_repeat[:, 3:] * torch.sigmoid(scale_rot[:, :3])
-            quats_c = F.normalize(scale_rot[:, 3:7], dim=-1)
-            xyz_c = anchor_repeat + offsets_c * scaling_repeat[:, :3]
+            scaling_repeat = scaling_rep_full[idx]
+            anchor_repeat = anchor_rep_full[idx]
+            scales_c = scales_full[idx]
+            quats_c = quats_full[idx]
+            xyz_c = xyz_full[idx]
 
             binary_flat = bm.reshape(-1)[idx]
             opacity_c = no.reshape(-1)[idx]
