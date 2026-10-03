@@ -105,6 +105,22 @@ def prefilter_anchors(
     return visible
 
 
+def _background_for_rasterizer(background: torch.Tensor) -> torch.Tensor:
+    """按 gsplat 版本调整 backgrounds 形状。
+
+    1.6 起要求每相机形状 [C, D]；1.5.x 只接受 [..., D]（[C, D] 会触发
+    断言）。单相机场景传入 [D] 时按版本决定是否补相机维。
+    """
+    if background is None or background.dim() != 1:
+        return background
+    import gsplat
+
+    major, minor = (int(x) for x in gsplat.__version__.split(".")[:2])
+    if (major, minor) >= (1, 6):
+        return background.unsqueeze(0)
+    return background
+
+
 def render(
     model: BaseGaussianModel,
     camera,
@@ -136,10 +152,7 @@ def render(
         return out
 
     viewmats, Ks = camera.to_gsplat(model.device)
-    # gsplat 1.6 起要求 backgrounds 为每相机形状 [C, D]；1.5.x 也接受
-    # [1, D]。传入 [D]（单相机的常见形状）时补一个相机维。
-    if background is not None and background.dim() == 1:
-        background = background.unsqueeze(0)
+    background = _background_for_rasterizer(background)
     render_colors, render_alphas, meta = rasterization(
         means=gaussians.xyz,
         quats=gaussians.quats,
