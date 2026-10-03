@@ -83,6 +83,15 @@ def build(ckpt_path, data_dir, data_factor, max_width, device):
             if isinstance(stats.get(key), torch.Tensor):
                 setattr(model, key, stats[key].to(device))
     model.train()
+    # 历史坑：部分 checkpoint 的 model_config 存了 tile_size=32，但 gsplat
+    # 1.5.3 的 3DGS 内核按固定 TILE_SIZE=16 编译、直接忽略该参数（源码注释
+    # "其他取值未测试"）。即所有历史 run 实际都跑在 16 上。1.6 起显式校验
+    # 并拒绝 32，这里强制回 16 以对齐 1.5.3 的真实行为。
+    ts = int(getattr(model.cfg, "tile_size", 16) or 16)
+    if ts != 16:
+        print(f"[build] cfg.tile_size={ts} was never effective under gsplat "
+              "1.5.x (kernel compiled at 16); forcing 16 for comparability")
+        model.cfg.tile_size = 16
     return model, dataset, optim_cfg
 
 
