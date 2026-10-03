@@ -156,6 +156,8 @@ def main():
     p.add_argument("--timed", type=int, default=60)
     p.add_argument("--profile_steps", type=int, default=30)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--compile_decode", action="store_true",
+                   help="打开 torch.compile 解码路径（实验 A）")
     p.add_argument("--out", required=True, help="输出 JSON 路径")
     args = p.parse_args()
 
@@ -164,6 +166,9 @@ def main():
     model, dataset, optim_cfg = build(
         args.ckpt, args.data_dir, args.data_factor, args.max_width, device
     )
+    if args.compile_decode:
+        model.cfg.compile_decode = True
+        print("[profile] compile_decode=ON（实验 A）", flush=True)
     n_anchors = model.num_anchors
     h, w = dataset.train_cameras[0].height, dataset.train_cameras[0].width
 
