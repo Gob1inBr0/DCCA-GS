@@ -136,6 +136,10 @@ def render(
         return out
 
     viewmats, Ks = camera.to_gsplat(model.device)
+    # gsplat 1.6 起要求 backgrounds 为每相机形状 [C, D]；1.5.x 也接受
+    # [1, D]。传入 [D]（单相机的常见形状）时补一个相机维。
+    if background is not None and background.dim() == 1:
+        background = background.unsqueeze(0)
     render_colors, render_alphas, meta = rasterization(
         means=gaussians.xyz,
         quats=gaussians.quats,
