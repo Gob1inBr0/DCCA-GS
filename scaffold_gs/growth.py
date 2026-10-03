@@ -219,6 +219,43 @@ def training_statis(
     )
 
 
+def remove_existing_cells(
+    grid_coords: torch.Tensor, unique_grid: torch.Tensor
+) -> torch.Tensor:
+    """Return a bool mask marking rows of ``unique_grid`` absent from ``grid_coords``.
+
+    旧的逐块全对比每块物化一个 [chunk, N, 3] 布尔张量（30 万锚点时每块
+    约 1.2 GB 显存流量）。把整行坐标打包成一个 int64 键后用 searchsorted
+    查存在性，结果与全对比逐位一致；键按每轴 21bit 打包，坐标范围超出
+    可表示区间时回退到旧实现。
+    """
+    device = grid_coords.device
+    B = 1 << 20
+    gc = grid_coords.long()
+    ug = unique_grid.long()
+    if (
+        grid_coords.numel() > 0
+        and unique_grid.numel() > 0
+        and int(torch.maximum(gc.abs().max(), ug.abs().max())) <= B
+    ):
+        S = 1 << 21
+
+        def _row_keys(t: torch.Tensor) -> torch.Tensor:
+            return ((t[:, 0] + B) * S + (t[:, 1] + B)) * S + (t[:, 2] + B)
+
+        grid_sorted = _row_keys(gc).sort().values
+        cand = _row_keys(ug)
+        pos = torch.searchsorted(grid_sorted, cand).clamp_max(grid_sorted.numel() - 1)
+        return grid_sorted[pos] == cand
+    remove = torch.zeros(unique_grid.shape[0], dtype=torch.bool, device=device)
+    chunk_size = 4096
+    for start in range(0, unique_grid.shape[0], chunk_size):
+        chunk = unique_grid[start : start + chunk_size]
+        dup = (chunk.unsqueeze(1) == grid_coords.unsqueeze(0)).all(-1).any(-1)
+        remove[start : start + chunk_size] = dup
+    return remove
+
+
 def grow_anchors(
     model: BaseGaussianModel,
     grads_norm: torch.Tensor,
@@ -269,13 +306,7 @@ def grow_anchors(
         )
 
         # Remove candidate cells that already contain an anchor.
-        remove = torch.zeros(unique_grid.shape[0], dtype=torch.bool, device=device)
-        chunk_size = 4096
-        for start in range(0, unique_grid.shape[0], chunk_size):
-            chunk = unique_grid[start : start + chunk_size]
-            dup = (chunk.unsqueeze(1) == grid_coords.unsqueeze(0)).all(-1).any(-1)
-            remove[start : start + chunk_size] = dup
-        keep = ~remove
+        keep = ~remove_existing_cells(grid_coords, unique_grid)
 
         candidate_anchor = unique_grid[keep] * cur_size
         if candidate_anchor.shape[0] == 0:

@@ -8,6 +8,7 @@ is ~30 lines and version-independent.
 from __future__ import annotations
 
 from math import exp
+from typing import Dict, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -19,14 +20,24 @@ def l1_loss(pred: Tensor, target: Tensor) -> Tensor:
     return F.l1_loss(pred, target)
 
 
+_SSIM_WINDOW_CACHE: Dict[Tuple[int, str], Tensor] = {}
+
+
 def _gaussian_window(window_size: int, sigma: float, device: torch.device) -> Tensor:
-    gauss = torch.Tensor(
-        [exp(-((x - window_size // 2) ** 2) / float(2 * sigma**2)) for x in range(window_size)]
-    )
-    gauss = gauss / gauss.sum()
-    _1d = gauss.unsqueeze(1)
-    _2d = _1d.mm(_1d.t()).float().unsqueeze(0).unsqueeze(0)
-    return _2d.expand(3, 1, window_size, window_size).contiguous().to(device)
+    # 每个训练步都重建 11x11 窗口（CPU 列表推导 + 矩阵乘 + H2D）纯属重复
+    # 劳动；窗口只取决于 (window_size, sigma, device)，缓存后逐位相同。
+    key = (window_size, str(device))
+    window = _SSIM_WINDOW_CACHE.get(key)
+    if window is None:
+        gauss = torch.Tensor(
+            [exp(-((x - window_size // 2) ** 2) / float(2 * sigma**2)) for x in range(window_size)]
+        )
+        gauss = gauss / gauss.sum()
+        _1d = gauss.unsqueeze(1)
+        _2d = _1d.mm(_1d.t()).float().unsqueeze(0).unsqueeze(0)
+        window = _2d.expand(3, 1, window_size, window_size).contiguous().to(device)
+        _SSIM_WINDOW_CACHE[key] = window
+    return window
 
 
 def ssim_loss(img1: Tensor, img2: Tensor, window_size: int = 11) -> Tensor:

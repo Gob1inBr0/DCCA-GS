@@ -410,6 +410,11 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 background=background,
                 post_phase=False,
             )
+            # 稀疏化周期会整块重分配锚点参数与优化器状态，碎片在这里回收
+            # 一次即可；旧版另在每 100 步无条件 empty_cache，会把整个分配
+            # 池清空，稳态阶段反而拖慢后续分配。
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         elif (
             float(getattr(cfg.model, "spa_post_ratio", 1.0)) < 1.0
             and (
@@ -577,8 +582,6 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         # iteration; otherwise the previous step's autograd graph and packed
         # rasterizer buffers stay alive while the next step is built.
         del out, loss, pred, gt
-        if torch.cuda.is_available() and iteration % 100 == 0:
-            torch.cuda.empty_cache()
 
         if iteration in eval_steps:
             final_metrics = evaluate(model, dataset, result_dir, iteration)

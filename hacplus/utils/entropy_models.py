@@ -81,7 +81,8 @@ class Entropy_gaussian_mix_prob_2(nn.Module):
         if return_lkl:
             return likelihood
         else:
-            likelihood = Low_bound.apply(likelihood)
+            # 输入已被上一次 Low_bound 钳到 >=1e-6，再次 apply 是空操作
+            # （前向值不变、反向掩码恒真），旧写法每步多付 2 次反向同步。
             bits = -torch.log2(likelihood)
             return bits
 
@@ -120,7 +121,7 @@ class Entropy_gaussian_mix_prob_3(nn.Module):
         if return_lkl:
             return likelihood
         else:
-            likelihood = Low_bound.apply(likelihood)
+            # 同 mix_prob_2：对已钳位的似然再 apply 一次是空操作。
             bits = -torch.log2(likelihood)
             return bits
 
@@ -228,12 +229,11 @@ class Low_bound(torch.autograd.Function):
     @staticmethod
     def backward(ctx, g):
         x, = ctx.saved_tensors
-        grad1 = g.clone()
-        grad1[x < 1e-6] = 0
-        pass_through_if = np.logical_or(
-            x.cpu().numpy() >= 1e-6, g.cpu().numpy() < 0.0)
-        t = torch.Tensor(pass_through_if+0.0).cuda()
-        return grad1 * t
+        # 旧实现先在 x<1e-6 处把梯度清零，再做一次 CPU 上的 pass-through
+        # 掩码（两次 DtoH + 一次 H2D，RD 损失每步触发本函数 4 次即 8 次
+        # GPU 同步）。清零后的梯度无论掩码取值都还是 0，所以两步合起来
+        # 逐位等价于"x>=1e-6 处通过、否则置零"，可以全程留在 GPU 上。
+        return g * (x >= 1e-6).to(g.dtype)
 
 
 class UniverseQuant(torch.autograd.Function):

@@ -1,0 +1,58 @@
+/home/project2/ab_step_tax/old/hacplus/utils/encodings.py:95: FutureWarning: `torch.cuda.amp.custom_fwd(args...)` is deprecated. Please use `torch.amp.custom_fwd(args..., device_type='cuda')` instead.
+  def forward(ctx, inputs, embeddings, offsets_list, resolutions_list, calc_grad_inputs=False, min_level_id=None, n_levels_calc=1, binary_vxl=None, PV=0):
+/home/project2/ab_step_tax/old/hacplus/utils/encodings.py:173: FutureWarning: `torch.cuda.amp.custom_bwd(args...)` is deprecated. Please use `torch.amp.custom_bwd(args..., device_type='cuda')` instead.
+  def backward(ctx, grad):
+hash_params: True 4 13 (18, 24, 33, 44, 59, 80, 108, 148, 201, 275, 376, 514) 15 (130, 258, 514, 1026) True False False
+encoding_param_num=1766272, size=0.2105560302734375MB.
+[Submod] mode=off sens_weighted=False
+/home/project2/miniconda3/envs/DCCA/lib/python3.10/site-packages/torch/utils/cpp_extension.py:2356: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+[Dataset] 311 images: 272 train, 39 val.
+[Dataset] 112627 SfM points.
+/home/project2/ab_step_tax/old/scaffold_gs/datasets.py:88: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:203.)
+  return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
+{
+  "git_rev": "a0baf36",
+  "ckpt": "/home/project2/dcca_runs/fam_base_l0004_s42/ckpts/ckpt_30000.pth",
+  "data_dir": "/home/project2/data/room",
+  "step_arg": 30000,
+  "num_anchors": 686572,
+  "render_size": [
+    778,
+    518
+  ],
+  "gpu": "NVIDIA A100-PCIE-40GB",
+  "wall_per_step_ms": 505.528,
+  "timed_steps": 60,
+  "profile_steps": 30,
+  "blocking_api_cpu_ms_total": 4253.182,
+  "blocking_api_cpu_ms_per_step": 141.7727,
+  "blocking_api_calls_per_step": 702.03,
+  "sync_share_of_wall": 0.2804,
+  "cuda_kernel_busy_ms_per_step": 1293.3745,
+  "kernel_busy_share_of_wall": 2.5585,
+  "known_sync_producers": {
+    "aten::item": {
+      "count": 4200,
+      "count_per_step": 140.0
+    },
+    "aten::_local_scalar_dense": {
+      "count": 4200,
+      "count_per_step": 140.0
+    },
+    "aten::nonzero": {
+      "count": 18780,
+      "count_per_step": 626.0
+    }
+  }
+}
+
+-- blocking APIs --
+  cudaStreamSynchronize        calls/step= 702.00 cpu_ms/step=141.7696
+  cudaDeviceSynchronize        calls/step=   0.03 cpu_ms/step=  0.0031
+
+-- known producer ops (per step) --
+  aten::item                   calls/step= 140.00
+  aten::_local_scalar_dense    calls/step= 140.00
+  aten::nonzero                calls/step= 626.00

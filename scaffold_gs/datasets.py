@@ -9,7 +9,7 @@ The loader mirrors the conventions used by the gsplat examples
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -56,17 +56,35 @@ class SceneCamera:
     appearance_id: int  # index into the appearance embedding (train cameras)
     near_plane: float = 0.01
     far_plane: float = 1e10
+    # c2w/K 在建场景后不再变化；渲染路径每步会调用 to_gsplat 两次 +
+    # camera_center 一次，不缓存的话每次都是 numpy→GPU 拷贝加一次 4x4 求逆。
+    _gsplat_cache: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    _center_cache: Dict[str, torch.Tensor] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def to_gsplat(self, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return ``(viewmats, Ks)`` shaped ``[1, 4, 4]`` / ``[1, 3, 3]``."""
-        c2w = torch.from_numpy(self.c2w).float().to(device)
-        viewmat = torch.linalg.inv_ex(c2w).inverse
-        K = torch.from_numpy(self.K).float().to(device)
-        return viewmat[None], K[None]
+        key = str(device)
+        cached = self._gsplat_cache.get(key)
+        if cached is None:
+            c2w = torch.from_numpy(self.c2w).float().to(device)
+            viewmat = torch.linalg.inv_ex(c2w).inverse
+            K = torch.from_numpy(self.K).float().to(device)
+            cached = (viewmat[None], K[None])
+            self._gsplat_cache[key] = cached
+        return cached
 
     def camera_center(self, device: torch.device) -> torch.Tensor:
-        c2w = torch.from_numpy(self.c2w).float().to(device)
-        return c2w[:3, 3]
+        key = str(device)
+        cached = self._center_cache.get(key)
+        if cached is None:
+            c2w = torch.from_numpy(self.c2w).float().to(device)
+            cached = c2w[:3, 3]
+            self._center_cache[key] = cached
+        return cached
 
     def load_image(self, device: torch.device) -> torch.Tensor:
         """Load and resize the image to ``(width, height)``, returning CHW."""
