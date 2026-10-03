@@ -635,9 +635,11 @@ class HACPlusModel(BaseGaussianModel):
                 # Quantization noise on the rendering attributes (official
                 # renderer behavior): the model must learn to survive the
                 # hard quantization applied at eval/encode time.
-                feat_context_orig = core.calc_context_feat(
-                    anchor, anchor_indices=anchor_indices, caller="generate_gaussians"
-                )
+                with self._grid_autocast():
+                    feat_context_orig = core.calc_context_feat(
+                        anchor, anchor_indices=anchor_indices, caller="generate_gaussians"
+                    )
+                feat_context_orig = feat_context_orig.float()
                 ctx_out = core.get_grid_mlp(feat_context_orig)
                 (
                     _mean,
@@ -1140,6 +1142,18 @@ class HACPlusModel(BaseGaussianModel):
         )
         return depth_added + blur_added
 
+    def _grid_autocast(self):
+        """实验 B（grid_half）：哈希网格查表在 fp16 autocast 下运行。
+
+        表读取、dy_dx 与反向散射走 half（encodings._grid_encode 的手动
+        autocast 分支负责转型），输出由调用点 cast 回 fp32，下游 MLP 不受
+        影响。网格 master 参数保持 fp32。"""
+        if getattr(self.cfg, "grid_half", False):
+            return torch.autocast("cuda", dtype=torch.float16)
+        from contextlib import nullcontext
+
+        return nullcontext()
+
     def rate_loss_term(self, gaussians: NeuralGaussians, iteration: int) -> torch.Tensor:
         del iteration
         if gaussians.bit_per_param is None or self.optim_cfg is None:
@@ -1506,7 +1520,9 @@ class HACPlusModel(BaseGaussianModel):
         masks_c = core.get_mask[choose]
         mask_anchor_c = core.get_mask_anchor[choose]
 
-        ctx = core.calc_context_feat(anchor_c, caller="_estimate_rate_terms")
+        with self._grid_autocast():
+            ctx = core.calc_context_feat(anchor_c, caller="_estimate_rate_terms")
+        ctx = ctx.float()
         out = core.get_grid_mlp(ctx)
         mean, scale, prob, mean_scaling, scale_scaling, mean_offsets, scale_offsets, qa, qs, qo = torch.split(
             out,
