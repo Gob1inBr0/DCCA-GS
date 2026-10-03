@@ -74,6 +74,12 @@ class ModelConfig:
     fp32 before the downstream MLPs. Paired-judgement class: the adoption
     gate also requires encode total_MB to rise no more than 1%."""
 
+    absgrad_stats: bool = False
+    """Use gsplat's kernel-side absgrad (Σ|dL/dmean2d|, Taming-3DGS
+    semantics) as the densification-statistics source instead of the
+    autograd means2d.grad chain (GPU plan experiment C). Semantics differ
+    from the official |Σ·| norm — paired-judgement class."""
+
     update_depth: int = 3
     update_init_factor: int = 16
     update_hierachy_factor: int = 4
