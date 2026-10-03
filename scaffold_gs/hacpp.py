@@ -876,7 +876,9 @@ class HACPlusModel(BaseGaussianModel):
         if use_compile and n % chunk != 0:
             # pad 到整段：全 step 只有一种形状，只编译一份图。pad 行的
             # opacity 在编译函数内置 -1，选中掩码天然排除；neural_opacity /
-            # selection 拼接前再按真实行数切片，绝不进入统计。
+            # selection 拼接前再按真实行数切片，绝不进入统计。返回值
+            # （anchor_indices / pre_quant_*）保持原始长度 n——pad 副本只
+            # 供循环内取值使用。
             n_out = ((n + chunk - 1) // chunk) * chunk
             pad_n = n_out - n
             anchor = torch.cat([anchor, torch.zeros(pad_n, 3, device=device)])
@@ -890,7 +892,7 @@ class HACPlusModel(BaseGaussianModel):
             binary_grid_masks = torch.cat(
                 [binary_grid_masks, torch.ones(pad_n, k, 1, device=device)]
             )
-            anchor_indices = torch.cat(
+            anchor_indices_gather = torch.cat(
                 [
                     anchor_indices,
                     torch.zeros(pad_n, device=device, dtype=anchor_indices.dtype),
@@ -898,6 +900,7 @@ class HACPlusModel(BaseGaussianModel):
             )
         else:
             n_out = n
+            anchor_indices_gather = anchor_indices
         decode_fn = _get_decode_chunk_fn(use_compile)
         row_counts = torch.arange(n_out + 1, device=device)
         for start in range(0, n_out, chunk):
@@ -952,7 +955,7 @@ class HACPlusModel(BaseGaussianModel):
             selection_parts.append(sel.reshape(c, k)[:c_actual].reshape(-1))
             idx = torch.nonzero(sel).squeeze(-1)
             anchor_rep = (
-                anchor_indices[start:end]
+                anchor_indices_gather[start:end]
                 .unsqueeze(1)
                 .expand(c, k)
                 .reshape(-1)[idx]
@@ -997,6 +1000,18 @@ class HACPlusModel(BaseGaussianModel):
         quats = torch.cat(quat_parts, dim=0)
         gaussian_anchor_indices = torch.cat(gaussian_anchor_parts, dim=0)
 
+        if sens_active:
+            # 编译路径会把输入 pad 到整段；这里切回真实行数并在切片上
+            # retain_grad——切片是独立的图节点，不重调的话 .grad 不会挂上。
+            pre_feat = feat[:n]
+            pre_scal = grid_scaling[:n]
+            pre_off = grid_offsets[:n]
+            pre_feat.retain_grad()
+            pre_scal.retain_grad()
+            pre_off.retain_grad()
+        else:
+            pre_feat = pre_scal = pre_off = None
+
         return NeuralGaussians(
             xyz=xyz,
             colors=color,
@@ -1011,9 +1026,9 @@ class HACPlusModel(BaseGaussianModel):
             bit_per_feat_param=bit_per_feat_param,
             bit_per_scaling_param=bit_per_scaling_param,
             bit_per_offsets_param=bit_per_offsets_param,
-            pre_quant_feat=feat if sens_active else None,
-            pre_quant_scaling=grid_scaling if sens_active else None,
-            pre_quant_offsets=grid_offsets if sens_active else None,
+            pre_quant_feat=pre_feat,
+            pre_quant_scaling=pre_scal,
+            pre_quant_offsets=pre_off,
             complexity_logits=complexity_logits,
             gaussian_anchor_indices=gaussian_anchor_indices,
             ladder_penalty=ladder_penalty,
