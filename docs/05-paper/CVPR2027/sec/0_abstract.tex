@@ -1,7 +1,8 @@
 \begin{abstract}
-The ABSTRACT is to be in fully justified italicized text, at the top of the left-hand column, below the author and affiliation information.
-Use the word ``Abstract'' as the title, in 12-point Times, boldface type, centered relative to the column, initially capitalized.
-The abstract is to be in 10-point, single-spaced type.
-Leave two blank lines after the Abstract, then begin the main text.
-Look at previous \confName abstracts to get a feel for style and length.
+Anchor-based 3D Gaussian Splatting (3DGS) codecs compress a scene to a few megabytes, but they commit to a single rate--quality point at encoding time: the receiver gets one file at one quality.
+We present \DCCA, a codec whose bitstream is progressively decodable: the file is organized so that any prefix ending at a block boundary decodes into a complete, renderable scene, and quality improves with every additional layer up to a full-precision tier that is bit-exact with the single-rate decode.
+Recent progressive 3DGS codecs do not offer this in the same form: we inspect the bitstream headers of five peers and find that each begins with learned context models, hash grids, codebooks, or dictionaries that must be received before the first anchor attribute can be decoded.
+\DCCA removes this header entirely: quantization steps, conditioning groups, and probability conditioning are recomputed by the decoder from bytes it has already received, and the only priors are kilobyte-scale static frequency tables carried inline.
+Two training mechanisms make coarse-first decoding practical: a ladder-alignment penalty pulls quantization symbols toward base-layer lattice points, adding up to $+0.41$\,dB at the entry tier at noise-level full-precision cost ($+1.09$\,dB in the tight-budget regime), and a training-time anchor budget turns the entry size into a continuous knob, yielding entry tiers from 6.33 to 15.88\,MB at 24.25 to 26.15\,dB on a 1{,}200-image UAV scene.
+All gains are established with paired same-code same-seed runs judged by pre-registered gates, and every number is measured on decoded bitstreams.
 \end{abstract}
