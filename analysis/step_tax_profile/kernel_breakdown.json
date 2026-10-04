@@ -1,0 +1,43 @@
+{
+ "逐元素算子": {
+  "ms_per_step": 95.63,
+  "count_per_step": 8386.2
+ },
+ "tile求交+排序(cub/sort)": {
+  "ms_per_step": 90.76,
+  "count_per_step": 1933.05
+ },
+ "其他": {
+  "ms_per_step": 65.04,
+  "count_per_step": 855.6
+ },
+ "GEMM(全部MLP)": {
+  "ms_per_step": 33.86,
+  "count_per_step": 957.0
+ },
+ "归约(index_add/sum)": {
+  "ms_per_step": 23.63,
+  "count_per_step": 1410.0
+ },
+ "光栅化主内核(rasterize)": {
+  "ms_per_step": 10.9,
+  "count_per_step": 13.0
+ },
+ "显存拷贝": {
+  "ms_per_step": 5.34,
+  "count_per_step": 2353.65
+ },
+ "卷积(SSIM)": {
+  "ms_per_step": 1.03,
+  "count_per_step": 7.0
+ },
+ "投影(projection)": {
+  "ms_per_step": 0.45,
+  "count_per_step": 25.0
+ },
+ "正态CDF(熵模型erf)": {
+  "ms_per_step": 0.03,
+  "count_per_step": 8.0
+ },
+ "_total_ms_per_step": 326.69
+}

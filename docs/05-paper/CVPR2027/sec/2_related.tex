@@ -1,0 +1,23 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Anchor-based 3DGS compression}
+Scaffold-GS~\cite{lu2024} attaches $K$ neural Gaussians to each anchor and predicts their attributes from anchor features, replacing millions of independent primitives with a compact anchor set.
+HAC~\cite{chen2024} and HAC++~\cite{chen2025} make this representation compressible: a hash grid over anchor coordinates provides context, a hypernetwork predicts entropy parameters and base quantization steps, masks select active offsets, and anchor geometry is coded with G-PCC.
+ContextGS~\cite{wang2024b} adds anchor-level autoregressive context.
+All of these emit a single-rate stream whose quantization and probability machinery lives in the learned decoder---precisely the component our stream removes.
+\DCCA keeps their single-rate pipeline as the production codec (and as the bit-exactness reference for our full-precision tier), but the contribution is the stream structure and the training around it, not the single-rate codec itself.
+
+\subsection{Non-anchor compression and pruning}
+A parallel line compresses raw 3DGS: importance-based pruning and quantization (LightGaussian~\cite{fan2024}, Compact 3DGS~\cite{lee2024}, Reduced3DGS~\cite{papantonakis2024}), attribute transformation (MesonGS~\cite{xie2024}), end-to-end rate--distortion optimization (RDO-Gaussian~\cite{wang2024a}, CompGS~\cite{liu2024b}, CAT-3DGS~\cite{zhan2025}).
+Closer to our training side, GaussianSpa~\cite{zhang2025gaussianspa} formulates pruning as an ``optimizing--sparsifying'' ADMM alternation so that survivors re-adapt under the budget, and Mini-Splatting~\cite{fang2024} re-seeds placement from rendered depth.
+We use a GaussianSpa-style budget unchanged, as the mechanism behind the anchor-budget axis, and do not claim it as a contribution; these two works change \emph{which} anchors exist, whereas we change \emph{how many bytes precede the first usable render}.
+
+\subsection{Progressive and scalable 3DGS}
+Classical quality-progressive coding orders the bytes of one representation so prefixes decode at increasing fidelity~\cite{taubman2002jpeg2000}.
+In 3DGS, PCGS~\cite{chen2026pcgs} trains one model against a list of rate targets and transmits progressively, ProGS~\cite{tang2026progs} builds parent-closed octree prefixes with parent-causal entropy coding, SCAR-GS~\cite{revilla2026scar} layers residual-vector-quantized features under an autoregressive spatial context, and GoDe~\cite{disario2025gode} grows level-of-detail Gaussians; Octree-GS~\cite{ren2024octree} provides LOD rendering but stores an uncompressed model, so it addresses a different axis.
+The distinction that matters here is what a prefix requires.
+Every one of these streams carries learned components---context models, hash grids, codebooks, dictionaries---ahead of content: the decoder of ProGS needs its learned parent-causal models, that of SCAR-GS its codebook and attention context, that of PCGS its hash-grid entropy model.
+Our stream starts paying for content immediately: conditionings are recomputed from decoded data, and the only priors are inline static tables.
+The two axes are also complementary rather than competing: ProGS splits space (which anchors), whereas our ladders split numerical precision (how accurately each anchor is described)---one could carry our byte layout over their octree order.
+Finally, our entry tier is controlled at training time by the anchor budget, which none of the above exposes as a continuous knob.

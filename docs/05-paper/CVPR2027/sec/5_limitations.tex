@@ -1,0 +1,19 @@
+\section{Limitations}
+\label{sec:limits}
+
+\textbf{The progressive premium.}
+The full-precision progressive file costs 42--48\% more bytes than the single-rate learned codec on the same model (Table~\ref{tab:budget}).
+Static frequency tables and per-layer framing are the current price of the zero-side-information contract, and our learned-coding attempts inside this stream were all negative (Sec.~\ref{sec:negative}).
+Closing this gap---for example with learned models that predict per-\emph{binary-decision} probabilities rather than per-symbol scales---is the main open problem; until then, the premium buys a capability the single-rate stream does not have.
+
+\textbf{Geometry is not layered.}
+Anchor coordinates are coded once with G-PCC and are not refined across tiers. Geometry is about 8\% of entry-tier bytes today; at much tighter budgets it becomes a fixed floor, and a geometric refinement ladder is future work.
+
+\textbf{Evaluation coverage.}
+Our quantitative claims rest on one large internal UAV scene plus a first public-benchmark point; the multi-scene benchmark matrix, measured ProGS comparison, and BD-rate numbers over a shared quality range are scheduled before submission. Cross-protocol numbers we quote (ProGS's reported tiers) are positioning, not benchmark results.
+
+\textbf{Applicability of ladder alignment.}
+The mechanism showed no stable entry gain at the loosest budget ($\lambda{=}0.0005$), and strong weights cost full precision outside the tight-budget regime (Table~\ref{tab:align}); the recommended and tight-budget cells are the honest operating envelope.
+
+\textbf{Within-tier streaming.}
+A tier becomes renderable only when its block is complete; we do not stream \emph{inside} a tier. Spatial streaming is orthogonal (Sec.~\ref{sec:related}) and composable with our layout, but we have not built it.

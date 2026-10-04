@@ -31,3 +31,7 @@ docs/05-paper/iclr2027/main.pdf
 
 # literature raw materials (PDFs + extracted text cache)
 .lit-cache/
+
+# literature sweep intermediates & session-private
+.lit-cache/
+.zcode/

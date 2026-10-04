@@ -1,0 +1,85 @@
+\section{Method}
+\label{sec:method}
+
+\subsection{Preliminaries and the zero-side-information contract}
+\label{sec:prelim}
+
+Our production codec follows the anchor--hash architecture of HAC++~\cite{chen2025}: a scene is encoded as $N$ anchors; anchor $i$ carries a feature vector $\feat_i\in\mathbb{R}^{F}$ ($F{=}32$ in all experiments), scaling parameters, $K{=}10$ offset vectors, and a binary offset mask $\smask_i$; anchor coordinates are coded with G-PCC, and hash-grid features predicted from the decoded coordinates drive hypernetworks that output entropy parameters and per-element quantization steps.
+At full precision this single-rate stream is the reference that our progressive stream must reproduce bit-exactly.
+
+The compression objective is standard
+\begin{equation}
+\min_{\theta}\; D(\theta) + \lambda R(\theta),
+\label{eq:rd}
+\end{equation}
+with distortion $D$ and code length $R$.
+What we change is the \emph{shape of the output}: instead of one rate point, the encoder must emit a byte string $B$ such that every prefix of $B$ that ends at a block boundary decodes into a renderable scene, with quality monotone in the prefix length.
+
+We call the stream \emph{zero-side-information} if decoding a prefix requires (i) no data outside the received prefix and (ii) no learned component: every quantization step, conditioning group, and probability conditioning must be a function of already-decoded data, and the only priors allowed in the stream are small static tables carried inline after content has started flowing.
+This is the contract that five peers' headers do not meet (Sec.~\ref{sec:intro}), and every design below serves it.
+
+\subsection{Nested quality ladders and their residuals}
+\label{sec:ladder}
+
+For each attribute field (feature, scaling, offset), symbols are quantized at a ladder of steps $s_0 > s_1 > \dots > s_L = 1$, where $s_\ell = 2^{L-\ell}\,s_L$ within a field's ladder.
+The base layer transmits $q_0 = \mathrm{round}(x / s_0)$ for every symbol; refinement layer $\ell$ transmits the residual
+\begin{equation}
+r_\ell \;=\; \mathrm{round}(x / s_\ell) \;-\; \tfrac{s_{\ell-1}}{s_\ell}\, q_{\ell-1},
+\qquad q_\ell = q_{\ell-1}\cdot\tfrac{s_{\ell-1}}{s_\ell} + r_\ell ,
+\label{eq:residual}
+\end{equation}
+so the decoder accumulates $q_\ell$ layer by layer and recovers the full-precision symbol exactly when the last layer arrives.
+Ladders are \emph{field-aware}: features and offsets start at $8\times$ coarsening (four tiers), while scaling---stored in the log domain, where coarse steps destroy geometry---starts at $2\times$.
+In an earlier-protocol measurement, a uniform $8\times$ ladder collapsed the entry tier from 25.24 to 21.89\,dB at matched bytes; the field-aware ladder removes the collapse entirely.\footnote{Design-validation numbers in Secs.~\ref{sec:ladder}--\ref{sec:align} come from a 16-view pilot protocol in a superseded environment; they are design rationale, re-measurement under the final protocol is scheduled (Sec.~\ref{sec:limits}).}
+Refinement residuals depend only on \emph{the same field's} coarser layers, which is what allows arbitrary fields' blocks to be truncated independently.
+
+Layering trades selection: we also measured the alternative of transmitting only the top-$k\%$ anchors by contribution, ranked by rendering contribution.
+Ranking itself works---at equal bytes it beats a random order by 5--6\,dB---but its ceiling is structural: the top 50\% of anchors still render 2.34\,dB below all anchors, because missing anchors leave holes that transmitted ones cannot fill.
+Coarsening \emph{all} anchors by $4\times$ costs only 0.60\,dB.
+Spatial completeness tolerates coarse attributes far better than absence, so we layer by precision and keep ranking only as an in-layer ordering device.
+
+\subsection{Binary-decision coding with inline static tables}
+\label{sec:coding}
+
+Each refinement residual is coded as a sequence of binary decisions: nonzero flag, sign, then magnitude bits.
+Binary decisions keep every probability away from 0 and 1, so a fixed-precision range coder has no zero-probability failure mode, and near-zero residuals---the overwhelming majority---cost fractions of a bit.
+In the pilot protocol this coder cut the full-precision stream from 37.9 to 29.95\,MB on the same symbols, a 21\% saving over coding each residual as one alphabet symbol.
+
+Decision probabilities come from grouped frequency tables: anchors are sorted into 32 groups by rendering contribution, and each decision is additionally conditioned on the magnitude bucket of the \emph{already-decoded} coarse symbol ($0$ / $1$ / $\ge 2$)---coarse zeros almost surely stay zero; large coarse magnitudes widen the residual.
+Group ranks and bucket indices are recomputed by the decoder from received data; the tables themselves are three numbers per group (median, zero ratio, carry ratio), a few kilobytes per block, transmitted inline.
+This conditioning saves 1.9--2.3\,MB per scene over unconditioned tables in the pilot protocol.
+Quantization steps follow the HAC++ adaptive-quantization form $Q = Q_0\,(1{+}\tanh a)\,(1{+}\alpha\tanh z)$, where $z$ is a small network over local anchor density, predicted-scaling anisotropy, predicted offset energy, and mask activity---all recomputable at the decoder; measured agreement between encoder-used and decoder-recomputed steps is 100\% on feature/offset and 99.999\% on scaling symbols (residual differences are numeric boundary clamps).
+
+\subsection{File layout, truncatability, and bit-exactness}
+\label{sec:layout}
+
+The file is a header (block order and per-field ladders, plain JSON) followed by blocks of $[\,\text{len}\,][\,\text{tables}\,][\,\text{payload}\,]$, ordered by layer: all fields' base layers first, then layer-1 refinements, and so on (Fig.~\ref{fig:bitstream}).
+Because refinements reference only coarser layers of their own field, any block boundary is a decodable stream; we verify this by per-block assertions during decode.
+The full-precision tier is checked bit-exact against the production single-rate decode of the same model, and every experiment below evaluates decoded bitstreams at each prefix, not training-time estimates.
+
+\subsection{Ladder-aligned quantization training}
+\label{sec:align}
+
+A model trained only with Eq.~\eqref{eq:rd} spreads symbols uniformly between coarse lattice points, so the base layer---the only tier an impatient receiver sees---absorbs the full coarsening error.
+Late in training we therefore add
+\begin{equation}
+\mathcal{L}_{\mathrm{align}} \;=\; \frac{w(t)}{|\Omega|} \sum_{(i,f)\in\Omega} \operatorname{dist}\!\left(x_{i,f},\, s_{0,f}\,\mathbb{Z}\right)^2,
+\label{eq:align}
+\end{equation}
+the squared distance between each pre-quantization attribute $x_{i,f}$ and the base-layer lattice, ramped with $w(t)$ over a late training window (from iteration 24{,}000 of 30{,}000 in all measured runs) with gradients through quantization and masks cut off.
+Aligned symbols are represented \emph{exactly} by the base layer's grid, so the entry tier gains fidelity and upper-layer residuals shrink toward zero---the same bytes buy more quality everywhere, but the benefit concentrates where the ladder is coarsest.
+The penalty competes with the rendering loss in this window, which is where its full-precision cost arises; the measured trade across $\lambda$ and $w$ is in Table~\ref{tab:align}.
+
+\subsection{Anchor-budget axis}
+\label{sec:budget}
+
+The entry size of the stream is dominated by base-layer attributes, which scale linearly with anchor count (86\% of base-layer bytes in our byte accounting; anchor geometry 8\%, fixed load 6\%).
+We therefore expose a training-time budget: a GaussianSpa-style ADMM alternation~\cite{zhang2025gaussianspa} keeps a binary auxiliary state $z$ and dual variable $u$ over per-anchor scores $a_i = \mathrm{mean}(\smask_i)$,
+\begin{equation}
+z = \mathrm{TopK}(a + u, \kappa), \qquad
+u = \mathrm{clamp}(u + a - z, \pm 1),
+\label{eq:admm}
+\end{equation}
+prunes anchors with $z_i{=}0$, and lets survivors re-train under the budget $\kappa = r\,N_{\mathrm{ref}}$.
+The budget ratio $r$ is a continuous knob on \emph{where the progressive stream starts}: smaller $r$ shrinks the entry tier and the whole file roughly linearly, while survivors re-adapt to ``this is all there is'' (Sec.~\ref{sec:budget-exp}).
+$z$ and $u$ are training-only state and never enter the stream.

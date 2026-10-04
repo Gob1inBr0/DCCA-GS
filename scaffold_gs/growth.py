@@ -179,6 +179,28 @@ def accumulate_growth_stats(
         gids = gaussian_ids[vis2d]
         if gids.numel() == 0:
             return
+        absgrad = getattr(means2d, "absgrad", None)
+        if means2d.grad is None and absgrad is not None:
+            # 实验 C（absgrad_stats）：内核里原子累加的 |dL/dmean2d| 直接
+            # 作统计源——每行是该（高斯，瓦片）对在其瓦片内的 |梯度| 和，
+            # 跨瓦片仍按高斯归并（Σ|·|，Taming-3DGS 语义，与旧路径的
+            # |Σ·| 不同属预登记的语义变更）；省掉 autograd 梯度物化与
+            # clone/rescale 链。
+            abs_rows = absgrad[0][vis2d]
+            abs_sum = torch.zeros(
+                global_idx.shape[0], 2, device=means2d.device, dtype=abs_rows.dtype
+            )
+            abs_sum.index_add_(0, gids, abs_rows)
+            uniq_gids, _ = torch.unique(gids, return_inverse=True)
+            grad = abs_sum[uniq_gids]
+            grad[:, 0] *= width / 2.0
+            grad[:, 1] *= height / 2.0
+            grad_norm = grad.norm(dim=-1, keepdim=True)
+            model.offset_gradient_accum.index_add_(0, global_idx[uniq_gids], grad_norm)
+            model.offset_denom.index_add_(
+                0, global_idx[uniq_gids], torch.ones_like(grad_norm, device=device)
+            )
+            return
         grad_rows = means2d.grad[vis2d, :2]
         grad_sum = torch.zeros(
             global_idx.shape[0], 2, device=means2d.device, dtype=grad_rows.dtype

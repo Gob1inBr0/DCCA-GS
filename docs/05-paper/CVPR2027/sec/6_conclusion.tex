@@ -1,0 +1,7 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented \DCCA, an anchor-based 3DGS codec whose single bitstream is progressively decodable with zero side information: every tier is a byte prefix, every quantization step and probability conditioning is recomputed from received bytes, and the full-precision tier is bit-exact with the single-rate decode.
+Two training-side mechanisms make the structure practical---ladder alignment, which raises the first-decoded tier by up to $+1.09$\,dB where budgets are tight, and an anchor budget, which moves the entry point continuously across $6.33$--$15.88$\,MB.
+Every gain is a paired, pre-registered comparison, and the negative results that shaped the design are reported with byte-level attribution.
+The remaining gap to learned single-rate codecs at full precision, geometry layering, and a full public-benchmark matrix are the immediate next steps.

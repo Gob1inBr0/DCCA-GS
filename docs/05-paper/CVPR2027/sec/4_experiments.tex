@@ -1,0 +1,114 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Setup and evaluation protocol}
+\label{sec:setup}
+
+\textbf{Scenes.}
+Our primary evaluation scene, \texttt{1-78}, is a 1{,}200-image UAV capture with 150 held-out validation views; its large anchor counts (up to $686$k coded anchors) stress the byte axis.
+A first public-benchmark point (Mip-NeRF 360 \emph{garden}) is reported in Sec.~\ref{sec:stdbench}; the full T\&T / Deep Blending / Mip-NeRF 360 matrix is in progress\,\pending{13-scene benchmark matrix}.
+\textbf{Protocol.}
+Every number comes from a decoded bitstream at each prefix, evaluated on all 150 views at 1600\,px (PSNR; SSIM/LPIPS for full-stream points).
+All runs use 30k iterations, $F{=}32$, $K{=}10$, and one environment; production single-rate baselines and progressive streams are encoded from the same trained model.
+\textbf{Paired arms and pre-registered gates.}
+Every mechanism comparison pairs arms that share code, seed, and configuration except the switch under test, and the pass/fail thresholds are written down before launch; arms that miss their gate are reported as negative.
+\textbf{Noise reference.}
+Three same-configuration seed pairs bound run-to-run variation at $-0.089$ to $-0.095$\,dB PSNR and $+0.5$ to $+0.8$\,MB; we treat deltas inside this band as noise.
+
+\subsection{Anchor-budget axis: where the stream starts}
+\label{sec:budget-exp}
+
+This section supports claim 3: the entry tier of a progressive stream can be set continuously at training time.
+Table~\ref{tab:budget} and Fig.~\ref{fig:budget} show the same model family with budget ratios $r \in \{0.85, 0.70, 0.60, 0.50\}$.
+Three pre-registered gates---entry $\le 12$\,MB, entry $\ge 22$\,dB, monotone anchor counts---pass at $r{=}0.70/0.60/0.50$, and the axes compose as expected: coded anchor counts drop strictly (683.9k$\to$232.8k), entry tiers from 15.88 to 6.33\,MB, full-precision quality from 28.01 to 26.14\,dB.
+
+Two readings matter for positioning.
+First, the \emph{price of progression}: the full-precision progressive file costs 42--48\% more bytes than the single-rate production stream of the same model (e.g., 30.05 vs.\ 20.39\,MB at $r{=}0.85$) while measuring 0.16--0.21\,dB \emph{higher}; the premium is the cost of static-table coding and per-layer framing, and we return to it in Sec.~\ref{sec:limits}.
+Second, the \emph{reach}: PCGS---the strongest measured competitor at the high-rate end on this scene, reaching 28.13\,dB at 26.4\,MB---has no operating point below 26.4\,MB, while our family covers 6.3--30.1\,MB continuously.
+Against ProGS we can only compare paper-reported numbers today (protocol alignment is open): its lowest reported tier is 10.75\,MB; our tightest entry tier is 41\% below that, and even our tightest \emph{whole file} (11.41\,MB) stays within 6\% of it.\footnote{Cross-scene, cross-protocol comparisons; we state them as positioning, not as a benchmark result.}
+
+\begin{table}[t]
+\centering
+\caption{Anchor-budget axis on \texttt{1-78} ($\lambda{=}0.0005$, 150-view decoded evaluation, MiB\,/\,dB).
+For each budget ratio $r$: coded anchors, entry tier $P_0$, full-precision tier $P_3$, the single-rate production stream of the same model, and the byte premium of progression.
+Middle tiers $P_1,P_2$ appear in Fig.~\ref{fig:budget}.}
+\label{tab:budget}
+\setlength{\tabcolsep}{2.6pt}
+\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+$r$ & anchors & $P_0$ (entry) & $P_3$ (full) & single-rate & premium \\
+\midrule
+0.85 & 683{,}871 & 15.88\,/\,26.15 & 30.05\,/\,28.01 & 20.39\,/\,27.84 & $+47\%$ \\
+0.70 & 456{,}936 & 11.15\,/\,25.50 & 20.83\,/\,27.24 & 14.11\,/\,27.04 & $+48\%$ \\
+0.60 & 336{,}439 & \phantom{0}8.67\,/\,24.98 & 15.91\,/\,26.71 & 10.95\,/\,26.55 & $+45\%$ \\
+0.50 & 232{,}811 & \phantom{0}6.33\,/\,24.25 & 11.41\,/\,26.14 & \phantom{0}8.05\,/\,25.93 & $+42\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/fig2_budget_axis.pdf}
+\caption{Rate--distortion of the budget-axis family (Table~\ref{tab:budget}).
+Each polyline is one budget $r$; its four markers are the tiers $P_0\!\to\!P_3$.
+Crosses are single-rate production streams of the same models (no tiers).
+The dashed line marks the lowest tier reported by ProGS~\cite{tang2026progs} on its own protocol.}
+\label{fig:budget}
+\end{figure}
+
+\subsection{Ladder-aligned quantization training}
+\label{sec:align-exp}
+
+This section supports claim 2: training toward the base-layer lattice (Eq.~\ref{eq:align}) buys back entry-tier quality.
+Table~\ref{tab:align} summarizes a paired sweep over the rate parameter $\lambda$ and the alignment weight $w$; each cell is same-code same-seed against its no-alignment control.
+The mechanism behaves as the trade in Eq.~\eqref{eq:align} predicts.
+At the recommended cell ($\lambda{=}0.002$, $w{=}0.01$) the entry tier gains $+0.41$\,dB at a full-precision cost of $-0.03$\,dB---inside the seed noise band, i.e., the first-decoded image improves for free.
+When the budget is tight ($\lambda{=}0.004$, $w{=}0.05$), the entry gain grows to $+1.09$\,dB and the full-precision cost becomes real ($-0.18$\,dB, consistent across both seeds): alignment redistributes quality toward the prefix, which is the point, but the price must be stated.
+A strong weight at a loose budget ($\lambda{=}0.002$, $w{=}0.05$) is dominated by the recommended cell, and at the loosest budget ($\lambda{=}0.0005$) neither seed shows a stable entry gain, so the mechanism has stated applicability conditions rather than universal gains.
+
+\begin{table}[t]
+\centering
+\caption{Ladder alignment: paired entry-tier gain and full-precision change (dB) against same-code same-seed controls (\texttt{1-78}, 150 views).
+The seed band is $-0.089$ to $-0.095$\,dB; ``$+0.15/-0.12$'' reads as the two seeds' entry gains. Orange marks a measurement whose layered readout is still pending.}
+\label{tab:align}
+\setlength{\tabcolsep}{2.6pt}
+\footnotesize
+\begin{tabular}{lccl}
+\toprule
+$\lambda$ / $w$ & entry $\Delta$ & full $\Delta$ & verdict \\
+\midrule
+0.002 / 0.01 & $+0.41$ & $-0.03$ & \textbf{recommended} \\
+0.002 / 0.05 & $+1.16$ & $-0.52$ & dominated \\
+0.004 / 0.01 & {\color{orange}$P_0$ readout pend.} & $-0.04$ & --- \\
+0.004 / 0.05 & $+1.09$ & $-0.18$ & tight-budget \\
+0.0005 / 0.01 & $+0.15\,/\,-0.12$ & $-0.13\,/\,-0.84$ & no stable gain \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Verification of the contract}
+\label{sec:verify}
+
+This section supports claim 1's zero-side-information property, which is checkable rather than rhetorical.
+(i) \emph{Step recomputation}: decoder-recomputed quantization steps match the encoder's used steps per symbol at 100\% (feature, offset) and 99.999\% (scaling); the residual mismatches are numeric boundary clamps and are themselves recomputable.
+(ii) \emph{Truncatability}: every reported tier is decoded from an actual truncated file, with per-block assertions that the prefix is self-sufficient.
+(iii) \emph{Bit-exactness at full precision}: the $P_3$ tier equals the production single-rate decode of the same model, verified by whole-tensor comparison, so progression adds no drift at the end of the ladder.
+(iv) \emph{Header}: the file header is plain JSON---block order and per-field ladders; it contains no learned weights, hash grids, codebooks, or per-anchor quantization parameters.
+
+\subsection{What did not work}
+\label{sec:negative}
+
+The static, decoder-recomputable design is not a preference; it is what survived.
+We attempted learned coding inside this stream three times, under pre-registered gates:
+(i) hierarchical context models added $+0.10$\,MB for $+0.003$\,dB and were removed;
+(ii) an offline-fitted context model gained at most 2.3\% of bytes and missed its gate;
+(iii) small networks predicting per-decision probabilities \emph{won} on the negative-log-likelihood metric ($-15$\%) but \emph{lost} on real bytes ($+35$ to $+38$\%): their predicted scales are wider than the binary framework's, so every decision costs more---a reminder that NLL gains do not transfer through a fixed binary coder.
+A fourth direction---pushing the entry tier under 7\,MB by coarsening the base layer to $16\times$---failed because base-layer attribute entropy does not halve when the step doubles; the honest lever for lower entry points is the anchor budget of Sec.~\ref{sec:budget-exp}.
+These negative results, each with byte-level attribution, are the quantitative case for inline static tables over in-stream learned models at the current scale.
+
+\subsection{Public benchmarks}
+\label{sec:stdbench}
+
+On Mip-NeRF 360 \emph{garden} the full pipeline runs end-to-end for the first time (25.53\,dB at 9.53\,MB, $\lambda{=}0.0005$)\,\pending{garden $\lambda$ calibration and tight-budget arms}.
+The remaining benchmark matrix (13 scenes $\times$ 2--3 $\lambda$), its comparison rows, and BD-rate computation after curves cover the competitors' quality ranges are scheduled before submission\,\pending{benchmark table, BD-rate}.

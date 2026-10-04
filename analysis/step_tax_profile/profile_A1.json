@@ -1,0 +1,56 @@
+{
+  "git_rev": "46594d51",
+  "ckpt": "/home/project2/dcca_runs/fam_base_l0004_s42/ckpts/ckpt_30000.pth",
+  "data_dir": "/home/project2/data/room",
+  "step_arg": 30000,
+  "num_anchors": 686572,
+  "render_size": [
+    778,
+    518
+  ],
+  "gpu": "NVIDIA A100-PCIE-40GB",
+  "wall_per_step_ms": 471.793,
+  "timed_steps": 60,
+  "profile_steps": 30,
+  "blocking_api_cpu_ms_total": 6482.977,
+  "blocking_api_cpu_ms_per_step": 216.0992,
+  "blocking_api_calls_per_step": 105.17,
+  "sync_share_of_wall": 0.458,
+  "cuda_kernel_busy_ms_per_step": 1246.6629,
+  "kernel_busy_share_of_wall": 2.6424,
+  "sync_apis": [
+    {
+      "api": "cudaStreamSynchronize",
+      "count": 3154,
+      "cpu_ms": 6482.898405999949,
+      "per_step_cpu_ms": 216.09661353333163
+    },
+    {
+      "api": "cudaDeviceSynchronize",
+      "count": 1,
+      "cpu_ms": 0.07830900000035763,
+      "per_step_cpu_ms": 0.0026103000000119213
+    }
+  ],
+  "known_sync_producers": {
+    "aten::item": {
+      "count": 3570,
+      "count_per_step": 119.0
+    },
+    "aten::_local_scalar_dense": {
+      "count": 3570,
+      "count_per_step": 119.0
+    },
+    "aten::nonzero": {
+      "count": 1924,
+      "count_per_step": 64.13333333333334
+    }
+  },
+  "last_losses": [
+    0.2438046634197235,
+    0.2893431782722473,
+    0.24360623955726624,
+    0.23081952333450317,
+    0.2543565034866333
+  ]
+}

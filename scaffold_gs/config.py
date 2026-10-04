@@ -67,6 +67,19 @@ class ModelConfig:
     """gsplat rasterization tile size; larger values cut packed-intersection
     memory (intersections scale as 1/tile_size^2) at a small speed cost."""
 
+    grid_half: bool = False
+    """Run the hash-grid context lookup (calc_context_feat) under fp16
+    autocast on the training hot path (GPU plan experiment B). Table reads,
+    dy_dx and the backward scatter run in half; the output is cast back to
+    fp32 before the downstream MLPs. Paired-judgement class: the adoption
+    gate also requires encode total_MB to rise no more than 1%."""
+
+    absgrad_stats: bool = False
+    """Use gsplat's kernel-side absgrad (Σ|dL/dmean2d|, Taming-3DGS
+    semantics) as the densification-statistics source instead of the
+    autograd means2d.grad chain (GPU plan experiment C). Semantics differ
+    from the official |Σ·| norm — paired-judgement class."""
+
     update_depth: int = 3
     update_init_factor: int = 16
     update_hierachy_factor: int = 4
