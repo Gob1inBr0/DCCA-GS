@@ -16,6 +16,7 @@ PYBIN="${PYBIN:-/home/project2/miniconda3/envs/DCCA/bin}"
 C25LIB="${C25LIB:-/home/project2/c25_pylib2}"
 LOGDIR="${LOGDIR:-$RUNS_ROOT/garden_ablation_launch}"
 mkdir -p "$LOGDIR"
+export PATH="$PYBIN:$PATH"   # tmc3 (G-PCC) lives in the DCCA env bin
 export CUDA_VISIBLE_DEVICES="$GPU"
 EVAL_FLAGS=(--data-dir "$DATA" --data-factor 2 --max-width 3200)
 
