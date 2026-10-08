@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # One garden ablation training arm on the LYH A100 host.
-# Usage: bash scripts-new/10_garden_ablation_train.sh <gpu> <rate|p0>
+# Usage: bash scripts-new/10_garden_ablation_train.sh <gpu> <rate|p0|full|base> [spa-ratio]
 #
-# Replicates the std_garden_l0002_s42 baseline protocol exactly (spa r0.85,
-# mini-splat, sensitivity-start-iter 0, data-factor 2, max-width 3200, 30k,
-# seed 42, lambda 0.002) and adds one ablation switch per arm:
+# Replicates the std_garden_l0002_s42 baseline protocol exactly (spa r0.85 by
+# default, mini-splat, sensitivity-start-iter 0, data-factor 2, max-width
+# 3200, 30k, seed 42, lambda 0.002) and adds one ablation switch per arm:
+#   base -> pure baseline (budget sweep arm, no extra switches)
 #   rate -> spa_rate_aware + spa_bit_budget + sens_per_bit
 #   p0   -> P0 dequantized rendering loss (w=0.05, start 24000, every 8)
 #   full -> v1 full config: rate-aware + B3 ladder align + P0 (the pre-
 #           registered zccombo; ZC is bitstream-side and evaluated separately)
+# A non-default spa-ratio appends _rXXX to the run tag (e.g. _r060).
 set -euo pipefail
 
 GPU="${1:?gpu id required}"
-ARM="${2:?arm required: rate|p0|full}"
+ARM="${2:?arm required: rate|p0|full|base}"
+RATIO="${3:-0.85}"
 
 RUNROOT="${RUNROOT:-/home/project2/DCCA-GS}"
 RUNS_ROOT="${RUNS_ROOT:-/home/project2/dcca_runs}"
@@ -20,15 +23,19 @@ DATA="${DATA:-/home/project2/data/garden}"
 PYBIN="${PYBIN:-/home/project2/miniconda3/envs/DCCA/bin}"
 
 BASE_FLAGS=(
-  --cfg.model.spa-enabled --cfg.model.spa-ratio 0.85
+  --cfg.model.spa-enabled --cfg.model.spa-ratio "$RATIO"
   --cfg.model.mini-splat-enabled --cfg.model.mini-splat-reinit-iter 15000
   --cfg.model.mini-splat-max-new 4000 --cfg.model.mini-splat-views 8
   --cfg.model.mini-splat-voxel 0.0 --cfg.seed 42
-  --cfg.model.sensitivity-start-iter 0 --cfg.model.spa-post-ratio 0.85
+  --cfg.model.sensitivity-start-iter 0 --cfg.model.spa-post-ratio "$RATIO"
   --cfg.data.data-factor 2 --cfg.data.max-width 3200
 )
 
 case "$ARM" in
+  base)
+    TAG=std_garden_l0002_s42
+    ARM_FLAGS=()
+    ;;
   rate)
     TAG=std_garden_rate_l0002_s42
     ARM_FLAGS=(--cfg.model.spa-rate-aware --cfg.model.spa-rate-tau 1.0
@@ -52,6 +59,10 @@ case "$ARM" in
     ;;
   *) echo "unknown arm: $ARM" >&2; exit 1;;
 esac
+
+if [[ "$RATIO" != "0.85" ]]; then
+  TAG="${TAG/_l0002/_r${RATIO/./}_l0002}"
+fi
 
 exec env RUNROOT="$RUNROOT" RUNS_ROOT="$RUNS_ROOT" \
   CONDA_ENV_BIN="$PYBIN" WAIT_VRAM_MB="${WAIT_VRAM_MB:-2000}" \

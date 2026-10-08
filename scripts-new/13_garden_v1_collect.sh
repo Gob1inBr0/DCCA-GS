@@ -6,6 +6,11 @@
 set -euo pipefail
 
 GPU="${1:?gpu id required}"
+shift
+ARMS=("$@")
+if [[ ${#ARMS[@]} -eq 0 ]]; then
+  ARMS=(std_garden_rate_l0002_s42 std_garden_p0_l0002_s42 std_garden_full_l0002_s42)
+fi
 RUNROOT="${RUNROOT:-/home/project2/DCCA-GS}"
 RUNS_ROOT="${RUNS_ROOT:-/home/project2/dcca_runs}"
 DATA="${DATA:-/home/project2/data/garden}"
@@ -14,8 +19,6 @@ LOGDIR="${LOGDIR:-$RUNS_ROOT/garden_ablation_launch}"
 mkdir -p "$LOGDIR"
 export PATH="$PYBIN:$PATH"
 export CUDA_VISIBLE_DEVICES="$GPU"
-
-ARMS=(std_garden_rate_l0002_s42 std_garden_p0_l0002_s42 std_garden_full_l0002_s42)
 
 for TAG in "${ARMS[@]}"; do
   R="$RUNS_ROOT/$TAG"
