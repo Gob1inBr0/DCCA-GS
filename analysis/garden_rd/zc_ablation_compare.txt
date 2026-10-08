@@ -1,0 +1,31 @@
+== Stream Summary ==
+base zc_context: off
+test zc_context: density-root
+base cells: 0
+test cells: 27650
+
+== Prefix Bytes / PSNR ==
+P0: base=4.254MB test=4.254MB delta=0.000MB (+0.00%) dPSNR=+0.0000
+P1: base=6.086MB test=6.166MB delta=0.080MB (+1.31%) dPSNR=+0.0000
+P2: base=7.358MB test=7.490MB delta=0.132MB (+1.80%) dPSNR=+0.0000
+P3: base=9.262MB test=9.448MB delta=0.185MB (+2.00%) dPSNR=+0.0000
+
+== bytes_by_field ==
+feat: base=4.565MB test=4.560MB delta=-0.005MB (-0.10%)
+offset: base=2.346MB test=2.342MB delta=-0.003MB (-0.14%)
+scaling: base=1.325MB test=1.325MB delta=-0.000MB (-0.01%)
+
+== bytes_by_field_level ==
+feat_L0: base=1.095MB test=1.095MB delta=0.000MB (+0.00%)
+feat_L1: base=1.089MB test=1.087MB delta=-0.002MB (-0.17%)
+feat_L2: base=0.950MB test=0.948MB delta=-0.002MB (-0.21%)
+feat_L3: base=1.431MB test=1.430MB delta=-0.001MB (-0.06%)
+offset_L0: base=1.135MB test=1.135MB delta=0.000MB (+0.00%)
+offset_L1: base=0.428MB test=0.427MB delta=-0.001MB (-0.29%)
+offset_L2: base=0.315MB test=0.314MB delta=-0.001MB (-0.30%)
+offset_L3: base=0.467MB test=0.465MB delta=-0.001MB (-0.26%)
+scaling_L0: base=1.021MB test=1.021MB delta=0.000MB (+0.00%)
+scaling_L1: base=0.304MB test=0.304MB delta=-0.000MB (-0.05%)
+
+== Conditioner Savings ==
+conditional_saved_bytes: base=0.765MB test=0.774MB delta=0.008MB
