@@ -1,12 +1,8 @@
 {
  "run": "/home/project2/dcca_runs/std_garden_l0002_s42",
- "n_alive": 268186,
- "groups": 32,
- "field_aware": true,
- "s4_apply": false,
- "s4_weight_bytes": 0,
- "s5_apply": false,
- "s5_weight_bytes": 0,
+ "n_views": 24,
+ "production_payload_bytes": 6567703,
+ "fixed_bytes": 2227566,
  "field_steps": {
   "feat": [
    8,
@@ -25,156 +21,162 @@
    1
   ]
  },
- "fixed_bytes": 542178.0,
- "geom_bytes": 458633.0,
- "header_bytes": 546,
- "chunk_params_total": 25424,
- "conditional_saved_bytes": 765440,
- "stage_audit": false,
- "stage_bytes": {},
- "coding_s": 43.6,
- "bin_file": "/home/project2/dcca_runs/std_garden_l0002_s42/layered_curve_150v.bin",
- "bin_size": 8261378,
  "results": [
   {
    "prefix": 3,
-   "field_levels": {
-    "feat": 3,
-    "scaling": 1,
-    "offset": 3
-   },
    "field_steps": {
     "feat": 1,
     "scaling": 1,
     "offset": 1
    },
-   "coded_bytes": 8235408,
-   "real_bytes": 9262189.0,
-   "psnr_mean": 25.2342,
+   "attr_cum_bytes": 9004768,
+   "real_bytes": 11232334,
+   "psnr_mean": 25.6475,
+   "psnr_std": 1.7427,
    "psnr_per_view": [
     23.3671,
     22.668,
+    25.7836,
     23.3087,
     20.6216,
+    25.331,
     27.4299,
     27.1033,
+    25.2022,
     25.4789,
     26.0407,
+    26.572,
     25.801,
     27.1898,
+    27.7003,
     24.0408,
     26.2537,
+    28.0503,
     25.7771,
     26.4957,
+    27.2029,
     24.9762,
+    25.9491,
     27.1951
    ],
-   "render_s": 5.4
+   "render_s": 10.0
   },
   {
    "prefix": 0,
-   "field_levels": {
-    "feat": 0,
-    "scaling": 0,
-    "offset": 0
-   },
    "field_steps": {
     "feat": 8,
     "scaling": 2,
     "offset": 8
    },
-   "coded_bytes": 3251060,
-   "real_bytes": 4253593.0,
-   "psnr_mean": 22.5133,
+   "attr_cum_bytes": 3252236,
+   "real_bytes": 5479802,
+   "psnr_mean": 22.7861,
+   "psnr_std": 1.3187,
    "psnr_per_view": [
     20.925,
     20.6283,
+    22.0052,
     20.7869,
     19.2142,
+    22.2889,
     23.6373,
     22.8431,
+    22.5762,
     22.2929,
     23.2678,
+    23.0031,
     23.1878,
     23.8816,
+    24.6834,
     21.9573,
     23.5674,
+    24.8153,
     23.4164,
     23.5806,
+    24.2493,
     23.3547,
+    23.0322,
     23.6706
    ],
-   "render_s": 2.6
+   "render_s": 7.6
   },
   {
    "prefix": 1,
-   "field_levels": {
-    "feat": 1,
-    "scaling": 1,
-    "offset": 1
-   },
    "field_steps": {
     "feat": 4,
     "scaling": 1,
     "offset": 4
    },
-   "coded_bytes": 5072816,
-   "real_bytes": 6085741.0,
-   "psnr_mean": 24.2095,
+   "attr_cum_bytes": 5227832,
+   "real_bytes": 7455398,
+   "psnr_mean": 24.5668,
+   "psnr_std": 1.5616,
    "psnr_per_view": [
     22.3829,
     22.0242,
+    24.1102,
     22.2644,
     20.0772,
+    24.196,
     25.8854,
     25.2978,
+    24.2159,
     24.356,
     24.9894,
+    25.263,
     24.8401,
     26.0113,
+    26.6275,
     23.3844,
     25.3181,
+    26.8242,
     24.966,
     25.3244,
+    26.1421,
     24.4052,
+    24.8709,
     25.8255
    ],
-   "render_s": 2.5
+   "render_s": 7.6
   },
   {
    "prefix": 2,
-   "field_levels": {
-    "feat": 2,
-    "scaling": 1,
-    "offset": 2
-   },
    "field_steps": {
     "feat": 2,
     "scaling": 1,
     "offset": 2
    },
-   "coded_bytes": 6337944,
-   "real_bytes": 7357797.0,
-   "psnr_mean": 24.9019,
+   "attr_cum_bytes": 6694200,
+   "real_bytes": 8921766,
+   "psnr_mean": 25.2931,
+   "psnr_std": 1.668,
    "psnr_per_view": [
     23.0699,
     22.4873,
+    25.2372,
     22.9709,
     20.4534,
+    24.9734,
     26.9246,
     26.5247,
+    24.877,
     25.1503,
     25.7034,
+    26.1742,
     25.4731,
     26.8041,
+    27.3204,
     23.8629,
     25.9532,
+    27.6023,
     25.4922,
     26.0474,
+    26.8373,
     24.7627,
+    25.582,
     26.75
    ],
-   "render_s": 2.5
+   "render_s": 7.6
   }
  ]
 }
