@@ -201,7 +201,10 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
         f"sensitivity_target_mode={getattr(cfg.model, 'sensitivity_target_mode', 'MISSING')} "
         f"sensitivity_use_fisher={getattr(cfg.model, 'sensitivity_use_fisher', 'MISSING')} "
         f"sensitivity_second_order={getattr(cfg.model, 'sensitivity_second_order', 'MISSING')} "
-        f"spa_holdout_gate={getattr(cfg.model, 'spa_holdout_gate', 'MISSING')}",
+        f"spa_holdout_gate={getattr(cfg.model, 'spa_holdout_gate', 'MISSING')} "
+        f"p0_render_loss={getattr(cfg.model, 'p0_render_loss', 'MISSING')} "
+        f"p0_render_weight={getattr(cfg.model, 'p0_render_weight', 'MISSING')} "
+        f"p0_render_interval={getattr(cfg.model, 'p0_render_interval', 'MISSING')}",
         flush=True,
     )
     set_random_seed(cfg.seed)
@@ -352,6 +355,36 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 print(f"[B3] iter {iteration}: ladder raw {raw_val:.4f} "
                       f"weighted {float(ladder_pen):.5f} "
                       f"skip_scaling={skip_sc}", flush=True)
+
+        if (
+            getattr(cfg.model, "p0_render_loss", False)
+            and iteration >= int(getattr(cfg.model, "p0_render_start_iter", 24000))
+            and iteration % max(int(getattr(cfg.model, "p0_render_interval", 8)), 1) == 0
+        ):
+            p0_out = model.render(
+                cam,
+                background,
+                is_training=True,
+                retain_grad=False,
+                appearance_id=cam.appearance_id,
+                step=iteration,
+                quant_mode="p0",
+            )
+            p0_pred = p0_out.image[0].permute(2, 0, 1)
+            p0_l1 = l1_loss(p0_pred, gt).mean()
+            p0_ssim = ssim_loss(p0_pred[None], gt[None])
+            p0_loss_raw = (
+                (1.0 - optim.lambda_dssim) * p0_l1
+                + optim.lambda_dssim * p0_ssim
+            )
+            p0_weight = float(getattr(cfg.model, "p0_render_weight", 0.05))
+            loss = loss + p0_weight * p0_loss_raw
+            if iteration % 500 == 0:
+                print(
+                    f"[P0Render] iter {iteration}: raw {float(p0_loss_raw):.5f} "
+                    f"weighted {float(p0_weight * p0_loss_raw):.5f}",
+                    flush=True,
+                )
 
         loss.backward()
 

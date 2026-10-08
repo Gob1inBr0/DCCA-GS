@@ -128,6 +128,18 @@ class ModelConfig:
     # the full-precision cost at lam0005 w=0.05 (-0.482 dB): scaling's Q base
     # is 0.001, so its penalty gradient is amplified ~1/Q relative to feat.
     coarse_ladder_skip_scaling: bool = False
+    p0_render_loss: bool = False
+    """Directly render the base-layer dequantized attributes during training."""
+    p0_render_weight: float = 0.05
+    """Weight for the auxiliary P0 dequantized rendering loss."""
+    p0_render_start_iter: int = 24_000
+    """First iteration where the P0 rendering loss is allowed to run."""
+    p0_render_interval: int = 8
+    """Run the extra P0 render every N iterations to limit training cost."""
+    p0_feat_step: int = 8
+    p0_scaling_step: int = 2
+    p0_offset_step: int = 8
+    """Base-layer ladder steps relative to the final per-symbol quantizers."""
     mlp_complexity_hidden: Optional[int] = None
     """Hidden width of the complexity MLP; None -> feat_dim // 2."""
 
@@ -363,6 +375,14 @@ class ModelConfig:
             )
         if self.mini_splat_importance_weight < 0.0:
             raise ValueError("mini_splat_importance_weight must be >= 0")
+        if self.p0_render_weight < 0.0:
+            raise ValueError("p0_render_weight must be >= 0")
+        if self.p0_render_start_iter < 0:
+            raise ValueError("p0_render_start_iter must be >= 0")
+        if self.p0_render_interval < 1:
+            raise ValueError("p0_render_interval must be >= 1")
+        if min(self.p0_feat_step, self.p0_scaling_step, self.p0_offset_step) < 1:
+            raise ValueError("P0 ladder steps must all be >= 1")
         if self.mlp_complexity_layers < 1:
             raise ValueError("mlp_complexity_layers must be >= 1")
         if not (0.0 <= self.level_threshold_low < self.level_threshold_high <= 1.0):

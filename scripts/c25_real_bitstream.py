@@ -38,6 +38,11 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts"))
 
 import constriction  # noqa: E402
+from zc_context import (  # noqa: E402
+    build_zc_anchor_context,
+    combine_zc_context,
+    resolve_cell_size,
+)
 
 N_VIEWS = 16
 GROUPS = 32
@@ -204,12 +209,13 @@ def fit_chunk_params(layer, g, ctx=None):
     extra condition dimensions (e.g. quant-step tier) into g and pass the
     matching tier count via n_groups."""
     n_groups = int(g.max()) + 1
-    shape = (n_groups, BUCKETS) if ctx is not None else (n_groups,)
+    n_ctx = int(ctx.max()) + 1 if ctx is not None and ctx.size else BUCKETS
+    shape = (n_groups, n_ctx) if ctx is not None else (n_groups,)
     locs = np.zeros(shape, dtype=np.int64)
     p0s = np.zeros(shape, dtype=np.float64)
     bts = np.zeros(shape, dtype=np.float64)
     for gid in range(n_groups):
-        bids = range(BUCKETS) if ctx is not None else [None]
+        bids = range(n_ctx) if ctx is not None else [None]
         for bid in bids:
             sel = layer[(g == gid) & (ctx == bid)] if ctx is not None \
                 else layer[g == gid]
@@ -465,7 +471,19 @@ def main():
                     "(A2: try 64/128)")
     ap.add_argument("--field-aware", action="store_true",
                     help="per-field ladders: feat/offset 8x-start, scaling "
-                    "2x-start (log-domain cliffs at coarser steps)")
+                         "2x-start (log-domain cliffs at coarser steps)")
+    ap.add_argument("--zc-context", default="off",
+                    choices=["off", "density", "root", "density-root"],
+                    help="UAV-DCCA-ZC residual context extension. Combines "
+                         "the standard |coarse| bucket with decoder-"
+                         "recomputable local-density and/or deterministic "
+                         "cell-root buckets. The wrapper script defaults to "
+                         "density-root for the formal UAV-DCCA-ZC stream; "
+                         "this raw tool keeps off for legacy reproduction.")
+    ap.add_argument("--zc-cell-size", type=float, default=0.01,
+                    help="coarse 3D cell size for --zc-context. Values <= 0 "
+                         "use bbox_diag/512 from decoded geometry, avoiding "
+                         "per-scene hand tuning")
     args = ap.parse_args()
     if args.s4_heads and args.s5_offset_mlp:
         raise SystemExit("--s4-heads (legacy failed apply path) and "
@@ -510,6 +528,28 @@ def main():
         "scaling": view.scaling.data.detach().float(),
         "offset": view.offset.data.detach().float(),
     }
+    zc_anchor_ctx = None
+    zc_cell_size_rule = "off"
+    zc_cell_size = float(args.zc_cell_size)
+    if args.zc_context != "off":
+        anchor_np = model.core.get_anchor.detach().cpu().numpy()
+        zc_cell_size, zc_cell_size_rule = resolve_cell_size(
+            anchor_np, args.zc_cell_size)
+        zc_anchor_ctx = build_zc_anchor_context(anchor_np, zc_cell_size)
+        counts = np.bincount(zc_anchor_ctx["cell"])
+        print(
+            "[RB] zc-context={} cell_size={} rule={} cells={} "
+            "cell_count[min/median/max]={}/{:.1f}/{}".format(
+                args.zc_context,
+                zc_cell_size,
+                zc_cell_size_rule,
+                zc_anchor_ctx["num_cells"],
+                int(counts.min()) if counts.size else 0,
+                float(np.median(counts)) if counts.size else 0.0,
+                int(counts.max()) if counts.size else 0,
+            ),
+            flush=True,
+        )
     run_tag = Path(args.run).name
     if args.mapped and Path(args.mapped).exists():
         mapped = np.load(args.mapped).astype(np.int64)
@@ -645,10 +685,13 @@ def main():
           f"(composite={n_groups_eff*3})", flush=True)
 
     q_flat, g_flat, out_shape = {}, {}, {}
+    anchor_flat, col_flat = {}, {}
     for f in fields:
         qf = sym[f].cpu().numpy().astype(np.int32).reshape(-1)
         n_cols = qf.size // n_alive
         q_flat[f] = qf
+        anchor_flat[f] = (np.arange(qf.size, dtype=np.int64) // n_cols)
+        col_flat[f] = (np.arange(qf.size, dtype=np.int64) % n_cols)
         g_flat[f] = np.repeat(
             g_base_alive * 3 + step_tiers[f], n_cols)
         out_shape[f] = tuple(sym[f].shape)
@@ -691,7 +734,18 @@ def main():
                 ratio = steps_f[li - 1] // steps_f[li]
                 layer = (np.round(q / steps_f[li]).astype(np.int32)
                          - ratio * acc_prev[f])
-                ctx = bucket_of(acc_prev[f])
+                coarse_ctx = bucket_of(acc_prev[f])
+                if args.zc_context != "off":
+                    assert zc_anchor_ctx is not None
+                    aidx = anchor_flat[f]
+                    density_ctx = zc_anchor_ctx["density_bucket"][aidx]
+                    root_anchor = zc_anchor_ctx["root_anchor"][aidx]
+                    root_sym = root_anchor * (q.size // n_alive) + col_flat[f]
+                    root_ctx = bucket_of(acc_prev[f][root_sym])
+                    ctx, _zc_card = combine_zc_context(
+                        coarse_ctx, args.zc_context, density_ctx, root_ctx)
+                else:
+                    ctx = coarse_ctx
             # base layer (li==0) conditions on the contribution group only:
             # step-tier split there costs ~1.2 MB (fit variance with no
             # magnitude context to justify it); enhancement layers keep it.
@@ -743,6 +797,25 @@ def main():
         print(f"[RB] layer-conditioned residual coding: {cond_total/1e6:.2f} MB "
               f"vs unconditioned {plain_total/1e6:.2f} MB -> saved "
               f"{cond_saved/1e6:.2f} MB", flush=True)
+    bytes_by_field_level = {
+        f"{c['field']}_L{c['level']}": int(c["bytes"]) for c in chunks
+    }
+    params_by_field_level = {}
+    for c in chunks:
+        locs, p0s, bts = c["params"]
+        params_by_field_level[f"{c['field']}_L{c['level']}"] = int(
+            8
+            + locs.astype(np.int32).tobytes().__len__()
+            + p0s.astype(np.float32).tobytes().__len__()
+            + bts.astype(np.float32).tobytes().__len__()
+        )
+    bytes_by_field = {
+        f: int(sum(c["bytes"] for c in chunks if c["field"] == f))
+        for f in fields
+    }
+    print("[RB] bytes by field: " + ", ".join(
+        f"{k}={v/1e6:.2f}MB" for k, v in bytes_by_field.items()),
+        flush=True)
 
     # ---- write the real transmit-able file ----
     # level-major write order: every quality prefix P_p (all fields' chunks
@@ -758,16 +831,30 @@ def main():
                     sorted(s5_heads.items())}, buf)
         s5_blob = buf.getvalue()
     s5_weight_bytes = len(s5_blob)
+    if s5_heads and args.zc_context != "off":
+        stream_format = "c25_layered_v4_zc_s5"
+    elif s5_heads:
+        stream_format = "c25_layered_v3_s5"
+    elif args.zc_context != "off":
+        stream_format = "c25_layered_v4_zc"
+    elif not args.field_aware:
+        stream_format = "c25_layered_v1"
+    else:
+        stream_format = "c25_layered_v2_fieldaware"
     header = {
-        "format": ("c25_layered_v3_s5" if s5_heads else
-                   "c25_layered_v1" if not args.field_aware
-                   else "c25_layered_v2_fieldaware"),
+        "format": stream_format,
         "groups": n_groups_eff,
         "step_tiers": 3,
         "steps": {f: [int(s) for s in fsteps[f]] for f in fields},
         "fields": list(fields),
         "chunks": [{"level": c["level"], "field": c["field"]} for c in write_order],
         "n_alive": int(n_alive),
+        "zc_context": args.zc_context,
+        "zc_cell_size": float(zc_cell_size),
+        "zc_cell_size_rule": zc_cell_size_rule,
+        "zc_num_cells": (
+            int(zc_anchor_ctx["num_cells"]) if zc_anchor_ctx is not None else 0
+        ),
     }
     if s5_heads:
         # key present IFF a weights blob follows the header (v1/v2 files
@@ -907,6 +994,12 @@ def main():
         "run": str(run_dir), "n_alive": int(n_alive),
         "groups": int(n_groups_eff),
         "field_aware": bool(args.field_aware),
+        "zc_context": args.zc_context,
+        "zc_cell_size": float(zc_cell_size),
+        "zc_cell_size_rule": zc_cell_size_rule,
+        "zc_num_cells": (
+            int(zc_anchor_ctx["num_cells"]) if zc_anchor_ctx is not None else 0
+        ),
         "s4_apply": s4_heads is not None,
         "s4_weight_bytes": s4_weight_bytes,
         "s5_apply": bool(s5_heads),
@@ -916,6 +1009,9 @@ def main():
         "header_bytes": header_total,
         "chunk_params_total": chunk_params_total,
         "conditional_saved_bytes": int(cond_saved),
+        "bytes_by_field": bytes_by_field,
+        "bytes_by_field_level": bytes_by_field_level,
+        "params_by_field_level": params_by_field_level,
         "stage_audit": bool(args.stage_audit),
         "stage_bytes": ({f"{c['field']}_L{c['level']}": c["stage_bytes"]
                          for c in chunks if c.get("stage_bytes")}

@@ -15,13 +15,21 @@ shift 7
 EXTRA=("$@")
 WAIT_VRAM_MB=${WAIT_VRAM_MB:-20000}
 
-R=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}
-LOG=${RUNS_ROOT:-/home/fansonglin/data_space/web_scan/runs}/${TAG}.log
-RUNROOT=${RUNROOT:-/home/fansonglin/xieliang/chentong/PHG}
-EXPORT_PATH="${CONDA_ENV_BIN:-/home/fansonglin/miniconda3/envs/HAC_5090_a100/bin}"
-export PATH="$EXPORT_PATH:$PATH"
+# Portable defaults (2026-10-08): no machine-specific paths. Override per
+# machine via RUNROOT / RUNS_ROOT / CONDA_ENV_BIN / GSPLAT_ROOT.
+RUNROOT="${RUNROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+RUNS_ROOT="${RUNS_ROOT:-$RUNROOT/runs}"
+R="$RUNS_ROOT/$TAG"
+LOG="$RUNS_ROOT/$TAG.log"
+echo "[runner] runroot=$RUNROOT runs_root=$RUNS_ROOT"
+if [ -n "${CONDA_ENV_BIN:-}" ]; then
+  export PATH="$CONDA_ENV_BIN:$PATH"
+else
+  echo "[runner] CONDA_ENV_BIN not set; using current PATH for python and "
+  echo "[runner] HAC++ CUDA extensions (set it to the env bin dir on servers)" >&2
+fi
 export PYTHONNOUSERSITE=1
-export PYTHONPATH="$RUNROOT:${GSPLAT_ROOT:-/home/project2/gsplat-main}${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$RUNROOT${GSPLAT_ROOT:+:$GSPLAT_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 cd "$RUNROOT"
 
 wait_vram() {
@@ -77,7 +85,7 @@ mkdir -p "$R"
   echo "tag: $TAG  scene: $SCENE  lambda: $LAMBDA  steps: $MAX_STEPS  update_until: $UPDATE_UNTIL"
   echo "runroot: $RUNROOT"
   echo "data_dir: $DATA"
-  echo "conda_env_bin: $EXPORT_PATH"
+  echo "conda_env_bin: ${CONDA_ENV_BIN:-<unset, using PATH>} (gsplat: ${GSPLAT_ROOT:-<unset>})"
   echo "git_commit: $(git -C "$RUNROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "git_branch: $(git -C "$RUNROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
   echo "git_dirty_file_count: $(git -C "$RUNROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"

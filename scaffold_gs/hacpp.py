@@ -589,8 +589,11 @@ class HACPlusModel(BaseGaussianModel):
         appearance_id: Optional[int] = None,
         step: int = 0,
         retain_grad: bool = False,
+        quant_mode: str = "train",
     ) -> NeuralGaussians:
         del appearance_id
+        if quant_mode not in ("train", "p0"):
+            raise ValueError(f"unknown quant_mode: {quant_mode!r}")
         core = self.core
         device = self.device
         if step > 0:
@@ -624,7 +627,9 @@ class HACPlusModel(BaseGaussianModel):
         ladder_penalty = None
         ladder_raw = None
 
-        if is_training:
+        p0_mode = bool(is_training and quant_mode == "p0")
+
+        if is_training and not p0_mode:
             if 3000 < step <= 10000:
                 feat = feat + (torch.rand_like(feat) - 0.5) * Q_feat
                 grid_scaling = grid_scaling + (torch.rand_like(grid_scaling) - 0.5) * Q_scaling
@@ -724,6 +729,81 @@ class HACPlusModel(BaseGaussianModel):
                     bit_per_scaling_param,
                     bit_per_offsets_param,
                 ) = self._estimate_rate_terms(anchor, feat, grid_scaling, grid_offsets)
+        elif p0_mode:
+            if step == 10000:
+                core.update_anchor_bound()
+            if step > 10000:
+                with self._grid_autocast():
+                    feat_context_orig = core.calc_context_feat(
+                        anchor, anchor_indices=anchor_indices, caller="generate_gaussians"
+                    )
+                feat_context_orig = feat_context_orig.float()
+                ctx_out = core.get_grid_mlp(feat_context_orig)
+                (
+                    _mean,
+                    _scale,
+                    _prob,
+                    _mean_scaling,
+                    _scale_scaling,
+                    _mean_offsets,
+                    _scale_offsets,
+                    qa,
+                    qs,
+                    qo,
+                ) = torch.split(
+                    ctx_out,
+                    [
+                        self.cfg.feat_dim,
+                        self.cfg.feat_dim,
+                        self.cfg.feat_dim,
+                        6,
+                        6,
+                        3 * k,
+                        3 * k,
+                        1,
+                        1,
+                        1,
+                    ],
+                    dim=-1,
+                )
+                Q_feat = 1.0 * (1 + torch.tanh(qa.repeat(1, self.cfg.feat_dim)))
+                Q_scaling = 0.001 * (1 + torch.tanh(qs.repeat(1, 6)))
+                Q_offsets = 0.2 * (
+                    1 + torch.tanh(qo.repeat(1, 3 * k))
+                ).view(-1, k, 3)
+                if core.is_content_aware_quant_active():
+                    (
+                        Q_feat,
+                        Q_scaling,
+                        Q_offsets,
+                        _,
+                        _,
+                        _,
+                        complexity_logits,
+                    ) = core._codec_apply_content_aware_quant_params(
+                        "generate_gaussians",
+                        anchor,
+                        binary_grid_masks,
+                        Q_feat,
+                        Q_scaling,
+                        Q_offsets,
+                        None,
+                        None,
+                        None,
+                        _mean_scaling,
+                        _mean_offsets,
+                    )
+                feat = self._p0_dequant_attr(
+                    feat, Q_feat, int(getattr(self.cfg, "p0_feat_step", 8)),
+                    self._view.anchor_feat.mean())
+                grid_scaling = self._p0_dequant_attr(
+                    grid_scaling, Q_scaling,
+                    int(getattr(self.cfg, "p0_scaling_step", 2)),
+                    core.get_scaling.mean())
+                grid_offsets = self._p0_dequant_attr(
+                    grid_offsets, Q_offsets,
+                    int(getattr(self.cfg, "p0_offset_step", 8)),
+                    self._view.offset.mean())
         elif not self._view.decoded_version:
             feat_context = core.calc_context_feat(
                 anchor, anchor_indices=anchor_indices, caller="generate_gaussians"
@@ -795,6 +875,7 @@ class HACPlusModel(BaseGaussianModel):
         sens_active = (
             self.cfg.sensitivity_enabled
             and is_training
+            and not p0_mode
             and step >= self.cfg.sensitivity_start_iter
         )
         if sens_active:
@@ -1205,6 +1286,30 @@ class HACPlusModel(BaseGaussianModel):
         pen_off = (align(grid_offsets, Q_offsets, 8) * mask3).sum() / \
             mask3.sum().clamp_min(1.0)
         return pen_feat + pen_scaling + pen_off
+
+    def _p0_dequant_attr(
+        self,
+        x: torch.Tensor,
+        Q: torch.Tensor,
+        ladder_step: int,
+        center: torch.Tensor,
+    ) -> torch.Tensor:
+        """Differentiable approximation of the transmitted P0 attributes.
+
+        The progressive bitstream first forms the final integer symbol
+        round(x / Q), then its base layer keeps only multiples of
+        ``ladder_step``.  The forward path matches that double rounding while
+        the backward path is straight-through to the unquantized attribute.
+        """
+        step = max(int(ladder_step), 1)
+        q = Q.detach().clamp_min(1e-12)
+        c = center.detach()
+        # Mirror STE_multistep's safety clamp around the field mean.
+        x_clamped = torch.clamp(x, min=c - 15_000 * q, max=c + 15_000 * q)
+        final_sym = torch.round(x_clamped / q)
+        base_sym = step * torch.round(final_sym / step)
+        hard = base_sym * q
+        return x + (hard - x).detach()
 
     def sensitivity_supervision(self, gaussians: NeuralGaussians) -> torch.Tensor:
         """L_sens = weight * MSE(pred multiplier, bounded sensitivity target).
