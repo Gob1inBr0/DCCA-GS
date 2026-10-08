@@ -24,6 +24,10 @@ RUNS = [
     ("l0002", r"$\lambda$=0.002", "tab:blue"),
     ("l0004", r"$\lambda$=0.004", "tab:orange"),
 ]
+V1_RUNS = [
+    ("rate", "v1 rate-aware ($\\lambda$=0.002)", "tab:green"),
+    ("p0", "v1 P0 render loss ($\\lambda$=0.002)", "tab:red"),
+]
 
 fig, ax = plt.subplots(figsize=(7.2, 5.0), dpi=160)
 
@@ -47,6 +51,20 @@ hac = [(float(r["size_mb"]), float(r["psnr"]))
 hac.sort()
 ax.plot([x for x, _ in hac], [y for _, y in hac], "s--", color="k", ms=7,
         label="HAC++ (official, factor2-30k)")
+
+for tag, label, color in V1_RUNS:
+    f = DATA / f"{tag}_layered_150v.json"
+    if not f.exists():
+        print(f"[skip] {f.name} not present yet")
+        continue
+    d = json.loads(f.read_text())
+    res = sorted(d["results"], key=lambda r: r["prefix"])
+    xs = [r["real_bytes"] / 1048576 for r in res]
+    ys = [r["psnr_mean"] for r in res]
+    ax.plot(xs, ys, "--^", color=color, ms=4, lw=1.4, label=f"{label} progressive")
+    prod_mb = d["production_payload_bytes"] / 1048576
+    ax.plot([prod_mb], [ys[-1]], "D", color=color, ms=8, mfc="none", mew=1.6,
+            label=f"{label} production")
 
 ax.set_xlabel("Bitstream size (MB)")
 ax.set_ylabel("PSNR (dB)")
