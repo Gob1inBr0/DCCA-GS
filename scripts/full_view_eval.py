@@ -134,6 +134,7 @@ def main():
                      for f in FIELDS}
 
     chunk_sets = {}  # (field, level) -> decoded symbols (bit-exact re-encode)
+    chunk_bytes = {}  # (field, level) -> transmitted bytes (4B lens+params+data)
     for f in FIELDS:
         acc = None
         for li, k in enumerate(steps[f]):
@@ -145,11 +146,31 @@ def main():
             data, params, _, _ = rb.code_chunk(layer, g_flat[f], None)
             back = rb.decode_chunk(data, g_flat[f], params, None)
             assert (back == layer).all(), f"roundtrip mismatch {f} L{li}"
+            locs, p0s, bts = params
+            chunk_bytes[(f, li)] = (8 + len(data)
+                                    + locs.astype(np.int32).nbytes
+                                    + p0s.astype(np.float32).nbytes
+                                    + bts.astype(np.float32).nbytes)
             if acc is None:
                 acc = back.copy()
             else:
                 acc = (steps[f][li - 1] // steps[f][li]) * acc + back
             chunk_sets[(f, li)] = acc.copy()
+
+    # Production payload = everything the decoder needs, minus audit/debug
+    # artifacts. Fixed part = payload minus the production attribute streams
+    # (the ladder re-encodes feat/scaling/offset itself, so every prefix
+    # carries the fixed part plus its cumulative ladder attribute bytes).
+    EXCLUDE = {"attributes.pth", "codec_roundtrip_diagnostics.json",
+               "content_aware_q_meta.json"}
+    payload_total = sum(p_.stat().st_size for p_ in bit_dir.iterdir()
+                        if p_.is_file() and p_.name not in EXCLUDE)
+    prod_attr = sum(p_.stat().st_size for f0 in ("feat", "scaling", "offset")
+                    for p_ in bit_dir.glob(f"{f0}_*.b"))
+    fixed_bytes = payload_total - prod_attr
+    print(f"[FV] production payload {payload_total/1048576:.2f} MB "
+          f"(attr {prod_attr/1048576:.2f} + fixed {fixed_bytes/1048576:.2f})",
+          flush=True)
 
     # --- dataset: ALL val views ---
     dataset = ColmapDataset(
@@ -188,9 +209,14 @@ def main():
                 mse = torch.mean((pred - gt) ** 2).item()
                 psnrs.append(float("inf") if mse <= 0 else -10.0 * np.log10(mse))
                 del out
+        attr_cum = sum(chunk_bytes[(f, li)]
+                       for f in FIELDS
+                       for li in range(lvl_of_prefix[f][p] + 1))
         entry = {
             "prefix": p,
             "field_steps": {f: int(steps[f][lvl_of_prefix[f][p]]) for f in FIELDS},
+            "attr_cum_bytes": attr_cum,
+            "real_bytes": attr_cum + fixed_bytes,
             "psnr_mean": round(float(np.mean(psnrs)), 4),
             "psnr_std": round(float(np.std(psnrs)), 4),
             "psnr_per_view": [round(x, 4) for x in psnrs],
@@ -208,6 +234,8 @@ def main():
 
     out_path.write_text(json.dumps({
         "run": str(run_dir), "n_views": len(cams),
+        "production_payload_bytes": payload_total,
+        "fixed_bytes": fixed_bytes,
         "field_steps": {f: [int(s) for s in steps[f]] for f in FIELDS},
         "results": results,
     }, indent=1))

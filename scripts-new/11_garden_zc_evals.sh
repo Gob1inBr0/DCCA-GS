@@ -20,11 +20,14 @@ export PATH="$PYBIN:$PATH"   # tmc3 (G-PCC) lives in the DCCA env bin
 export CUDA_VISIBLE_DEVICES="$GPU"
 EVAL_FLAGS=(--data-dir "$DATA" --data-factor 2 --max-width 3200)
 
-echo "[E1] $(date '+%T') layered full-view JSON for std_garden_l0001_s42"
-"$PYBIN/python" "$RUNROOT/scripts/full_view_eval.py" \
-  --run "$RUNS_ROOT/std_garden_l0001_s42" "${EVAL_FLAGS[@]}" \
-  --out "$RUNS_ROOT/std_garden_l0001_s42/layered_curve_150v.json" \
-  > "$LOGDIR/e1_l0001_fullview.log" 2>&1
+echo "[E1] $(date '+%T') layered full-view curves for the three garden runs"
+for TAG in std_garden_l0001_s42 std_garden_l0002_s42 std_garden_l0004_s42; do
+  echo "[E1] $TAG $(date '+%T')"
+  "$PYBIN/python" "$RUNROOT/scripts/full_view_eval.py" \
+    --run "$RUNS_ROOT/$TAG" "${EVAL_FLAGS[@]}" \
+    --out "$RUNS_ROOT/$TAG/layered_curve_150v.json" \
+    > "$LOGDIR/e1_${TAG}.log" 2>&1
+done
 
 echo "[E2] $(date '+%T') ZCausal ablation on std_garden_l0002_s42"
 L2="$RUNS_ROOT/std_garden_l0002_s42"
