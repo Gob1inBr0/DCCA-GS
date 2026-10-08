@@ -142,7 +142,7 @@ def main():
             else:
                 layer = (np.round(q_flat[f] / steps[f][li]).astype(np.int32)
                          - (steps[f][li - 1] // steps[f][li]) * acc)
-            data, params, _ = rb.code_chunk(layer, g_flat[f], None)
+            data, params, _, _ = rb.code_chunk(layer, g_flat[f], None)
             back = rb.decode_chunk(data, g_flat[f], params, None)
             assert (back == layer).all(), f"roundtrip mismatch {f} L{li}"
             if acc is None:
