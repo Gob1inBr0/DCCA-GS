@@ -15,7 +15,7 @@ mkdir -p "$LOGDIR"
 export PATH="$PYBIN:$PATH"
 export CUDA_VISIBLE_DEVICES="$GPU"
 
-ARMS=(std_garden_rate_l0002_s42 std_garden_p0_l0002_s42)
+ARMS=(std_garden_rate_l0002_s42 std_garden_p0_l0002_s42 std_garden_full_l0002_s42)
 
 for TAG in "${ARMS[@]}"; do
   R="$RUNS_ROOT/$TAG"

@@ -27,6 +27,7 @@ RUNS = [
 V1_RUNS = [
     ("rate", "v1 rate-aware ($\\lambda$=0.002)", "tab:green"),
     ("p0", "v1 P0 render loss ($\\lambda$=0.002)", "tab:red"),
+    ("full", "v1 full rate+B3+P0 ($\\lambda$=0.002)", "tab:purple"),
 ]
 
 fig, ax = plt.subplots(figsize=(7.2, 5.0), dpi=160)

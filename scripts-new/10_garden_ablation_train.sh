@@ -7,10 +7,12 @@
 # seed 42, lambda 0.002) and adds one ablation switch per arm:
 #   rate -> spa_rate_aware + spa_bit_budget + sens_per_bit
 #   p0   -> P0 dequantized rendering loss (w=0.05, start 24000, every 8)
+#   full -> v1 full config: rate-aware + B3 ladder align + P0 (the pre-
+#           registered zccombo; ZC is bitstream-side and evaluated separately)
 set -euo pipefail
 
 GPU="${1:?gpu id required}"
-ARM="${2:?arm required: rate|p0}"
+ARM="${2:?arm required: rate|p0|full}"
 
 RUNROOT="${RUNROOT:-/home/project2/DCCA-GS}"
 RUNS_ROOT="${RUNS_ROOT:-/home/project2/dcca_runs}"
@@ -36,6 +38,16 @@ case "$ARM" in
   p0)
     TAG=std_garden_p0_l0002_s42
     ARM_FLAGS=(--cfg.model.p0-render-loss --cfg.model.p0-render-weight 0.05
+      --cfg.model.p0-render-start-iter 24000 --cfg.model.p0-render-interval 8)
+    ;;
+  full)
+    TAG=std_garden_full_l0002_s42
+    ARM_FLAGS=(--cfg.model.spa-rate-aware --cfg.model.spa-rate-tau 1.0
+      --cfg.model.spa-bit-budget
+      --cfg.model.sensitivity-target-mode sens_per_bit
+      --cfg.model.coarse-ladder-align --cfg.model.coarse-ladder-start-iter 24000
+      --cfg.model.coarse-ladder-weight 0.01
+      --cfg.model.p0-render-loss --cfg.model.p0-render-weight 0.05
       --cfg.model.p0-render-start-iter 24000 --cfg.model.p0-render-interval 8)
     ;;
   *) echo "unknown arm: $ARM" >&2; exit 1;;
