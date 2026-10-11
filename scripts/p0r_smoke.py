@@ -63,6 +63,8 @@ def _probe(model, cam, gt, background, step, weight, target_names):
         img_diff = float((p0_pred - pred).abs().mean())
         loss = loss + weight * p0_loss
     loss.backward()
+    loss_val = float(loss)
+    del out, pred, loss
     named = dict(model.named_parameters())
     norms = {}
     for n in target_names:
@@ -70,7 +72,8 @@ def _probe(model, cam, gt, background, step, weight, target_names):
         if p is None or not p.requires_grad:
             continue
         norms[n] = float(p.grad.norm()) if p.grad is not None else None
-    return norms, float(loss), p0_loss_val, img_diff
+    del named
+    return norms, loss_val, p0_loss_val, img_diff
 
 
 def main() -> int:
@@ -99,7 +102,9 @@ def main() -> int:
         data_factor=tcfg.data.data_factor,
         test_every=tcfg.data.test_every,
         white_background=tcfg.data.white_background,
-        preload_images=tcfg.data.preload_images,
+        # 1-78 has 1050 train images (~24 GB as fp32 on GPU); the production
+        # runner launches with no-preload-images and so does the smoke probe.
+        preload_images=False,
         max_width=tcfg.data.max_width,
         cache_images_cpu=tcfg.data.cache_images_cpu,
         device=args.device,
@@ -130,6 +135,8 @@ def main() -> int:
     norms_a, loss_a, _, _ = _probe(
         model, cam, gt, background, args.step, 0.0, target_names
     )
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     norms_b, loss_b, p0_loss_b, img_diff = _probe(
         model, cam, gt, background, args.step, args.weight, target_names
     )
