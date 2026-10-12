@@ -47,6 +47,15 @@ def save_checkpoint(
                 "anchor_demon": model.anchor_demon,
                 "max_radii2D": model.max_radii2D,
             },
+            # Anchor-reorganization runtime state: the post-reinit selection
+            # window derives its budget from these. Without them a resume
+            # inside the window (fork framework arms resume at 15000/24000)
+            # would diverge from the spine it forked from.
+            "core_state": {
+                "spa_post_base": getattr(model.core, "spa_post_base", 0),
+                "spa_reinit_step": getattr(model.core, "spa_reinit_step", 0),
+                "mini_splat_done": getattr(model.core, "mini_splat_done", False),
+            },
             "voxel_size": float(model.voxel_size),
             "spatial_lr_scale": float(model.spatial_lr_scale),
         },
@@ -75,6 +84,13 @@ def load_checkpoint(
         model.anchor_demon = stats["anchor_demon"].to(device)
         model.max_radii2D = stats["max_radii2D"].to(device)
     optim_cfg = OptimConfig(**ckpt["optim_config"])
+    core_state = ckpt.get("core_state")
+    if core_state is not None:
+        core = getattr(model, "core", None)
+        if core is not None:
+            core.spa_post_base = int(core_state.get("spa_post_base", 0))
+            core.spa_reinit_step = int(core_state.get("spa_reinit_step", 0))
+            core.mini_splat_done = bool(core_state.get("mini_splat_done", False))
     return model, optim_cfg, int(ckpt["iteration"]), ckpt
 
 
@@ -233,6 +249,46 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
     model.set_appearance(dataset.num_cameras)
     model.create_optimizer(cfg.optim)
 
+    start_iteration = 0
+    if getattr(cfg, "resume", None):
+        # Fork-framework resume: reload everything the spine had at the fork
+        # point (weights, optimizer moments, densification statistics,
+        # anchor-reorganization runtime state) so the branch continues the
+        # spine instead of restarting beside it. Growth must be finished at
+        # the resume point; the post-reinit selection window still fires via
+        # the restored spa_post_base/spa_reinit_step.
+        model, resume_optim, start_iteration, resume_ckpt = load_checkpoint(
+            cfg.resume, device
+        )
+        # Branch mechanism switches come from THIS invocation's command line
+        # (e.g. p0_render_loss/ramp for an E arm); the checkpoint stores the
+        # spine's config. Architecture fields must match the archive — the
+        # caller owns that guarantee.
+        model.cfg = cfg.model
+        model.create_optimizer(resume_optim)
+        if resume_ckpt.get("optimizer_state") is not None:
+            model.optimizer.load_state_dict(resume_ckpt["optimizer_state"])
+        start_iteration = int(start_iteration)
+        print(
+            f"[Resume] from {cfg.resume} @ iteration {start_iteration} "
+            f"(spa_post_base={getattr(model.core, 'spa_post_base', None)}, "
+            f"spa_reinit_step={getattr(model.core, 'spa_reinit_step', None)}, "
+            f"mini_splat_done={getattr(model.core, 'mini_splat_done', None)})",
+            flush=True,
+        )
+
+    camera_schedule = None
+    if getattr(cfg, "camera_schedule", None):
+        camera_schedule = np.load(cfg.camera_schedule)
+        assert camera_schedule.shape[0] >= optim.max_steps, (
+            f"camera schedule length {camera_schedule.shape[0]} < max_steps "
+            f"{optim.max_steps}"
+        )
+        print(
+            f"[CameraSchedule] fixed sequence loaded: {camera_schedule.shape[0]} steps",
+            flush=True,
+        )
+
     eval_steps = set(cfg.optim.eval_steps)
     save_steps = set(cfg.optim.save_steps)
     eval_steps.add(cfg.optim.max_steps)
@@ -292,11 +348,14 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 flush=True,
             )
 
-    pbar = tqdm.tqdm(range(1, optim.max_steps + 1), desc="Scaffold-GS training")
+    pbar = tqdm.tqdm(range(start_iteration + 1, optim.max_steps + 1), desc="Scaffold-GS training")
     final_metrics: Dict[str, float] = {}
     for iteration in pbar:
         model.update_learning_rate(iteration)
-        cam = random.choice(train_cams)
+        if camera_schedule is not None:
+            cam = train_cams[int(camera_schedule[iteration - 1])]
+        else:
+            cam = random.choice(train_cams)
         retain_grad = iteration < optim.update_until
         out = model.render(
             cam,
@@ -378,6 +437,16 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
                 + optim.lambda_dssim * p0_ssim
             )
             p0_weight = float(getattr(cfg.model, "p0_render_weight", 0.05))
+            # Fork-framework ramp: the constraint eases in over
+            # p0_render_ramp_iters steps instead of switching on at full
+            # weight. ramp=0 keeps the legacy constant weight.
+            p0_ramp = int(getattr(cfg.model, "p0_render_ramp_iters", 0))
+            if p0_ramp > 0:
+                p0_weight *= min(
+                    1.0,
+                    (iteration - int(getattr(cfg.model, "p0_render_start_iter", 24000)))
+                    / float(p0_ramp),
+                )
             loss = loss + p0_weight * p0_loss_raw
             if iteration % 500 == 0:
                 print(

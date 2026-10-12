@@ -136,6 +136,11 @@ class ModelConfig:
     """First iteration where the P0 rendering loss is allowed to run."""
     p0_render_interval: int = 8
     """Run the extra P0 render every N iterations to limit training cost."""
+    p0_render_ramp_iters: int = 0
+    """Ramp length (steps) for the P0 render-loss weight: weight is scaled by
+    min(1, (iter - start_iter) / ramp). 0 keeps the legacy constant weight
+    (bit-identical historical behaviour). Used by the fork framework to make
+    the constraint present-from-earlier instead of a late-phase kick."""
     p0_feat_step: int = 8
     p0_scaling_step: int = 2
     p0_offset_step: int = 8
@@ -528,6 +533,17 @@ class TrainConfig:
     device: str = "cuda"
     seed: int = 42
     enable_tensorboard: bool = False
+    resume: Optional[str] = None
+    """Checkpoint path to resume from: restores model, optimizer, densification
+    statistics and the anchor-reorganization runtime state, then continues the
+    loop from iteration+1. The dataset is still rebuilt from data_dir; growth
+    must be finished at the resume point for the fork framework arms."""
+    camera_schedule: Optional[str] = None
+    """Optional .npy of int camera indices, one per training step (length >=
+    max_steps). When set, step i uses schedule[i-1] instead of a fresh
+    random draw, making every step's camera a deterministic function of the
+    global step number (fork framework requirement: all arms share one
+    spine's camera sequence). Unset keeps random.choice (unchanged)."""
 
 
 @dataclass
