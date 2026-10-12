@@ -280,9 +280,9 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
     camera_schedule = None
     if getattr(cfg, "camera_schedule", None):
         camera_schedule = np.load(cfg.camera_schedule)
-        assert camera_schedule.shape[0] >= optim.max_steps, (
+        assert camera_schedule.shape[0] >= cfg.optim.max_steps, (
             f"camera schedule length {camera_schedule.shape[0]} < max_steps "
-            f"{optim.max_steps}"
+            f"{cfg.optim.max_steps}"
         )
         print(
             f"[CameraSchedule] fixed sequence loaded: {camera_schedule.shape[0]} steps",
