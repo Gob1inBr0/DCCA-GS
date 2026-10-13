@@ -17,10 +17,12 @@
 set -uo pipefail
 
 CODE=/home/project2/DCCA-GS
-RUNS=/home/project2/dcca_runs
+RUNS=/home/project2/dcca_runs            # markers, logs, archive (system disk)
+SHM=/dev/shm/std_matrix_runs             # heavy run outputs live on tmpfs
+mkdir -p "$SHM"
 DATA_ROOT=/home/project2/data
 PYBIN=/home/project2/miniconda3/envs/DCCA/bin
-GPUS_ALLOWED="0 1 2"          # never more than three cards
+GPUS_ALLOWED="0 1 2 3 4 5 6 7"  # whichever is free; cap below keeps us at 3
 MAX_INFLIGHT=3
 ARCHIVE=/dev/shm/dcca_ckpt_archive
 mkdir -p "$RUNS/std_matrix" "$ARCHIVE"
@@ -81,7 +83,7 @@ while true; do
   # 1. harvest finished trainings: layered eval + archive checkpoints (ply untouched)
   for marker in $(ls "$RUNS/std_matrix" 2>/dev/null | grep "^\.running_"); do
     tag=${marker#.running_}
-    if [ -f "$RUNS/$tag/decoded_eval/metrics.jsonl" ] && [ ! -f "$RUNS/std_matrix/.curved_$tag" ]; then
+    if [ -f "$SHM/$tag/decoded_eval/metrics.jsonl" ] && [ ! -f "$RUNS/std_matrix/.curved_$tag" ]; then
       # read the job's factor/width
       jobline=""
       for j in "${JOBS[@]}"; do [ "${j%%|*}" = "$tag" ] && jobline="$j"; done
@@ -91,15 +93,21 @@ while true; do
       export PATH="$PYBIN:$PATH"
       CUDA_VISIBLE_DEVICES=$g PYTHONPATH=/home/T0ng/gsplat-main:$CODE \
         "$PYBIN/python" "$CODE/scripts/full_view_eval.py" \
-        --run "$RUNS/$tag" --data-dir "$data" --data-factor "$factor" --max-width "$width" \
-        --out "$RUNS/$tag/layered_curve_150v.json" \
+        --run "$SHM/$tag" --data-dir "$data" --data-factor "$factor" --max-width "$width" \
+        --out "$SHM/$tag/layered_curve_150v.json" \
         >> "$RUNS/std_matrix/$tag.layered.log" 2>&1
       echo "[stdq] layered $tag exit=$? $(date '+%H:%M')" >> "$LOG"
+      # Permanent archive on system disk: ply models (never deleted) + reading
+      # files; checkpoints and the rest stay on tmpfs.
+      ARC=$RUNS/std_matrix/archive/$tag
+      mkdir -p "$ARC"
+      cp -f "$SHM/$tag/layered_curve_150v.json" "$ARC/" 2>/dev/null
+      cp -f "$SHM/$tag/decoded_eval/metrics.jsonl" "$ARC/decoded_metrics.jsonl" 2>/dev/null
+      cp -f "$SHM/$tag/compress.log" "$ARC/" 2>/dev/null
+      cp -f "$SHM/$tag/provenance.txt" "$ARC/" 2>/dev/null
+      cp -rf "$SHM/$tag/ply" "$ARC/ply" 2>/dev/null
+      echo "[stdq] archived $tag ($(du -sh $ARC | cut -f1)) $(date '+%H:%M')" >> "$LOG"
       touch "$RUNS/std_matrix/.curved_$tag"
-      # archive checkpoints to tmpfs (ply stays on disk)
-      if [ -d "$RUNS/$tag/ckpts" ] && [ ! -L "$RUNS/$tag/ckpts" ]; then
-        mv "$RUNS/$tag/ckpts" "$ARCHIVE/$tag-ckpts" && ln -s "$ARCHIVE/$tag-ckpts" "$RUNS/$tag/ckpts"
-      fi
       rm -f "$RUNS/std_matrix/.running_$tag"
     fi
   done
@@ -114,7 +122,7 @@ while true; do
     touch /home/project2/RELEASE-$g
     touch "$RUNS/std_matrix/.running_$tag"
     echo "[stdq] launch $tag on gpu$g lam=$lam factor=$factor width=$width $(date '+%H:%M')" >> "$LOG"
-    RUNS_ROOT="$RUNS" RUNROOT="$CODE" CONDA_ENV_BIN="$PYBIN" \
+    RUNS_ROOT="$SHM" RUNROOT="$CODE" CONDA_ENV_BIN="$PYBIN" \
     GSPLAT_ROOT=/home/T0ng/gsplat-main WAIT_VRAM_MB=30000 \
     setsid bash "$CODE/scripts/runner_phg_cell.sh" "$g" "$tag" "$data" "$lam" "$tag" 30000 15000 \
       --cfg.model.spa-enabled --cfg.model.spa-ratio 0.85 \
