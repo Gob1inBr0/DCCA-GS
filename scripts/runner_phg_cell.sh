@@ -14,6 +14,8 @@ UPDATE_UNTIL=${7:-45000}
 shift 7
 EXTRA=("$@")
 WAIT_VRAM_MB=${WAIT_VRAM_MB:-20000}
+EVAL_FACTOR=${EVAL_FACTOR:-1}
+EVAL_MAX_WIDTH=${EVAL_MAX_WIDTH:-1600}
 
 # Portable defaults (2026-10-08): no machine-specific paths. Override per
 # machine via RUNROOT / RUNS_ROOT / CONDA_ENV_BIN / GSPLAT_ROOT.
@@ -88,6 +90,7 @@ mkdir -p "$R"
   echo "conda_env_bin: ${CONDA_ENV_BIN:-<unset, using PATH>} (gsplat: ${GSPLAT_ROOT:-<unset>})"
   echo "git_commit: $(git -C "$RUNROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "git_branch: $(git -C "$RUNROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  echo "eval_factor: $EVAL_FACTOR  eval_max_width: $EVAL_MAX_WIDTH"
   echo "git_dirty_file_count: $(git -C "$RUNROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
   git -C "$RUNROOT" status --porcelain 2>/dev/null | head -50 | sed 's/^/git_dirty: /'
   echo -n "runner_argv:"; printf ' %q' "$0" "$@"; echo
@@ -121,7 +124,7 @@ CUDA_VISIBLE_DEVICES="$GPU" python scripts/eval_decoded.py \
   --artifact-dir "$R/bitstreams" \
   --data-dir "$DATA" \
   --result-dir "$R/decoded_eval" \
-  --data-factor 1 --max-width 1600 --no-preload-images > "$R/eval.log" 2>&1
+  --data-factor "$EVAL_FACTOR" --max-width "$EVAL_MAX_WIDTH" --no-preload-images > "$R/eval.log" 2>&1
 echo "EVAL_BASELINE_DONE tag=$TAG $(date)"
 
 
