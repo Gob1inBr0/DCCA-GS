@@ -14,7 +14,7 @@
 
 本文档回答一个问题：**把 GaussianSpa 的训练侧稀疏化（ADMM + 硬稀疏预算）引入 PHG，能否在真实码率口径下带来可用的压缩收益？**
 
-GaussianSpa 是训练侧（compaction）方法，不涉及熵编码；它与 PHG 已有的 mask 机制高度重合，所以本文档的重点不是“从零实现稀疏化”，而是验证一个更窄的问题：**在 PHG 已有的 STE mask + topk 剪枝之上，显式稀疏预算与 ADMM 乘子反馈是否带来增量。**
+GaussianSpa 是训练侧（compaction）方法，不涉及熵编码；它与 PHG 已有的 mask 机制高度重合，所以本文档验证的是一个更窄的问题：**在 PHG 已有的 STE mask + topk 剪枝之上，显式稀疏预算与 ADMM 乘子反馈是否带来增量。**
 
 ## 1. 问题定义
 
@@ -98,14 +98,6 @@ SPA-anchor 是最直接的：编码端 `mask_anchor == True` 的 anchor 才写�
 | A2 | 约束 mask 稀疏度会等比例减少 total_MB（几何+属性），渲染损失可接受 | 需要全流程 compress→decode→eval 验证 |
 | A3 | ADMM 的 κ schedule 能与现有 densify 共存 | κ 固定会抑制生长，必须按比例调度 |
 | A4 | SPA-anchor 比 SPA-offset 更划算 | 一个 anchor 对应 1 组几何 + 50 维 feat + 6 维 scaling + 10×3 offsets |
-
-### 2.3 被剥离的不可靠假设
-
-1. “GaussianSpa 的 +0.4~0.9 dB 会直接迁移”——基线不同（vanilla vs HAC++/Scaffold-GS）；
-2. “mask 稀疏不需要训练侧改动，编码端 topk 就够了”——这正是 SPA 要回答的问题，不能预设；
-3. “κ 固定一个值即可”——与生长机制冲突，需要随迭代调度的 budget schedule；
-4. “ADMM 每一步都要执行”——需要周期性更新（对齐 `adjust_anchor` 的 100 步间隔），否则训练成本不可接受；
-5. “约束 opacity 也能省码流”——opacity 不进码流，约束它只影响渲染，不做。
 
 ## 3. 阶段 A：30k 短训消融（先做）
 

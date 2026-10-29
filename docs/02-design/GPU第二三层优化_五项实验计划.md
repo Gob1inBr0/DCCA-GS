@@ -36,13 +36,13 @@
   块补齐到固定 16384 行（pad 行的 opacity 输出显式置 −1 使 sel=False 天然剔除，
   仅末段有 pad，额外计算 ≤ 一段）；备选 dynamic=True。
 - **已知障碍**：STE_binary/STE_multistep 是 autograd.Function → dynamo graph
-  break，收益打折。备选方案 B（仅在 break 损失过大时启用）：把 STE_binary 重写为
+  break。备选方案 B（仅在 break 损失过大时启用）：把 STE_binary 重写为
   纯原语 `out = x_q.detach() + m*x − (m*x).detach()`（m = (x.abs()<=1)）——前向
   逐位等于 x_q、反向梯度逐位等于 m，与现实现等价，且可被 inductor 融合。重写前
   先过等价性测试（并入 test_step_tax_bitexact.py）。
 - **度量补充**：记录 torch._dynamo.explain 的 graph break 数；warmup 步数加倍
   吸收首编时间。
-- **预登记判定**：共同采纳门。预期 −8-15%（95.6 ms 打五折 ≈ −48 ms）。
+- **预登记判定**：共同采纳门。
 - **成本**：1 天。
 
 ## 3. 实验 B：哈希网格前向 half 精度
@@ -56,13 +56,11 @@
   的截断。先补单测（half 输入下 STE 前向/反向 vs fp32 参照的容差断言，非逐位），
   再上 A/B。
 - **预登记判定**：共同采纳门＋码率门（encode_attributes 总码率 ≤ 基线 +1%）。
-  预期 −5-6%（44.6 打对折）。
 - **成本**：1-2 天。
 
 ## 4. 实验 C：absgrad=True 替换手工梯度聚合
 
-- **打击面**：归约桶 23.6 ms 的一部分＋ retain_grad 的 autograd 路径；收益上限
-  比 3-4% 可能更低（packed 行布局仍需按 gaussian_ids 聚合），如实按实测记。
+- **打击面**：归约桶 23.6 ms 的一部分＋ retain_grad 的 autograd 路径。
 - **做法**：renderer.py 传 absgrad=True；growth.py 的 packed 分支改读
   meta["means2d"].absgrad，删除手工 clone/rescale 链（0.5·W/0.5·H 缩放按
   gsplat 文档确认 absgrad 是否已含；不含则保留缩放）。
@@ -71,7 +69,7 @@
 
 ## 5. 实验 D：tcnn.Encoding 替换自带 _gridencoder（第三层）
 
-- **打击面**：44.6＋5.9 ms 网格前后向＋相邻 GEMM 一部分；最大单项候选。
+- **打击面**：44.6＋5.9 ms 网格前后向＋相邻 GEMM 一部分。
 - **关键约束（预登记即声明）**：tcnn 的哈希布局/函数与自带实现不同，已有
   checkpoint 的网格参数**不可迁移**——这是"换组件重训"而非"加速现模型"，
   与全部历史 run 的可比性断开，需另立新基线（同种子新训 30k）。
@@ -89,7 +87,7 @@
   光栅化输入的高斯数随可见性逐帧变化，pad 到 worst-case 会浪费排序与渲染带宽。
   因此仅对"解码＋码率估计段"捕获，或直接用实验 A 的 reduce-overhead 模式
   （inductor 自带 cudagraph），二选一，避免重复建设。
-- **依赖**：实验 A 先行。**预登记判定**：共同采纳门；预期不定（0-10%）。
+- **依赖**：实验 A 先行。**预登记判定**：共同采纳门。
   **成本**：2-3 天。**排最后。**
 
 ## 7. 执行顺序
@@ -112,7 +110,7 @@ A（compile，1 天）→ B（网格 half，1-2 天）→ C（absgrad，1 天）
 | graph break 吃掉 A 的收益 | _dynamo.explain 定位；备选 STE 原语化重写 |
 | half 下 STE 梯度截断导致训练发散 | 先单测再 A/B；采纳门含码率不升 |
 | 借卡被主会话任务竞争 | 借卡协议＋错峰；fam/reinit 批次优先 |
-| absgrad 收益低于预期 | 预期已写保守（1-4%），证负直接关 |
+| absgrad 收益低于预期 | 证负直接关 |
 | D 的可比性断开 | 预登记即声明"新训线"，不与历史 run 直接混比 |
 
 ## 9. 不做的事（边界）

@@ -2,14 +2,10 @@
 
 更新日期：2026-08-16
 
-本文档面向后来接手的人：看完这一份，就能知道 PHG 当前做到哪、哪些创新点有效/已关闭、
-哪些坑踩过、结果是什么、接下来怎么跑。
+## 1. 项目与仓库
 
-## 1. 项目是什么
-
-DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架。
-目标是：以 HAC++ 压缩管线为基线，叠加创新点（I1/I2/I6 等），同时保持
-“模型可替换 + 稳定属性导出 + 编解码器接口化”的低耦合架构，方便后续灵活改动。
+DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架，
+保持"模型可替换 + 稳定属性导出 + 编解码器接口化"的低耦合架构。
 
 仓库位置：
 
@@ -18,12 +14,12 @@ DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 
 - 5090：`/home/fansonglin/xieliang/chentong/PHG`
 - 旧项目（HAC-plus-main-v1）：`/Users/chen/Documents/HAC-plus-main-v1`（论文/旧实验数据都在这里）
 
-## 2. 当前代码状态
+## 2. 当前代码状态（2026-08-16）
 
 | 分支 | HEAD | 状态 |
 | --- | --- | --- |
 | `main` | `61e60d5` | V2 主线：I2 默认开、I6 可选、I1 关；feat_dim 泛化、训练加速、速度型 runner 均已合入 |
-| `i6-sens-replace` | 本地 `5351e8a`；5090 `1c85b6c` | I6 替换/侧信息实验 + deform hidden 自适应修复；实验结论为“关闭”，修复代码尚未并入 main |
+| `i6-sens-replace` | 本地 `5351e8a`；5090 `1c85b6c` | I6 替换/侧信息实验 + deform hidden 自适应修复；实验结论为"关闭"，修复代码尚未并入 main |
 | `i5-vq` | `9550d68` | I5（VQ）存档分支，已关闭 |
 
 注意：本地和 5090 的 `i6-sens-replace` 历史不完全一致（本地多两个 `load_checkpoint`
@@ -66,12 +62,11 @@ DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 
 9. **I6 替换/侧信息结论**：预测器输入与敏感度 EMA 相关性最佳仅 0.0086（杀阈 0.3）；
    真值敏感度重排在训练好的 90k 上反而变大（5.5604 → 5.7143MB）。不要重复投入。
 10. **P0 停止条件**：P0-1 离线增益 1.86~2.30%、P0-2 约 0.1%，均 < 3% 阈值，已关闭。
-11. **5090 使用纪律**：不杀其他用户进程；长训练用带“空卡检测+自动重试”的 runner。
+11. **5090 使用纪律**：不杀其他用户进程；长训练用带"空卡检测+自动重试"的 runner。
 12. **HAC++ 环境**：`conda activate HAC_5090_a100`；`PYTHONNOUSERSITE=1`；
     `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；PATH 要含 tmc3/GPCC。
 13. **不要修改正在运行的 runner 脚本**：bash 是按文件偏移增量读取的，运行中覆盖脚本
-    会导致训练结束后的压缩/评估阶段报 `unexpected EOF`（2026-08-16 120k 运行踩过）；
-    需要改动时先等该轮跑完，或用独立的新脚本。
+    会导致训练结束后的压缩/评估阶段报 `unexpected EOF`（2026-08-16 120k 运行踩过）。
 
 ## 5. 结果汇总（4-28，1600 宽，官方体积口径）
 
@@ -106,8 +101,6 @@ DCCA-GS（原 PHG，PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 
 | 30000 | 6.9730 | 28.193 | 0.8912 | 0.2744 |
 | 60000 | 6.1723 | 28.570 | 0.8935 | 0.2742 |
 | 90000 | 5.5604 | 28.655 | 0.8921 | 0.2767 |
-
-趋势：训练越久体积越小、PSNR 越高但边际递减；90k 是否到顶待 120k 数据。
 
 ### 5.4 Web_Scan feat_dim 粗扫（30k，I2+I6）
 
@@ -144,20 +137,12 @@ bash scripts/step_sweep_4_28.sh <gpu> <run_dir> "30000 60000 90000"
 python scripts/plot_rd_step_4_28.py
 ```
 
-## 7. 当前任务与下一步
+## 7. 任务状态（2026-08-16 时点）
 
-进行中（2026-08-16）：
-
-- GPU0：`4-28_i6_90k_h32_120k`，120k 训练（60k~120k 每 10k 存 ckpt，eval 只在 120k）
-- GPU1：`4-28_i6_90k_h32_l0p002`，λ=0.002 的 90k 训练（第二个 λ 点）
-- 已完成：q_scale RD 7 点；30k/60k/90k step 评估
-
-下一步：
-
-1. λ=0.002 训练完 → compress + eval → 与 λ=0.004 组成 2 点 λ-RD 曲线
-2. 120k 训练完 → 评估 70k/80k/100k/110k/120k → 确定 90k 附近最优轮数
-3. 把 PHG q_scale 曲线、PHG λ 曲线、旧 HAC λ 曲线（HAC 文件夹）和 HAC++ 官方点画在同一张图
-4. 把 deform hidden 修复并入 main，同步三处代码
+进行中：GPU0 `4-28_i6_90k_h32_120k`（120k 训练，60k~120k 每 10k 存 ckpt）；GPU1
+`4-28_i6_90k_h32_l0p002`（λ=0.002 的 90k 训练）。已完成：q_scale RD 7 点；30k/60k/90k step 评估。
+待办：λ=0.002 训练完组成 2 点 λ-RD 曲线；120k 训练完评估 70k/80k/100k/110k/120k
+确定 90k 附近最优轮数；q_scale/λ/旧 HAC 曲线与 HAC++ 官方点画同图；deform hidden 修复并入 main。
 
 ## 8. 旧项目数据位置（HAC 文件夹）
 

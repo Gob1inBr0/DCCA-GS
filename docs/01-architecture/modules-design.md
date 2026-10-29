@@ -3,24 +3,15 @@
 ## Overview
 
 The `gsplat` namespace contains several repo-local modules that package reusable
-CUDA and PyTorch functionality behind clear Python APIs.
-
-Current modules include:
+CUDA and PyTorch functionality behind clear Python APIs:
 
 - `gsplat/geometry`
 - `gsplat/sensors`
 - `gsplat/scene`
 - `gsplat/stage`
 
-These modules are intended to follow a common architectural pattern so that:
-
-- public APIs are easy to discover,
-- backend implementation details stay contained,
-- native CUDA code follows consistent organization and naming,
-- tests validate both API behavior and backend numerical correctness.
-
 This document defines the shared design rules for these modules under `gsplat/`.
-Each module may add domain-specific details in its own `design.md`, but those
+Each module may add domain-specific details in its own `design.md`; those
 module-specific documents should refine this contract rather than replace it.
 
 ## Design Goals
@@ -29,9 +20,8 @@ module-specific documents should refine this contract rather than replace it.
 2. Standardize how native CUDA extensions are organized, built, and exposed.
 3. Encourage reuse through clear layering and boundary ownership.
 4. Make it obvious where new functionality, tests, and native code should live.
-5. Strive to make all functions differentiable by default, with documented
-   exceptions where backward implementation does not make semantic or practical
-   sense.
+5. Make all functions differentiable by default, with documented exceptions
+   where backward implementation does not make semantic or practical sense.
 6. Preserve compatibility with the repo's active CUDA/PyTorch toolchain.
 
 ## Shared Module Pattern
@@ -69,7 +59,7 @@ gsplat/<name>/
     ...
 ```
 
-This pattern has four primary roles:
+Layer roles:
 
 - `functional/`: public stateless Python API
 - `kernels/`: backend dispatch, autograd glue, and native extension bindings
@@ -77,25 +67,18 @@ This pattern has four primary roles:
 - `components/`: optional stateful wrappers that intentionally do not inherit
   `torch.nn.Module`
 
-Not every library must use every layer. The required default is:
-
-- `functional/`
-- `kernels/`
-
-`models/` should be added only when the domain benefits from `torch.nn.Module`
-wrappers or higher-level trainable abstractions.
-
-`components/` may be added when the domain benefits from stateful wrappers or helper
-objects that should not participate in `torch.nn.Module` semantics such as
-parameter registration, module traversal, or `state_dict` ownership.
+Required default layers: `functional/` and `kernels/`.
+`models/` is added only when the domain benefits from `torch.nn.Module` wrappers
+or higher-level trainable abstractions. `components/` is added when the domain
+benefits from stateful wrappers or helper objects that should not participate in
+`torch.nn.Module` semantics such as parameter registration, module traversal, or
+`state_dict` ownership.
 
 ## Layer Responsibilities
 
 ### `functional/`
 
-`functional/` is the canonical public stateless API surface.
-
-It is responsible for:
+The canonical public stateless API surface. Responsible for:
 
 - exposing the names downstream code should import,
 - defining argument, shape, dtype, and return-value contracts,
@@ -110,9 +93,7 @@ Rules:
 
 ### `kernels/`
 
-`kernels/` is the backend implementation layer.
-
-It is responsible for:
+The backend implementation layer. Responsible for:
 
 - loading and validating the native extension,
 - defining `torch.autograd.Function` wrappers where needed,
@@ -123,15 +104,13 @@ It is responsible for:
 Rules:
 
 - `kernels/` may expose helpers used by `functional/`.
-- `kernels/` is allowed to be lower-level and more implementation-oriented.
+- `kernels/` may be lower-level and implementation-oriented.
 - Backend entrypoints should remain explicit rather than hidden behind dynamic
   magic.
 
 ### `models/`
 
-`models/` is the optional `torch.nn.Module` layer.
-
-It is responsible for:
+The optional `torch.nn.Module` layer. Responsible for:
 
 - `nn.Module` wrappers around functional or kernel-level operators,
 - trainable parameter ownership,
@@ -143,15 +122,12 @@ It is responsible for:
 Rules:
 
 - `models/` may depend on `functional/` and `kernels/`.
-- `models/` should not become the only way to access the library's core math.
-- Core stateless operations must remain available without requiring model-layer
-  objects.
+- `models/` should not become the only way to access the library's core math;
+  core stateless operations must remain available without model-layer objects.
 
 ### `components/`
 
-`components/` is the optional non-`nn.Module` stateful layer.
-
-It is responsible for:
+The optional non-`nn.Module` stateful layer. Responsible for:
 
 - stateful wrappers that should not inherit `torch.nn.Module`,
 - helper objects that manage runtime state, caches, indexing structures, or
@@ -169,8 +145,6 @@ Rules:
 
 ## Dependency Boundaries
 
-Libraries should follow this direction:
-
 ```text
 functional/  ->  kernels/  ->  kernels/cuda/
 models/      ->  functional/ and/or kernels/
@@ -186,8 +160,6 @@ Rules:
 - native code may depend on `include/`.
 - `include/` should not depend on Python layers.
 - Public API definitions should not live under `kernels/`.
-
-This keeps backend concerns from leaking into the public API surface.
 
 ## Native CUDA Organization
 
@@ -212,9 +184,6 @@ Rules:
   `*_cuda` / `*_bwd_cuda` entrypoints.
 - Shared native support headers that do not naturally belong to one translation
   unit may live under `include/`.
-
-This keeps reusable device math close to the owning module while keeping host
-launch logic localized.
 
 ## Build and Toolchain Rules
 
@@ -269,13 +238,10 @@ Rules:
 
 ## Boundary Ownership Between Libraries
 
-Each library should own its domain primitives clearly.
-
-Examples:
-
-- `gsplat/geometry` owns generic quaternion, pose, SE3, and trajectory semantics.
-- `gsplat/sensors` may consume those semantics and add sensor-specific projection
-  and shutter-aware glue.
+Each library should own its domain primitives clearly. Examples:
+`gsplat/geometry` owns generic quaternion, pose, SE3, and trajectory semantics;
+`gsplat/sensors` may consume those semantics and add sensor-specific projection
+and shutter-aware glue.
 
 Rule:
 
@@ -286,13 +252,9 @@ Rule:
 ## Testing Structure
 
 Tests for library public APIs should be colocated near the public API layer,
-typically under `functional/`.
-
-Library-specific higher-level tests may also live under:
-
-- `models/` when model-layer behavior needs direct validation,
-- `components/` when non-`nn.Module` stateful wrappers need direct validation,
-- `tests/` if there is a compelling cross-library or system-level reason.
+typically under `functional/`. Library-specific higher-level tests may also live
+under `models/`, `components/`, or `tests/` (for cross-library or system-level
+reasons).
 
 Rules:
 
@@ -304,10 +266,9 @@ Rules:
 
 ## Testing Requirements
 
-Modules under `gsplat/` must verify both API behavior and backend correctness.
-
-This includes validation of both forward behavior and differentiable behavior
-where the operator is documented as differentiable.
+Modules under `gsplat/` must verify both API behavior and backend correctness,
+including forward behavior and differentiable behavior where the operator is
+documented as differentiable.
 
 ### Forward Correctness
 
@@ -318,12 +279,9 @@ The test suite should verify that public operators:
 - preserve established semantics,
 - behave correctly for representative edge cases.
 
-Important edge cases include:
-
-- empty batches when supported,
-- degenerate but valid inputs,
-- out-of-range or invalid cases that should produce status flags,
-- domain-specific numerical corner cases already known to be fragile.
+Important edge cases include: empty batches when supported, degenerate but valid
+inputs, out-of-range or invalid cases that should produce status flags, and
+domain-specific numerical corner cases already known to be fragile.
 
 Branch-coverage rule:
 
@@ -333,9 +291,6 @@ Branch-coverage rule:
   or numerically sensitive fallback paths should not be left untested.
 
 ### Backward Validation
-
-For differentiable operators, tests must do more than verify that gradients are
-finite.
 
 Required validation:
 
@@ -365,7 +320,7 @@ Reference-gradient rule:
 - A finiteness-only test is not sufficient when a meaningful PyTorch reference
   exists.
 
-Representative acceptable references include:
+Representative acceptable references:
 
 - direct PyTorch tensor compositions,
 - analytically equivalent decompositions built from tested lower-level ops,
@@ -380,9 +335,7 @@ Preferred order of evidence:
 ### Numerical Regression Coverage
 
 Continuous operators should have regression-oriented coverage to guard against
- backend drift.
-
-This includes:
+backend drift, including:
 
 - randomized comparisons against references,
 - fixed regression seeds for previously observed mismatches,
@@ -408,9 +361,9 @@ Each module should maintain its own `design.md` that documents:
 - public APIs,
 - testing expectations beyond the shared baseline.
 
-This shared `../01-architecture/modules-design.md` document defines the common contract.
-Individual module design docs should reference or follow it rather than
-redefining the same base rules in conflicting ways.
+This shared `../01-architecture/modules-design.md` document defines the common
+contract. Individual module design docs should reference or follow it rather
+than redefining the same base rules in conflicting ways.
 
 ## Design Constraints
 

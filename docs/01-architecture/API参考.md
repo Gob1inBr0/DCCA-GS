@@ -238,7 +238,7 @@ class Strategy:
     def initialize_state(self, ...): ...               # 建运行状态（DefaultStrategy/MCMCStrategy 才有）
 ```
 
-**自定义策略 = 继承此类**，实现三个 `step_*` 回调即可接入训练循环。
+自定义策略 = 继承此类，实现三个 `step_*` 回调即可接入训练循环。
 
 ### 3.2 `DefaultStrategy`
 
@@ -484,8 +484,7 @@ corrected = color_correct_quadratic(img, ref, num_iters=5, eps=0.5/255)
 
 ## 8. 底层 CUDA 算子（进阶）
 
-> 这些是 `rasterization()` 内部的四个流水线阶段，一般不需要直接用，
-> 但理解它们 = 理解 gsplat 的整个设计。全部位于 `gsplat/cuda/_wrapper.py`。
+> `rasterization()` 内部的四个流水线阶段，全部位于 `gsplat/cuda/_wrapper.py`。
 
 ### 8.1 光栅化流水线四阶段
 
@@ -527,7 +526,7 @@ RollingShutterType.GLOBAL / RollingShutterType.ROLLING  # 卷帘快门类型
 
 ### `gsplat.distributed.cli`
 
-把单卡训练函数一键改造成多卡启动器：
+把单卡训练函数改造成多卡启动器：
 
 ```python
 from gsplat.distributed import cli
@@ -567,7 +566,7 @@ if __name__ == "__main__":
 
 ## 11. 新模块：sensors / scene / experimental
 
-> 这些是 2025-2026 年重构出的新架构（详见 `../01-architecture/modules-design.md`），
+> 2025-2026 年重构出的新架构（详见 `../01-architecture/modules-design.md`），
 > 目前**正在逐步迁移**，日常使用仍以 `rasterization()` 为主。
 
 ### 11.1 `gsplat.sensors` —— 相机/传感器库
@@ -633,7 +632,7 @@ ret = render_scene(scene, out=None, **request)
 gsplat.has_3dgs / has_2dgs / has_3dgut / has_adam / has_reloc / has_losses / has_camera_wrappers
 ```
 
-这些是布尔常量，反映当前安装是否编译了对应 CUDA 内核（JIT 模式下首次调用才编译）。
+布尔常量，反映当前安装是否编译了对应 CUDA 内核（JIT 模式下首次调用才编译），
 写跨环境代码时用它们做特性检测：
 
 ```python

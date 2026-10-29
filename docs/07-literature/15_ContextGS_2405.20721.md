@@ -5,11 +5,10 @@
 | arXiv | https://arxiv.org/abs/2405.20721 |
 | 发表 | NeurIPS 2024（任务指定；txt 为 arXiv v1，2024-05-31，页眉标注 "Preprint. Under review."） |
 | 阅读材料 | 全文（.lit-cache/txt/2405.20721.txt） |
-| 与 DCCA-GS 的关系 | 同类竞品 + 上下文路线对照：它是"锚点级自回归上下文"的代表，与我们底座 HAC++ 的"哈希上下文 + 通道自回归"是两条路线，直接关系我们零侧信息框架的上下文选择 |
 
 > 一句话定位：第一个把图像压缩的上下文模型搬到**锚点层级**的方法——把锚点按体素尺寸分成 3 层，粗层先编码、已解码的粗层锚点当细层锚点的熵编码上下文，再配一个量化的每锚点超先验特征兜底最粗层；对 Scaffold-GS 底座平均省 15×、对 3DGS 省 100×，质量持平或更高。
 
-## 一学：问题与洞察（创新从哪来）
+## 问题与洞察
 
 ### 它认定的主要矛盾
 
@@ -17,13 +16,13 @@
 
 1. 通用压缩方法"逐点独立编码"："Existing methods primarily compress neural Gaussians individually and independently, i.e., coding all the neural Gaussians at the same time, with little design for their interactions and spatial dependence."
 2. Scaffold-GS 消掉了体素内冗余，但锚点之间的冗余没动："the similarity among anchors remains high in certain areas, indicating that spatial redundancy still exists"（Fig. 1(c)）。
-3. **对哈希上下文路线（HAC）的批评就在这里**：第 2.2 节原话——"successive work [5] demonstrates its effectiveness by further introducing hash-feature as a prior for entropy coding. However, [5] codes all the anchors at the same time, and its spatial redundancy can be further reduced."——即 HAC 的哈希先验虽然各自锚点估得准，但所有锚点是**一次性并行**编码的，锚点与锚点之间的空间依赖完全没被熵模型利用。这就是"空间冗余没挖够"的原话出处。
+3. **对哈希上下文路线（HAC）的批评在这里**：第 2.2 节原话——"successive work [5] demonstrates its effectiveness by further introducing hash-feature as a prior for entropy coding. However, [5] codes all the anchors at the same time, and its spatial redundancy can be further reduced."——即 HAC 的哈希先验虽然各自锚点估得准，但所有锚点是**一次性并行**编码的，锚点与锚点之间的空间依赖完全没被熵模型利用。
 
 ### 支撑观察（直觉 / 数据 / 失败实验）
 
 - Fig. 1(c)（第 1 节）：Scaffold-GS 训练出的 0 层锚点与其 1、2 层上下文锚点之间的余弦相似度——相似度在不少区域仍然很高，锚点间冗余存在的直接证据。
 - Fig. 1(d)（第 1 节）：在"基于 Scaffold-GS 的熵编码强基线"上测锚点级上下文的 bit 节省，配 Fig. 1 的 10× 压缩展示（Scaffold-GS 248MB/24.50dB 对 ContextGS 21.81MB/25.08dB，Figure 1）。
-- Fig. 6（第 5.3 节）：层级比例 τ 从 0.2 扫到 0.8（0.8 端点已对照 PDF 第 8 页图轴核实），PSNR 基本不动、体积随 τ 变大——支撑"分层方式对超参不敏感、τ=0.2 全局通用"。
+- Fig. 6（第 5.3 节）：层级比例 τ 从 0.2 扫到 0.8，PSNR 基本不动、体积随 τ 变大——支撑"分层方式对超参不敏感、τ=0.2 全局通用"。
 
 ### 显然的路为什么没走
 
@@ -31,7 +30,7 @@
 - 显然路 B：LOD/Octree 式分层（Octree-GS [28]）。第 5.3 节指出已有 LOD 方法"the anchors from different levels are stored separately"，各层重复存储；它用 anchor forward（粗层锚点直接复用进最细层渲染，式 6 去重）避免重复，Table 3 证实：不复用 15.54MB、不分层 14.73MB、复用后 13.80MB（BungeeNeRF）。
 - 显然路 C：顺手把锚点位置也熵编码。第 5.3 节专门讨论并放弃："the precision of the anchor position is essential to the performance of the model and an adaptive quantization strategy leads to serious performance degradation"；固定步长可行但"greatly decreases the coding speed"，且位置只占码流一小部分（Table 4），索性不编。
 
-## 二学：机制（洞察怎么变成方法）
+## 机制
 
 ### 核心流程
 
@@ -71,7 +70,7 @@ F_{f^k} 是属于 level k 的 MLP；μ/σ 是逐通道高斯参数，Δ 是量�
 | 训练期还是编码期 | 熵模型训练期学，编码/解码期实际执行（训练时 ψ 用当前锚点值模拟解码顺序） |
 | 和渲染质量的距离 | 代理量：纯码率侧信号，靠 λe 与渲染损失联合训练间接服务质量；质量变化作为副产品被报告（体积省的同时 PSNR 反升，Table 1） |
 
-## 三学：证明与包装（创新怎么立住）
+## 实验与结果
 
 ### 实验口径
 
@@ -89,30 +88,7 @@ F_{f^k} 是属于 level k 的 MLP；μ/σ 是逐通道高斯参数，Δ 是量�
 
 ### 消融设计（注明表号）
 
-- **逐组件 2×2 开关（Table 2，BungeeNeRF）**：基线"Scaffold-GS + 熵编码 + 掩码损失"（Ours w/o HP w/o CM）18.67MB/26.93dB；只加锚点级上下文 CM 15.03MB（−19.5%）；只加超先验 HP 15.41MB（−17.5%）；全开 14.00MB/26.90dB（对基线 −25.0%、对 Scaffold-GS 183.0MB 为 −92.3%）。注意正文第 5.3 节自述"reducing the file size by 21% and 10.17%, respectively… 26.1% and 92.5%"，与按 Table 2 直接计算的数字略有出入，以表为准。这个消融的价值：把"上下文模型"和"超先验"两个贡献拆干净，且基线本身已是强熵编码基线（和我们"基础措施不算创新"的口径同思路）。
-- **anchor forward 消融（Table 3）**：不分层 14.73MB / 只分层不复用 15.54MB / 完整 13.80MB——不复用反而比不分层更差，说明"分层 + 复用"必须绑在一起，这个对照设计值得学（专门验证机制内部耦合）。
+- **逐组件 2×2 开关（Table 2，BungeeNeRF）**：基线"Scaffold-GS + 熵编码 + 掩码损失"（Ours w/o HP w/o CM）18.67MB/26.93dB；只加锚点级上下文 CM 15.03MB（−19.5%）；只加超先验 HP 15.41MB（−17.5%）；全开 14.00MB/26.90dB（对基线 −25.0%、对 Scaffold-GS 183.0MB 为 −92.3%）。注意正文第 5.3 节自述"reducing the file size by 21% and 10.17%, respectively… 26.1% and 92.5%"，与按 Table 2 直接计算的数字略有出入，以表为准。基线本身已是强熵编码基线。
+- **anchor forward 消融（Table 3）**：不分层 14.73MB / 只分层不复用 15.54MB / 完整 13.80MB——不复用反而比不分层更差，说明"分层 + 复用"必须绑在一起。
 - **超参稳健性（Figure 6）**：τ∈{0.2,…,0.8}，PSNR 稳定、体积单调变化，支撑固定 τ=0.2 不逐场景调参。
 - **位置编码开关（Table 5）**：w/ vs w/o 锚点位置编码全四个数据集对照——低码率档省体积（Mip360 11.32 对 12.68MB），高码率档反而更大（21.07 对 18.41MB）。
-
-### 贡献列表（原文照抄 + 逐条标注）
-
-1. "We propose the first context model for 3DGS at the anchor level. By predicting the properties of anchors that are not coded yet given already coded ones, we greatly eliminate the spatial redundancy among channels." —— [机制] 首个锚点级上下文模型（末尾 "among channels" 疑为 "among anchors" 的笔误，照抄 txt）。
-2. "We propose a unified compressing framework with the factorized prior, enabling end-to-end entropy coding of anchor features. Besides, a strategy for anchor layering is proposed, which allows already decoded anchors to quickly locate adjacent anchors that are to be decoded. Meanwhile, the proposed method avoids redundant coding of anchors by the proposed anchor forward." —— [机制+工程] 因子化先验统一编码 f/l/O + 可追溯的分层策略 + 去重的 anchor forward。
-3. "The experimental results on real-world datasets demonstrate the effectiveness of the proposed method compared with SOTA and concurrent works. On average across all datasets, our model achieves a compression ratio of 15× compared to the Scaffold-GS model we used as the backbone and 100× compared to the standard 3DGS model, while maintaining comparable or even enhanced fidelity." —— [实证] 四数据集、含 HAC 对比，数字见主结果。
-
-三条均实，无凑数。
-
-### 讲故事方式
-
-主线一句话："Scaffold-GS 消了高斯对锚点的冗余，我消锚点对锚点的冗余——粗层锚点编码细层锚点。"最有力的是 Figure 1 的四联画：冗余存在（余弦相似度热图）→ 我的机制（分级示意）→ bit 节省 → 10× 压缩的渲染对比，一页讲完"为什么-怎么做-值多少"。Table 2 的强基线消融是给审稿人的定心丸：增益不是熵编码本身带来的。
-
-## 对 DCCA-GS 的可借鉴点
-
-1. **锚点级上下文能否嫁接进我们框架（任务重点，按硬约束逐项分析）**：
-   - **解码端可重算性：成立**。式 8 的上下文全部由"已解码锚点的属性 + 自身量化位置"构成，解码端按 K−1→0 同序解码即可现算，无需任何侧信息——这一点不违反我们的零侧信息约束。
-   - **码流契约：有一处硬伤、一处软伤**。硬伤：它的完整版每锚点带一个量化超先验向量 ẑ，这是**新增码流字段**，直接违反"不改码流契约"。零新增字段的嫁接版只取式 8 的 k<K−1 分支（ψ=[f̂_j^{k+1}; l̂_j^{k+1}; x̂_i]，粗层已解码特征+缩放+位置），字段集合不变。软伤：解码顺序从"全部锚点一次解码"变成"分 3 层串行"，且分级映射（式 4-6 的体素量化 + 最小下标代表点规则）必须在解码端按同一规则从存储位置重算——需要把 K=3、τ=0.2 定成常数（ContextGS 本来就全数据集共用）并让体素尺寸从已有 header/bounds 推出，否则就要动 header。这属于"解释规则"的扩充而非字段增删，是否可接受要在我们契约文档里明确裁决。
-   - **与我们 SPA 的相互作用是最大风险**：ContextGS 在锚点初始化后一次性分级；我们的锚点集合被 SPA 和 densify 动态增删，分级必须在 SPA 收尾后重算，而熵模型是训练学的——训练期上下文结构与最终编码期不一致。可行的合并方案：SPA 删净锚点后冻结集合，重算分级，再对熵模型（含我们共享的 AQM MLP 之外的条件分支）做一段 finetune——这正好能和 GaussianSpa 借鉴点 1 的 light tuning 阶段合成同一个收尾阶段。
-   - **收益预期要先打折**：ContextGS 对 HAC 的最大增益在 BungeeNeRF（同体积 +0.42dB，Table 1）；我们的锚点数已被 SPA 砍到约 1/2 甚至更低，锚点间冗余同步缩小，且我们底座是 HAC++（上下文已比 HAC 强）。验证实验：DB playroom，SPA 冻结后，哈希上下文对照"哈希 + 粗层已解码锚点上下文"，报 BD-rate 与解码时间。
-2. **解码开销的现成答辩证据（第 5.3 节）**：锚点级自回归只有 K=3 轮循环、层内并行，解码 17.85s（Table 4）与 HAC 量级相当——将来若我们做任何"按组条件化"的上下文，可用它反驳"自回归=解码慢"的天然质疑。
-3. **位置字段的教训（第 5.3 节 + Table 4/5）**：给锚点位置做熵编码，低码率省一点、高码率反而变大、编解码时间翻倍。我们本就把 xyz 原样进码流，这份证据支持我们继续不动位置字段，把压缩预算留给 feat/scaling/offsets。
-4. **消融设计可搬**：Table 2 的"强基线 + 2×2 组件开关"与 Table 3 的"机制内部耦合对照（分层 vs 复用）"正是我们主实验章节该有的两组对照——尤其 Table 3 提醒我们：如果将来引入任何分层/分组结构，要单独验证"结构"与"结构带来的复用"是否必须绑定。

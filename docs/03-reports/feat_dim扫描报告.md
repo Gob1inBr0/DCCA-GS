@@ -36,9 +36,6 @@ I2（content-aware 20000 起）+ I6（sensitivity 20000 起）；同一随机种
 - 体积下降主要来自 feat 字节（0.53→1.59MB）与 MLP 字节（0.021→0.255MB），
   scaling/offsets/hash/xyz 基本不变。
 
-下一步：对 dim16/32/50 做 q_scale 联合 RD 扫描，算 BD-rate（基线 dim50）；
-再对优选维度到 4-28 30k 验证。
-
 ## RD 扫描（q_scale 联合 0.5/0.75/1.0/1.25/1.5，Web_Scan 30k）
 
 | q_scale | dim16 PSNR / MB | dim32 PSNR / MB | dim50 PSNR / MB |

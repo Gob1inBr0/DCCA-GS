@@ -8,11 +8,10 @@ Clone the repository and submodules with
 git clone --recurse-submodules URL
 ```
 
-For CUDA development, it is recommend to install with `BUILD_NO_CUDA=1`, which
-will disable compiling during pip install, and instead use JIT compiling on your
-first run. The benefit of JIT compiling is that it does incremental compiling as
-you modify your cuda code so it is much faster than re-compile through pip. Note
-the JIT compiled library can be found under `~/.cache/torch_extensions/py*-cu*/`.
+For CUDA development, install with `BUILD_NO_CUDA=1`, which disables compiling
+during pip install and uses JIT compiling on the first run (incremental
+recompiling as you modify CUDA code). The JIT compiled library can be found
+under `~/.cache/torch_extensions/py*-cu*/`.
 
 ```bash
 BUILD_NO_CUDA=1 pip install -e .[dev]
@@ -26,15 +25,16 @@ pip install -e .[dev]
 
 ## Protect Main Branch over Pull Request
 
-It is recommended to commit the code into the main branch as a PR over a hard push, as the PR would protect the main branch if the code break tests but a hard push won't. Also squash the commits before merging the PR so it won't span the git history.
+Commit code into the main branch as a PR over a hard push (a PR protects the
+main branch if the code breaks tests; a hard push won't). Squash the commits
+before merging the PR so it won't span the git history.
 
 The current tests that will be triggered by PR:
 
 - `.github/workflows/core_tests.yml`: Black formating. Pytests.
 - `.github/workflows/doc.yml`: Doc build.
 
-Because we check code formatting in CI, it is recommend to run the formatting
-script before committing code:
+Code formatting is checked in CI; run the formatting script before committing:
 
 ```bash
 lint/format-code.sh
@@ -46,13 +46,15 @@ To check formatting without modifying files, use:
 lint/format-code.sh --check
 ```
 
-After cloning the repository, run the bootstrap script to initialize it for development, including the pre-commit formatting hook:
+After cloning the repository, run the bootstrap script to initialize it for
+development, including the pre-commit formatting hook:
 
 ```bash
 ./bootstrap.sh
 ```
 
-Since there is no GPU supported on github workflow container, we don't test against those cuda unit tests under `tests/` in PR. So it is recommended to check test pass locally before committing:
+There is no GPU on the GitHub workflow container, so the CUDA unit tests under
+`tests/` are not run in PR. Check tests pass locally before committing:
 
 ```bash
 pytest tests/  # check for all tests
@@ -60,11 +62,13 @@ pytest tests/test_basic.py  # check for a single test file.
 pytest -sv  # mirror the GPU CI (all tests live under tests/)
 ```
 
-Note that `pytest` recognizes and runs all functions named as `test_*`, so you should name the test functions in this pattern. See `test_basic.py` as an example.
+`pytest` recognizes and runs all functions named as `test_*`; name test
+functions in this pattern. See `test_basic.py` as an example.
 
 ## Build the Doc Locally
 
-If you want to contribute to the doc, here is the way to build it locally. The source code of the doc can be found in `docs/source` and the built doc will be in `_build/`. If you are interested in contributing with the doc, here are some examples on documentation: [viser](https://github.com/nerfstudio-project/viser/tree/main/docs/source), [nerfstudio](https://github.com/nerfstudio-project/nerfstudio/tree/main/docs), [nerfacc](https://github.com/KAIR-BAIR/nerfacc/tree/master/docs/source).
+The source code of the doc is in `docs/source` and the built doc will be in
+`_build/`.
 
 ```bash
 pip install -e .[dev]
@@ -74,15 +78,12 @@ sphinx-build docs/source _build
 
 ## Clangd setup (for Neovim)
 
-[clangd](https://clangd.llvm.org/) is a nice tool for providing completions,
-type checking, and other helpful features in C++. It requires some extra effort
-to get set up for CUDA development, but there are fortunately only three steps
-here.
+[clangd](https://clangd.llvm.org/) provides completions, type checking, and
+other helpful features in C++. Setup for CUDA development takes three steps.
 
-**First,** we should install a `clangd` extension for our IDE/editor.
-
-For Neovim+lspconfig users, this is very easy, we can simply install `clangd`
-via Mason and add a few setup lines in Lua:
+**First,** install a `clangd` extension for the IDE/editor. For
+Neovim+lspconfig users, install `clangd` via Mason and add a few setup lines
+in Lua:
 
 ```lua
 require("lspconfig").clangd.setup{
@@ -90,21 +91,19 @@ require("lspconfig").clangd.setup{
 }
 ```
 
-**Second,** we need to generate a `.clangd` configuration file with the current
-CUDA path argument.
-
-Make sure you're in the right environment (with CUDA installed), and then from
-the root of the repository, you can run:
+**Second,** generate a `.clangd` configuration file with the current CUDA path
+argument. Make sure you're in the right environment (with CUDA installed), and
+from the root of the repository, run:
 
 ```sh
 echo "# Autogenerated, see .clangd_template\!" > .clangd && sed -e "/^#/d" -e "s|YOUR_CUDA_PATH|$(dirname $(dirname $(which nvcc)))|" .clangd_template >> .clangd
 ```
 
-**Third,** we'll need a
+**Third,** generate a
 [`compile_comands.json`](https://clang.llvm.org/docs/JSONCompilationDatabase.html)
 file.
 
-If we're working on PyTorch bindings, one option is to generate this using
+If working on PyTorch bindings, one option is to generate this using
 [`bear`](https://github.com/rizsotto/Bear):
 
 ```sh
@@ -121,8 +120,8 @@ bear -- pip install -e gsplat/
 cat compile_commands.json
 ```
 
-Alternatively: if we're working directly in C (and don't need any PyTorch
-binding stuff), we can generate via CMake:
+Alternatively: if working directly in C (and not needing any PyTorch binding
+stuff), generate via CMake:
 
 ```sh
 # From 3dgs-exercise/csrc/build.
@@ -134,9 +133,3 @@ cmake .. -DCMAKE_EXPORT_COMPILE_COMMANDS=on
 # Make sure the file is not empty!
 cat compile_commands.json
 ```
-
-<!-- 
-**Known issues**
-
-- The torch extensions include currently raises an error:
-  `In included file: use of undeclared identifier 'noinline'; did you mean 'inline'?` -->

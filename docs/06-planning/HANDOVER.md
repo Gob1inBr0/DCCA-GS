@@ -9,39 +9,7 @@
 更新：2026-08-22；分支：`main`；HEAD：`1b65191`
 （5 组件方向：I2 + I6 + SPA + MiniSplat + MLP 量化；语义先验已暂停）
 
-> 本文件的目标：一个没有上下文的新 agent 读完本文件后，能直接连上 5090、
-> 复现已有实验、查看结果、继续排队实验，并知道所有已踩过的坑。
-
-## 0. 30 秒上手
-
-```bash
-# 在 5090 上
-cd /home/fansonglin/data_space/DCCA-GS/PHG
-conda activate HAC_5090_a100
-source scripts/env_5090.sh          # 设置 PYTHONPATH / PATH(tmc3) / PYTHONNOUSERSITE / CUDA_ALLOC_CONF
-pytest tests/ -q                    # 数据/增长/语义/MiniSplat 单测在 5090 环境跑
-python train.py train --help        # 训练参数
-```
-
-当前正在跑什么、看哪里：
-
-```bash
-ps -ef | grep -E 'train.py train|queue_|runner_' | grep -v grep
-nvidia-smi
-tail -f /home/fansonglin/data_space/DCCA-GS/runs/spa_fixed_launch.sh
-tail -f /home/fansonglin/data_space/DCCA-GS/runs/spa_minisplat_launch.sh
-```
-
-所有实验数字在 `docs/data/experiments.csv`（2026-08-22 已含 MiniSplat/语义行），
-5090 结果目录在 `/home/fansonglin/data_space/DCCA-GS/runs/`。
-
-## 1. 项目是什么
-
-DCCA-GS（原 PHG / PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架，
-目标是“模型可替换 + 稳定属性导出 + 编解码器接口化”的低耦合架构，在 HAC++ 主链路上
-叠加创新点并给出量化分析。
-
-### 1.1 三个仓库位置
+## 1. 仓库位置
 
 | 位置 | 路径/地址 | 说明 |
 | --- | --- | --- |
@@ -49,11 +17,9 @@ DCCA-GS（原 PHG / PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 
 | 本地 | `/Users/chen/Documents/DCCA-GS` | 开发/文档/画图 |
 | 5090 | `/home/fansonglin/data_space/DCCA-GS/PHG` | 训练/压缩/评估 |
 
-注意：本地 SSH(22) 被代理挡，但 **HTTPS 可直推**
-（`git push https://github.com/Gob1inBr0/DCCA-GS.git main`，osxkeychain 存有凭据）；
-bundle 经 5090 中转仅作备用（见 §8）。
+本地 SSH(22) 被代理挡，HTTPS 可直推（`git push https://github.com/Gob1inBr0/DCCA-GS.git main`，osxkeychain 存有凭据）；bundle 经 5090 中转仅作备用（见 §6）。
 
-### 1.2 创新点状态总表
+## 2. 创新点状态总表
 
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
@@ -71,24 +37,17 @@ bundle 经 5090 中转仅作备用（见 §8）。
 | I5（VQ） | ❌ 已关闭 | 存档分支 `i5-vq` |
 | I6 替换/侧信息 | ❌ 已关闭 | 相关性 ≤0.0086，真值侧信息反而更大 |
 
-## 2. 环境（打开即用）
-
-### 2.1 5090 环境
+## 3. 环境（5090）
 
 - conda 环境：`HAC_5090_a100`（Python 3.10.20）
 - 关键版本：torch 2.7.1+cu128、torchvision 0.22.1+cu128、gsplat 1.5.3、
   pycolmap 4.1.1、tyro 1.0.15、lpips 0.1.4、pytest 9.1.1
 - CUDA 扩展（源码构建，pip 显示 0.0.0）：`gridencoder`、`arithmetic`、`simple_knn`
 - GPCC：`tmc3` 放在 conda env `bin/`，由 `hacplus/utils/gpcc_utils.py` 按 PATH 调用
-
-环境文件：
-
 - `scripts/env_5090.sh`：一次性设置 `PHG_ROOT`/`PYTHONPATH`/`PYTHONNOUSERSITE=1`/
   `PATH`（含 tmc3）/`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
-- `environment.yml`：conda 依赖清单（含 torch 版本坑的注释）
-- `../04-guides/环境说明.md`：完整环境说明（数据路径、坑、快速开始）
 
-### 2.2 数据集路径（5090）
+数据集路径（5090）：
 
 | 数据集 | 路径 |
 | --- | --- |
@@ -98,45 +57,19 @@ bundle 经 5090 中转仅作备用（见 §8）。
 | Mip360（9 场景） | `/home/fansonglin/xieliang/Chenzhenxin/dataset/360_v2/<scene>` |
 | T&T | `/home/fansonglin/xieliang/Chenzhenxin/dataset/tandt_db/tandt/{train,truck}` |
 
-## 3. 代码结构
+## 4. 代码接口与常用命令
 
-```text
-PHG/
-├── train.py                      # tyro 子命令：train / eval / export / compress
-├── environment.yml
-├── scaffold_gs/
-│   ├── config.py                 # Data/Model/Optim/Compress 四组配置
-│   ├── datasets.py               # COLMAP 读取、max_width 缩放、CPU 缓存
-│   ├── model.py                  # BaseGaussianModel / MODELS 注册表
-│   ├── hac_core.py               # HACCoreView（vendored core 的唯一稳定视图）
-│   ├── hacpp.py                  # HACPlusModel + HACPlusCodec（encode/decode/迁移）
-│   ├── renderer.py               # prefilter + gsplat rasterization
-│   ├── growth.py                 # 生长/剪枝/统计（torch.scatter_reduce）
-│   ├── trainer.py                # 训练循环（含 SPA/rate/sensitivity loss）
-│   ├── losses.py
-│   ├── mlp_quant.py              # 逐通道量化 + 静态算术编码
-│   ├── attr_ctx.py               # R4 预测器（8-bit payload）
-│   └── codec.py                  # CompressionCodec 接口
-├── hacplus/                      # vendored 官方 HAC++ 核心
-│   ├── scene/gaussian_model.py   # 锚点/MLP/SPA 状态/ADMM 剪枝
-│   └── utils/                    # entropy_models / codec_consistency / gpcc_utils ...
-├── scripts/                      # runner / 扫描 / 收集 / 绘图 / 审计（见 §4）
-├── tests/                        # pytest（5090 上 37 passed）
-└── docs/                         # 设计文档、实验报告、HANDOVER（本文件）
-```
+关键接口：
 
-关键接口（改代码前先看）：
-
-- `BaseGaussianModel`：`init_from_pcd / render / training_statis / adjust_anchor /
+- `BaseGaussianModel`（`scaffold_gs/model.py`）：`init_from_pcd / render / training_statis / adjust_anchor /
   optimizer_groups / state_dict / export_attributes`
-- `HACCoreView`：唯一允许触碰 `core._anchor` 等私有属性的地方
-- `HACPlusCodec(CompressionCodec)`：`encode(model, out_dir, **kw)` /
+- `HACCoreView`（`scaffold_gs/hac_core.py`）：唯一允许触碰 `core._anchor` 等私有属性的地方
+- `HACPlusCodec(CompressionCodec)`（`scaffold_gs/hacpp.py`）：`encode(model, out_dir, **kw)` /
   `decode(artifact_dir, **kw)`
 - `MODELS` / `CODECS` 注册表：新增模型/编解码器只需注册
+- `train.py` tyro 子命令：train / eval / export / compress
 
-## 4. 常用命令
-
-### 4.1 训练（推荐配置 = I2+I6，dim50，h32，110k，λ0.002/0.004）
+训练（推荐配置 = I2+I6，dim50，h32，110k，λ0.002/0.004）：
 
 ```bash
 cd /home/fansonglin/data_space/DCCA-GS/PHG
@@ -160,27 +93,12 @@ python train.py train \
   --cfg.optim.update-until 45000 --cfg.optim.update-interval 100
 ```
 
-开 SPA 时追加：
+- 开 SPA 追加：`--cfg.model.spa-enabled --cfg.model.spa-ratio 0.5 --cfg.model.spa-rho 0.001`
+- 关布尔开关用 `--no-*` 形式（tyro 不认"空格+False"），如 `--cfg.model.no-sensitivity-enabled`
+- 通用 cell runner（训练+compress+eval+MLP 量化一条龙）：
+  `bash scripts/runner_phg_cell.sh <gpu> <scene> <data_dir> <lambda> <tag> <max_steps> <update_until> [extra flags...]`
 
-```bash
---cfg.model.spa-enabled --cfg.model.spa-ratio 0.5 --cfg.model.spa-rho 0.001
-```
-
-关布尔开关用 `--no-*` 形式（tyro 不认“空格+False”）：
-
-```bash
---cfg.model.no-sensitivity-enabled
---cfg.model.no-content-aware-quant --cfg.model.no-sensitivity-enabled
-```
-
-通用 cell runner（训练+compress+eval+MLP 量化一条龙）：
-
-```bash
-bash scripts/runner_phg_cell.sh <gpu> <scene> <data_dir> <lambda> <tag> \
-  <max_steps> <update_until> [extra flags...]
-```
-
-### 4.2 压缩与评估
+压缩与评估：
 
 ```bash
 python train.py compress --cfg.ckpt <ckpt.pth> --cfg.out-dir <out>/bitstreams \
@@ -191,33 +109,12 @@ python scripts/eval_decoded.py --artifact-dir <out>/bitstreams \
   --data-factor 1 --max-width 1600 --no-preload-images
 ```
 
-### 4.3 MLP 量化（推荐 cd8/rest16）
+RD 与审计脚本：`rd_sweep.py`（固定 checkpoint 的 q-scale RD 扫描）、`plot_db_rd.py`（DB RD 双线图）、
+`codec_efficiency.py`（实际/估计比特效率）、`kl_audit.py`（模型交叉熵 vs 经验熵）、
+`fit_attr_ctx.py`（拟合 R4 预测器，`--fields scaling`）、`collect_queue_results.py`（扫描结果目录→
+追加统一 CSV + SPA-RD JSON）、`residual_feasibility.py`（已关闭）。
 
-```bash
-python scripts/mlp_quant_sweep.py --ckpt <ckpt.pth> --data-dir <DATA_DIR> \
-  --result-dir <out>/mlp_quant_cd8_rest16 --data-factor 1 --max-width 1600 \
-  --no-preload-images --skip-baseline \
-  --group-bits mlp_complexity:8 mlp_deform:8 mlp_opacity:16 mlp_cov:16 \
-               mlp_color:16 mlp_grid:16
-```
-
-### 4.4 RD 与审计脚本
-
-| 脚本 | 用途 |
-| --- | --- |
-| `scripts/rd_sweep.py` | 固定 checkpoint 的 q-scale RD 扫描 |
-| `scripts/plot_db_rd.py` | DB RD 双线图（无 SPA vs +SPA，线性轴） |
-| `scripts/codec_efficiency.py` | 实际/估计比特效率（≈1 说明编码器贴合模型） |
-| `scripts/kl_audit.py` | 模型交叉熵 vs 经验熵（KL 代理） |
-| `scripts/residual_feasibility.py` | CompGS 式残差编码离线验证（已关闭） |
-| `scripts/fit_attr_ctx.py` | 拟合 R4 预测器（`--fields scaling`） |
-| `scripts/collect_queue_results.py` | 扫描结果目录 → 追加统一 CSV + 生成 SPA-RD JSON |
-
-### 4.5 测试
-
-```bash
-pytest tests/ -q     # 5090 预期 37 passed
-```
+测试：`pytest tests/ -q`（5090 预期 37 passed）。
 
 ## 5. 实验结果（截至 2026-08-19）
 
@@ -274,7 +171,26 @@ total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source`）
 - MLP 量化：16-bit 全量零损失；8-bit 全量 -0.079 dB 且体积反增（mlp_grid 8-bit
   使属性码率 +0.25 MiB）；opacity 对 8-bit 最敏感；推荐 cd8/rest16。
 
-## 6. 码流契约与版本
+## 6. Git 同步（本地 ↔ GitHub ↔ 5090）
+
+```bash
+# 方式一（推荐）：HTTPS 直推（SSH 22 被代理挡）
+cd /Users/chen/Documents/DCCA-GS
+git push https://github.com/Gob1inBr0/DCCA-GS.git main
+
+# 方式二（备用）：bundle 经 5090 中转
+git bundle create /tmp/phg-main.bundle main
+# scp 到 5090；在 5090 上：
+cd /home/fansonglin/data_space/DCCA-GS/PHG
+git fetch /tmp/phg-main.bundle main:refs/heads/bundle-main
+git push origin bundle-main:main
+# 本地再 git fetch/pull 同步
+```
+
+5090 工作区保持 `i6-sens-replace` 或 `main` 均可（一直以文件同步+远端 main 为准，
+不依赖 5090 本地分支与远端一致）。
+
+## 7. 码流契约与版本
 
 - 体积口径：解码必需载荷 = G-PCC 锚点 + feat/scaling/offsets 流 + masks + hash +
   压缩后 MLP 载荷 + 边界/头部；不含 checkpoint/调试文件；
@@ -287,7 +203,7 @@ total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source`）
   （数学上完全等价，因为后 4 列是死权重）；
 - 评估协议：`--data-factor 1 --max-width 1600 --test-every 8`；全分辨率数字不可比。
 
-## 7. 踩坑清单（必读）
+## 8. 踩坑清单（必读）
 
 1. `PYTHONNOUSERSITE=1` 必须设：`~/.local` 有 torch 2.12.1，会盖掉 conda 的
    2.7.1+cu128 并导致 torchvision 崩溃；
@@ -297,31 +213,11 @@ total_mb,anchors_trained,anchors_coded,metric_type,metric_value,notes,source`）
 5. **不要覆盖正在运行的 runner 脚本**（bash 按偏移读取，会 `unexpected EOF`）；
 6. tyro 布尔开关用 `--cfg.model.no-xxx`，不能用 `--cfg.model.xxx False`；
 7. SPA 预算必须锚定 `max(N_ref)`（`κ=ratio×N_t` 会几何塌缩到 80 个锚点）；
-8. I6 依赖 I2（配置校验强制），所以“w/o I2”= I2 与 I6 一起关；
+8. I6 依赖 I2（配置校验强制），所以"w/o I2"= I2 与 I6 一起关；
 9. deform hidden 加载：`load_state_dict` 已按 checkpoint 形状自适应重建；
 10. 体积口径差异：旧数字若没有 `bit_mlp`/MLP 载荷，不可直接比；
 11. 5090 纪律：不杀其他用户进程；长训练用带空卡检测+自动重试的 runner；
-12. 本地 git push 被代理挡（22 端口），用 bundle 经 5090 中转（见 §8）。
-
-## 8. Git 同步（本地 ↔ GitHub ↔ 5090）
-
-```bash
-# 方式一（推荐）：HTTPS 直推（SSH 22 被代理挡）
-cd /Users/chen/Documents/DCCA-GS
-git push https://github.com/Gob1inBr0/DCCA-GS.git main
-
-# 方式二（备用）：bundle 经 5090 中转
-git bundle create /tmp/phg-main.bundle main
-# scp 到 5090（可用 expect：scp /tmp/phg-main.bundle small5090:/tmp/phg-main.bundle）
-# 在 5090 上
-cd /home/fansonglin/data_space/DCCA-GS/PHG
-git fetch /tmp/phg-main.bundle main:refs/heads/bundle-main
-git push origin bundle-main:main
-# 本地再 git fetch/pull 同步
-```
-
-5090 工作区保持 `i6-sens-replace` 或 `main` 均可（我们一直以文件同步+远端 main 为准，
-不依赖 5090 本地分支与远端一致）。
+12. 本地 git push 被代理挡（22 端口），用 HTTPS 直推或 bundle 经 5090 中转（见 §6）。
 
 ## 9. 当前状态（2026-08-22，实时）
 
@@ -343,34 +239,7 @@ git push origin bundle-main:main
 - **drjohnson 30k cell1/cell2 泛化** ✅（cell1 29.3899/2.0379，cell2 29.3146/2.0021；
   MiniSplat −0.073 dB / −1.8% 体积 → 场景依赖，非普适）
 
-接下来（按优先级，详见 `../03-reports/MiniSplat×SPA_实验报告.md` §7）：
-
-| 任务 | 优先级 |
-| --- | --- |
-| E1 MiniSplat × 预算曲线补齐 | P0 |
-| E4 MiniSplat × 大场景 4-28 | P0 |
-| E3 MiniSplat 参数敏感性 / E5 与 SPA 解耦 / E7 多场景多 seed | P1 |
-
-监控：
-
-```bash
-ls /home/fansonglin/data_space/DCCA-GS/runs/                 # 最新 run 目录
-tail -f /home/fansonglin/data_space/DCCA-GS/runs/*/train.log
-```
-
-## 10. 给下一个 Agent 的行动清单
-
-1. 读本文件 + `../04-guides/环境说明.md` + `../04-guides/环境配置与交接.md` +
-   `../06-planning/DCCA-GS_项目变更文档.md`；
-2. 5090：`conda activate HAC_5090_a100 && source scripts/env_5090.sh`，
-   `pytest tests/ -q` 跑单测；
-3. 看 `../data/experiments.csv` 和 `runs/db_rd_110k.json` /
-   `runs/db_spa_rd_110k.json` 了解已有结果；
-4. 看 `ps`/日志确认队列状态，不要重复启动已在跑的任务；
-5. 需要新实验时用 `runner_phg_cell.sh` 或 `queue_*` 脚本，遵循 §7 的坑；
-6. 所有新结果写回统一 CSV（`collect_queue_results.py` 或手动追加），并 commit+push。
-
-## 11. 相关文档索引
+## 10. 相关文档索引
 
 - `../04-guides/环境说明.md`：环境
 - `../04-guides/环境配置与交接.md`：另一台 Linux+NVIDIA 机器的完整配置步骤
@@ -383,17 +252,14 @@ tail -f /home/fansonglin/data_space/DCCA-GS/runs/*/train.log
 - `HAC-plus-main-v1/陈曈提案_DCCA-GS论文版.docx`（及中文版）：IEEE 提案（论文级内容；
   旧 `陈曈提案_PHG论文版.docx` 保留归档）
 
-## 12. 改名说明（重要）
+## 11. 改名说明（重要）
 
 项目显示名已统一为 **DCCA-GS（Decoder-Reproducible Content-Adaptive Compression
 for Anchor-Based 3D Gaussian Splatting）**，原名为 PHG（PKUGS-HAC-Gsplat）。
 
-当前已改名：
+当前已改名：仓库显示名、README、HANDOVER、环境说明、提案标题；对外文案统一用 DCCA-GS。
 
-- 仓库显示名、README、HANDOVER、环境说明、提案标题；
-- 对外文案统一用 DCCA-GS。
-
-**为兼容性暂时保留、后续统一改名的清单**（不要在本版本改动，否则会破坏运行中任务
+**为兼容性暂时保留、后续统一改名的清单**（不要在历史版本改动，否则会破坏运行中任务
 与旧码流）：
 
 | 保留项 | 原因 | 后续目标名 |
@@ -404,5 +270,5 @@ for Anchor-Based 3D Gaussian Splatting）**，原名为 PHG（PKUGS-HAC-Gsplat�
 | CSV `group` 名（`phg_*`） | 收集器去重与历史数据 | `dcca_*`（需迁移 CSV） |
 | 提案/文档文件名中的 PHG | 链接与归档稳定性 | 随版本发布统一迁移 |
 
-改名原则：显示名与对外文案立即生效；内部标识只在“不影响运行中任务、不破坏旧码流
-bit-exact 校验”时改动，否则留到一次显式的版本迁移提交。
+改名原则：显示名与对外文案立即生效；内部标识只在"不影响运行中任务、不破坏旧码流
+bit-exact 校验"时改动，否则留到一次显式的版本迁移提交。

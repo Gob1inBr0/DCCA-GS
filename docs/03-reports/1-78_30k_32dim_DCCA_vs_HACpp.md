@@ -3,7 +3,7 @@
 > 日期：2026-09-04（训练已完成）
 > 平台：LYH（root@36.138.63.143:65022，8×A100-40GB）
 > 目的：验证改为 **feat_dim=32** 后，DCCA-GS 在 **30k**、无人机场景 **1-78** 上与 **HAC++**
-> 做**公平比较**（同场景、同迭代、同 λ 集、同数据口径）。目标：**尽量与其他方法公平可比的 RD 结果**。
+> 做**公平比较**（同场景、同迭代、同 λ 集、同数据口径）。
 
 ---
 
@@ -20,11 +20,11 @@
 | 协议 | data_factor=1、max_width=1600、test_every=8 | 统一评估协议 |
 | DCCA 配置 | I2 + I6 + SPA(0.85) + MiniSplat(depth-reinit, 15000) + MLP quant(cd8/rest16) | 方法完整闭环 |
 | 训练/编码/评估 | train → compress → decode → eval → MLP quant | 指标来自**解码后真实 bitstream** |
-| 体积口径 | `decoded_eval.metrics_summary.codec_total_mb`（fp32）或 `mlp_quant_cd8_rest16.results.json.total_MB`（MLP量化） | **两方法须用同一口径**，见 §5 |
+| 体积口径 | `decoded_eval.metrics_summary.codec_total_mb`（fp32）或 `mlp_quant_cd8_rest16.results.json.total_MB`（MLP量化） | **两方法须用同一口径**，见 §3、§5 |
 
 ---
 
-## 2. HAC++ 1-78 30k 参考（HANDOVER_20260902 §6.1）
+## 2. HAC++ 1-78 30k 参考（原 HANDOVER_20260902 §6.1（该文档 2026-10-27 移入备份 backup/DCCA-GS_docs_backup_20261027.tar.gz））
 
 | λ | 别名 | PSNR | SSIM | LPIPS | total_MB |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -42,8 +42,9 @@
 （`decoded_eval/metrics.jsonl`），体积来自 `compress.log` 的 `total_MB`（**fp32 口径**，`bit_mlp` 为
 float32≈0.16MB，与 HAC++ 原生一致）。三单元均 `bit_exact_roundtrip=True`。
 
-> 口径说明：本报告一律用 **fp32 total_MB**（含 float32 MLP）。MLP 权重量化已移除（只省 ~0.5% 且
-> 口径不自洽，不作为贡献点）。
+> 口径说明：本报告一律用 **fp32 total_MB**（含 float32 MLP），与 HAC++（原生 float32 MLP）口径一致，
+> **主比较用 fp32**。MLP 权重量化已移除（只省 ~0.5% 且口径不自洽，不作为贡献点；不生产
+> `mlp_quant_cd8_rest16`，避免口径错配）。
 
 | λ | run | PSNR | SSIM | LPIPS | total_MB(fp32) | anchors |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -61,9 +62,7 @@ float32≈0.16MB，与 HAC++ 原生一致）。三单元均 `bit_exact_roundtrip
 
 ---
 
-## 4. 结果判读（待填）
-
-### 4.1 判读
+## 4. 结果判读
 
 1. **DCCA 30k 显著更小、但画质略低**：三档 `total_MB` 约为 HAC++ 的 58–59%（
    11.78/20.03、15.31/26.27、23.72/40.56），但 PSNR 低 0.42–0.70 dB。DCCA 的曲线整体位于
@@ -74,28 +73,22 @@ float32≈0.16MB，与 HAC++ 原生一致）。三单元均 `bit_exact_roundtrip
 3. **窄区间导致 BD-rate 不稳健**：两条曲线 PSNR 几乎不重叠（DCCA 上限 27.98，HAC++ 下限 27.84），
    共享区仅 0.14 dB，BD-rate 在此区间主要受 DCCA 的 λ=0.0005 这一点与 HAC++ 外推影响。
    因此 +2.8% 只能作为"同质量大致相当、略偏差"的参考，不应过度解读。
-4. **与 `feat_dim扫描` 的预期并不矛盾**：扫描显示 32-dim 优于 50-dim 是**相对自身维度**；
-   这里与 HAC++ 对比体现的是**方法 vs 基线**的整体差距（SPA/MiniSplat/AQM 在 30k 小迭代下的
+4. **与 `feat_dim扫描` 的判定不矛盾**：扫描显示 32-dim 优于 50-dim 是相对自身维度；
+   这里与 HAC++ 对比体现的是方法 vs 基线的整体差距（SPA/MiniSplat/AQM 在 30k 小迭代下的
    表现），与维度无关。
 5. **30k 是低迭代设置**：HANDOVER §6.2 中 DCCA 1-78 在 **110k** 无-SPA 达 28.46–29.24 dB，
    明显高于 30k 的 27.42–27.98。说明该协议下 DCCA 尚未充分发挥，30k 不足以体现方法优势。
 
 ---
 
-## 5. 公平性/口径说明（重要）
+## 5. 口径补充
 
-- **同场景、同数据、同 30k、同 λ 集、同 seed**，这是与 HAC++ 公平比较的关键。
-- **体积口径**必须统一：
-  - DCCA 的 `total_MB(fp32)` 来自 `compress.log` 的 `total_MB`（`bit_mlp`=float32≈0.16MB），
-    与 HAC++（原生 float32 MLP）口径一致 → **主比较用 fp32**。
-  - MLP 权重量化**已移除**（不生产 `mlp_quant_cd8_rest16`），避免口径错配；如需其数据请无视。
 - **feat_dim 差异**：DCCA 用 32-dim（用户指定），HAC++ 参考点未注明 feat_dim（默认多为 50）。
   维度差异会小幅偏向 DCCA 的 feat 体积，但本结果 DCCA 仍偏差，因此不改变方向性结论。
-- **PSNR 区间几乎不重叠**：BD-rate 的共享区间仅 0.14 dB，稳健性有限，结论应按"大致相当、略偏差"解读。
 
 ---
 
-## 6. 结论（待填）
+## 6. 结论
 
 **结论：** 在 **1-78 · 30k · 32-dim · 同 λ、同数据、seed 42** 的公平对比下，DCCA-GS 相比 HAC++
 **体积大幅更小（约 59%）但 PSNR 略低（0.42–0.70 dB）**；在仅有的窄 PSNR 重叠区，BD-rate ≈ **+2.5~2.8%**
@@ -126,6 +119,6 @@ python scripts/bdrate_compare_178.py --run-root /dev/shm/dcca_runs/1-78 --source
 
 ## 8. 参考
 
-- `../06-planning/HANDOVER_20260902.md`（§6.1 HAC++ 参考点、§2 30k 协议）
+- HANDOVER_20260902.md（§6.1 HAC++ 参考点、§2 30k 协议）（该文档 2026-10-27 移入备份 backup/DCCA-GS_docs_backup_20261027.tar.gz）
 - `../03-reports/feat_dim扫描报告.md`（32-dim 判定）
 - `scripts/bdrate_compare_178.py`、`scripts/collect_lyh_rd.py`、`scripts/runner_phg_cell.sh`

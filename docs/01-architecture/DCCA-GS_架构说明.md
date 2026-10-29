@@ -2,10 +2,8 @@
 
 > 更新日期：2026-08-16
 > 适用代码：本地 `mlp-quant`（HEAD `4833b98`）；主线 `main`（HEAD `61e60d5`）
-> 用途：一份文档讲清 PHG 从 `gsplat2hac` 改名重建以来的全部改动、当前架构、
-> 创新点接入方式、实验结果与踩坑记录；既可以作为项目交接文档，也可以直接
-> 交给另一 AI 画框架图（本文用“模块职责 + 调用关系 + 数据流”的纯叙述方式
-> 描述，不包含显式的节点/连线清单）。
+> 用途：记录 PHG 从 `gsplat2hac` 改名重建以来的全部改动、当前架构、创新点接入方式、
+> 实验结果与踩坑记录。
 
 ---
 
@@ -13,10 +11,9 @@
 
 ### 1.1 PHG 是什么
 
-PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架。
-它的定位是：**以官方 HAC++ 压缩管线为基线，叠加 PKU-GS 创新点（I1/I2/I6 等），
-同时保持“模型可替换 + 稳定属性导出 + 编解码器接口化”的低耦合架构**，方便后续
-把 HAC、HAC++、以及新的压缩思路以插件方式接入，而不用重写训练器。
+PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯压缩框架：
+以官方 HAC++ 压缩管线为基线，叠加 PKU-GS 创新点（I1/I2/I6 等），
+保持"模型可替换 + 稳定属性导出 + 编解码器接口化"的低耦合架构。
 
 核心组成：
 
@@ -28,7 +25,7 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
   层级生长与剪枝，训练循环在 `scaffold_gs/trainer.py`。
 - 创新层：I1（层级上下文，默认关）、I2（内容感知公式量化，默认开）、
   I6（渲染敏感度监督，可选开），以及已关闭的 I5（VQ）、P0（渐进式编码）、
-  I6 替换/侧信息路线；最新增加 MLP 权重量化与码流效率审计。
+  I6 替换/侧信息路线；另有 MLP 权重量化与码流效率审计。
 
 ### 1.2 三个代码库的位置与关系
 
@@ -38,9 +35,9 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 | gsplat-main | 本地 `/Users/chen/Documents/gsplat-main`；5090 以 `pip install -e` 方式依赖 | 渲染库，PHG 通过 `pip install -e` 使用本地源码 |
 | HAC-plus-main-v1（旧项目） | 本地 `/Users/chen/Documents/HAC-plus-main-v1` | 论文/旧实验数据、创新点解释文档、旧 HAC 结果 CSV 都在这里 |
 
-关系：PHG 把旧项目（HAC-plus-main-v1）里的创新点设计与实验结果作为依据，
-把官方 HAC++ 核心 `hacplus/` 以 vendored 方式搬进 PHG，渲染换成 gsplat，
-训练器、编解码器、生长逻辑重新以低耦合方式组织。
+关系：旧项目（HAC-plus-main-v1）里的创新点设计与实验结果是 PHG 的依据；
+官方 HAC++ 核心 `hacplus/` 以 vendored 方式搬进 PHG，渲染换成 gsplat，
+训练器、编解码器、生长逻辑以低耦合方式组织。
 
 ### 1.3 历史改名
 
@@ -90,8 +87,8 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 11. `fb99beb` 把 hacplus 收成规范包：HACCoreView、共享 growth 统计、去 sys.path hack。
 12. `e8fb371` I6 渲染敏感度加权监督（阶段 2）。
 13. `1046b0a` I6 修复：retain_grad 透传、相对归一化、Q clamp、评估预载。
-14. `792c32f` 4-28 显存修复：growth 统计 detach（泄漏根因）、max_width=1600、tile_size。
-15. `3ae836b` complexity MLP 架构扫描：**hidden=32、1 层（8→32→3）最优**。
+14. `792c32f` 4-28 显存修复：growth 统计 detach、max_width=1600、tile_size。
+15. `3ae836b` complexity MLP 架构扫描：hidden=32、1 层（8→32→3）最优。
 16. `d8290ab` 体积口径把解码器 MLP 权重（32bit/参数）与 xyz 边界计入 total_MB。
 17. `8479973` feat_dim 泛化：`Channel_CTX_fea(feat_dim, channel_group)` + codec 通道组。
 18. `7718baa` 4-28 训练加速：CPU uint8 图像缓存、Adam foreach、更大 decode chunk。
@@ -112,7 +109,7 @@ PHG（PKUGS-HAC-Gsplat）是基于 gsplat 的 Scaffold-GS / HAC++ 神经高斯�
 
 ---
 
-## 3. 总体架构（画图用的叙述版）
+## 3. 总体架构
 
 PHG 是三层结构，从下到上依次是：
 
@@ -175,7 +172,7 @@ PHG 是三层结构，从下到上依次是：
 - 绘图：`plot_lambda_rd_4_28.py`、`plot_rd_envelope_4_28.py`、`plot_rd_step_4_28.py`、
   `rd_compare_dims.py`。
 
-### 3.2 关键调用链（叙述版）
+### 3.2 关键调用链
 
 - **训练**：`train.py train` → `run_training` → `ColmapDataset`（加载场景）
   → `HACPlusModel`（`init_from_pcd` 体素化）→ 每步 `model.render`（内部
@@ -225,14 +222,13 @@ PHG 是三层结构，从下到上依次是：
 - `NeuralGaussians`：一次渲染解码出的高斯集合（xyz/colors/opacities/scales/quats +
   锚点索引 + 训练用 bit-per-param + I6 用 pre-quant 属性 + complexity_logits）。
 - `AnchorParams`：锚点参数容器，提供 `cat_`/`prune_` 供生长/剪枝复用。
-- `AnchorDecoder`：`predict_gaussians` 是 Scaffold 的“锚点 → 神经高斯”解码入口；
+- `AnchorDecoder`：`predict_gaussians` 是 Scaffold 的"锚点 → 神经高斯"解码入口；
   `mlp_opacity/cov/color` 输入 `concat(feat, view_dir, dist)`，输出 K 个高斯属性；
-  appearance embedding 可选。设计上它是 HAC/HAC++ 的替代点（hash 上下文可以
-  替换或预处理它）。
+  appearance embedding 可选。
 - `BaseGaussianModel`（抽象基类）：定义 `init_from_pcd`、`prefilter_anchors`、
   `generate_gaussians`、`render`、`create_optimizer`、`update_learning_rate`、
-  `export_attributes`、`training_statis`、`adjust_anchor`。**任何新模型只要实现
-  这个接口就能复用 trainer/renderer/growth/codec**。
+  `export_attributes`、`training_statis`、`adjust_anchor`。任何新模型只要实现
+  这个接口就能复用 trainer/renderer/growth/codec。
 - `ScaffoldGSModel`：纯 Scaffold-GS 实现（可脱离 HAC++ CUDA 扩展在 CPU/GPU 跑）。
 - 注册表：`MODELS = {"scaffold_gs": ..., "hac_pp": HACPlusModel}`，
   `get_model_class(name)` 取类。
@@ -307,8 +303,8 @@ PHG 是三层结构，从下到上依次是：
   **统计全部 detach**，否则前一步 autograd 图会被 in-place 写入保活
   （~10MB/步的显存泄漏，4-28 长训 OOM 根因）。
 - `grow_anchors`：官方层级生长，`torch.unique` 去重候选格点；去重比较用
-  chunk 化（4096/块），避免 O(U×G×3) 广播爆显存（之前 20k anchors 尝试申请
-  23.93GB 的教训）；新锚点父特征用 `torch.scatter_reduce("amax")` 聚合。
+  chunk 化（4096/块），避免 O(U×G×3) 广播爆显存（20k anchors 曾尝试申请
+  23.93GB）；新锚点父特征用 `torch.scatter_reduce("amax")` 聚合。
 - `prune_params_and_optimizer` / `cat_params_and_optimizer`：生长/剪枝时同步
   拼接/裁剪模型参数与优化器状态（按参数组名匹配 `_anchor/_offset/...`）。
 - `adjust_anchor`：先按梯度阈值生长，再按低 opacity + 足够访问次数剪枝；
@@ -328,7 +324,7 @@ PHG 是三层结构，从下到上依次是：
 - `CompressionCodec`（ABC）：`encode(model, out_dir) -> meta`、
   `decode(artifact_dir) -> model`、可选 `rate(meta)`。
 - `RawAttributeCodec`（`name="none"`）：只写未压缩 `attributes.pth`。
-- 注册表 `CODECS` + `register_codec`：未来 HAC/HAC++ 变体注册后，
+- 注册表 `CODECS` + `register_codec`：新编解码器注册后，
   trainer/export/compress 无需改动。
 
 ### 4.10 `scaffold_gs/losses.py` / `utils.py`
@@ -455,8 +451,6 @@ PHG 是三层结构，从下到上依次是：
 
 ### 7.1 I1：尺度感知层级 Anchor-Hash 条件熵建模（默认关）
 
-- **动机**：把哈希网格上下文从单一分辨率扩展为“基础 + 父级 + 层级”多尺度，
-  帮助熵模型表达不同尺度结构。
 - **上下文**：`context = concat(base, parent, level)`，其中
   `base = calc_interp_feat(anchor)`（hash 插值，维度 4×12=48）；
   `parent_anchor = round(anchor / parent_stride) * parent_stride`，
@@ -477,13 +471,11 @@ PHG 是三层结构，从下到上依次是：
   | 30k h32（无 I1，I2+I6） | 28.2122 | 0.8902 | 0.2751 | 6.0125 | 317,806 |
   | 30k h32 + I1 | 28.2155 | 0.8901 | 0.2754 | 6.1163 | 317,445 |
 
-  结论：I1 只带来 +0.003dB，SSIM/LPIPS 基本持平，体积反而 +0.10MB，
-  属于“中性偏负”，维持默认关。
+  结论：I1 只带来 +0.003dB，SSIM/LPIPS 基本持平，体积 +0.10MB，
+  中性偏负，维持默认关。
 
 ### 7.2 I2：内容感知公式量化（默认开）
 
-- **动机**：Q 不应全局固定，而应按每个锚点的局部内容复杂度分配
-  （平滑区可以粗量化，复杂区需要细量化）。
 - **公式**：
 
   ```text
@@ -509,9 +501,6 @@ PHG 是三层结构，从下到上依次是：
 
 ### 7.3 I6：渲染敏感度监督（可选开）
 
-- **动机**：I2 用“内容复杂度代理”分配 Q，但真正决定量化损失的是
-  **渲染损失对属性的敏感度** `|∂L_render/∂a|`；被遮挡/低影响锚点应粗量化，
-  画面中心/高影响锚点应细量化。
 - **训练时**：
 
   ```text
@@ -528,10 +517,11 @@ PHG 是三层结构，从下到上依次是：
 
   `complexity_logits` 保持可导，梯度流向 `mlp_complexity`；target 侧 detach。
   默认 `sensitivity_weight=1e-3`、`strength=1.0`、`start_iter=20000`。
+- **归一化与 clamp 的原因**：梯度范数跨数量级，方差 EMA z-score 归一化会把信号
+  压平，故用相对归一化；Q 乘子必须 clamp 到 [0.1,2.0]，否则 Q→0 会让算术编码
+  CDF 出 NaN。
 - **编码/解码**：**零改动、零旁路**——I6 只是训练期监督，码流文件与 Q 公式
   不变；`content_aware_q_meta.json` 可记录 `sensitivity_enabled`（训练元信息）。
-- **坑**：早期用方差 EMA z-score 归一化会把信号压平（grad 范数跨数量级），
-  改为相对归一化；Q 乘子必须 clamp 到 [0.1,2.0]，否则 Q→0 会让算术编码 CDF 出 NaN。
 - **状态**：✅ 可用（约 +0.1dB），默认关；论文对照组合为 I2+I6。
 
 ### 7.4 I6 替换方案与侧信息（已关闭）
@@ -593,9 +583,9 @@ PHG 是三层结构，从下到上依次是：
   | 6（全量） | 27.2459 | 0.8830 | 0.2856 | 6.4120 | 0.0882 | 6.5003 |
   | 4（全量） | 20.3864 | 0.7898 | 0.3837 | 9.0623 | 0.0591 | 9.1215 |
 
-  关键观察：16-bit 全量**质量完全不变**（-0.139MB）；8-bit 全量反而把
-  属性流推大（attr 5.2284→5.4908，`mlp_grid` 低比特让熵模型变差），total 只降
-  一点点；6/4-bit 质量崩坏。
+  关键观察：16-bit 全量质量完全不变（−0.139MB）；8-bit 全量把属性流推大
+  （attr 5.2284→5.4908，`mlp_grid` 低比特让熵模型变差），total 只降一点点；
+  6/4-bit 质量崩坏。
 
 - **逐 MLP 单独 8-bit 消融（90k 基线）**：
 
@@ -655,10 +645,9 @@ total_MB = (bits_xyz + bits_feat + bits_scaling + bits_offsets
 | hash | 214,864 | 208,325.03 | 1.0314 |
 | total | 40,021,488 | 40,256,562.13 | 0.9942 |
 
-**结论**：efficiency ≈ 1.00~1.03，**算术编码器**已经逼近概率模型下界，
+**结论**：efficiency ≈ 1.00~1.03，算术编码器已经逼近概率模型下界。
 
-
-KL audit（同模型，`runs/kl_audit/kl_audit.json`）补充“模型本身冗余”：
+KL audit（同模型，`runs/kl_audit/kl_audit.json`）补充"模型本身冗余"：
 
 | 字段 | 模型交叉熵 bits/符号 | 经验熵 bits/符号 | KL bits/符号 |
 | --- | --- | --- | --- |
@@ -667,7 +656,7 @@ KL audit（同模型，`runs/kl_audit/kl_audit.json`）补充“模型本身冗�
 | masks | 0.5594 | 0.5594 | 0.0000 |
 
 解读：masks 概率模型完全贴合；offsets 已优于经验直方图参考；**scaling 是唯一
-有可测模型冗余的字段（约 0.49 bit/符号，1.55M 符号 ≈ 0.09MB）**，但这是熵模型
+有可测模型冗余的字段（约 0.49 bit/符号，1.55M 符号 ≈ 0.09MB）**，属于熵模型
 层面的改进空间（例如混合高斯/Laplace），不是编码器问题。feat 因通道自回归
 结构无法用简单直方图做严格 KL，未列入。
 
@@ -761,7 +750,7 @@ PSNR 峰值确认为 110k。
 
 BD-rate（相对 dim50）：**dim16 −24.5%、dim32 −34.0%**；性价比拐点在 8→16。
 注意：Web_Scan 30k 与 4-28 90k 结论不完全一致（4-28 90k 对容量更敏感，
-dim16/dim32 都是“更小、质量略降”）。
+dim16/dim32 都是"更小、质量略降"）。
 
 ### 9.7 I6 / I1 / P0 / 关闭路线结论
 
@@ -798,7 +787,7 @@ dim16/dim32 都是“更小、质量略降”）。
    真值敏感度重排反而变大（5.5604 → 5.7143MB），不要重复投入。
 10. **P0 停止条件**：P0-1 增益 1.86~2.30%、P0-2 约 0.1%、反向约 0.4%，
     均低于阈值，已关闭。
-11. **5090 使用纪律**：不杀其他用户进程；长训练用带“空卡检测+自动重试”的
+11. **5090 使用纪律**：不杀其他用户进程；长训练用带"空卡检测+自动重试"的
     runner。
 12. **环境**：`conda activate HAC_5090_a100`；`PYTHONNOUSERSITE=1`；
     `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；PATH 含 tmc3/GPCC；
@@ -872,32 +861,9 @@ python scripts/plot_rd_envelope_4_28.py
 python scripts/plot_rd_step_4_28.py
 ```
 
-### 11.3 画图 AI 参考信息
-
-如果要画框架图，建议至少包含以下层次的节点关系（叙述式）：
-
-- 数据层：COLMAP 场景（images + sparse/0）→ `ColmapDataset`（train/val、
-  data_factor、max_width、CPU 缓存）。
-- 模型层：`HACPlusModel`（包装官方 `GaussianModel`）↔ `HACCoreView`；
-  锚点参数、6 个 MLP、哈希网格 `encoding_xyz`。
-- 渲染层：`prefilter_anchors`（深度光栅化）→ `generate_gaussians`（神经高斯
-  解码）→ gsplat `rasterization`（packed RGB）。
-- 训练层：`trainer.run_training` 主循环，挂 L1/SSIM/scale_reg/rate/I6 四个损失
-  支路，`growth` 生长/剪枝，`optimizer` 步进。
-- 编解码层：`HACPlusCodec` ↔ `encode_attributes`/`decode_attributes`，
-  中间件 GPCC（几何）、哈希上下文、`mlp_grid` 熵参数、`Channel_CTX_fea`
-  通道自回归、arithmetic 熵编码；产物 `codec_header.json`、
-  `content_aware_q_meta.json`、`feat/scaling/offsets/masks/hash .b`、
-  `attributes.pth`、`hac_meta.json`。
-- 创新点：I1（calc_context_feat 前置）、I2/I6（Q 调制与监督，围绕
-  `mlp_complexity`）、MLP 量化（压缩后处理，替换 bit_mlp 体积行）。
-- 工具层：scripts 的 runner/评估/RD/绘图脚本。
-
 ---
 
-## 12. 当前状态与下一步
-
-### 12.1 进行中/最新（2026-08-16）
+## 12. 当前状态（2026-08-16）
 
 - 已完成：q_scale RD 7 点、step 扫描 30k/60k/90k、λ=0.002 第二个 λ 点
   （28.988/8.3069MB）、120k 训练逐 10k 扫描（**PSNR 峰值 110k**，28.8250dB；
@@ -906,19 +872,7 @@ python scripts/plot_rd_step_4_28.py
   8-bit + 其余 16-bit）、codec efficiency（≈1.0）、KL audit（scaling 有约
   0.49 bit/符号模型冗余）、RD 图 v4（PHG λ 曲线 + dim16/dim32 + 110k 星标 +
   旧 HAC λ 曲线）。
-- 数据：4-28 已用于全部实验；1-100、3-07 两个大场景数据集已安排从阿里云盘
-  下载并自动解压到 5090 `CT_HAC_v1/data/`（下载/解压进行中），用于后续
-  多场景验证。
-
-### 12.2 下一步建议
-
-1. 把 `i6-sens-replace` 上的 deform hidden 自适应修复并入 main，三处
-   （GitHub/5090/本机）同步。
-2. 用 1-100、3-07 复跑当前最优配置（I2+I6、dim50 h32、110k、MLP 量化
-   complexity/deform 8-bit + 其余 16-bit），
-   补齐多场景论文对照。
-3. 如果需要“质量层级”RD 包络：在高 λ 用 dim16、低 λ 用 dim32/50，画出
-   所有曲线左上方的包络。
+- 数据：全部实验使用 4-28 场景。
 
 ---
 
@@ -960,12 +914,14 @@ python scripts/plot_rd_step_4_28.py
 | total_MB | 官方体积口径汇总值 |
 | BD-rate | 相对基线在同质量下的码率节省百分比 |
 
+---
+
 GaussianSpa 训练侧实验（阶段 A）完成，用 DB playroom 30k（I2+I6、dim50、λ=0.002、1600 宽、SPA ratio=0.5）。
 
 **结果（compress → decode → eval，29 验证视图）**
 
 | 方案                                    | 训练 anchors | 编码 anchors | total_MB   | PSNR       | SSIM   | LPIPS  |
-| --------------------------------------- | ------------ | ------------ | ---------- | ---------- | ------ | ------ |
+| --------------------------------------- | ------------ | ---------- | ---------- | ------ | ------ | ------ |
 | 基线（无 SPA）                          | 338,560      | 168,626      | 4.1831     | 30.872     | 0.9134 | 0.2594 |
 | MaskTopk-only 0.5                       | 338,560      | 169,280      | 4.1958     | 30.872     | 0.9134 | 0.2594 |
 | MaskTopk-only 0.1026（对齐 SPA 锚点数） | 338,560      | 34,736       | 1.4740     | 24.120     | 0.8399 | 0.3714 |
@@ -974,7 +930,9 @@ GaussianSpa 训练侧实验（阶段 A）完成，用 DB playroom 30k（I2+I6、
 **结论：阶段 A 通过，SPA 机制被证明必要**
 
 - SPA 相对基线：体积 -74%（4.18→1.08 MB），PSNR -1.23 dB，是一个有效的低码率操作点；
-- **同锚点数对照是决定性的**：同样是约 34.7k 编码锚点，SPA 1.08 MB / 29.64 PSNR，编码端 topk 1.47 MB / 24.12 PSNR——**SPA 高 5.52 dB 且体积还小 27%**。说明“剪掉就忘”的 topk 无法替代训练侧 ADMM：预算下继续训练才能让幸存锚点真正适应；
-- 额外发现：基线编码端 `mask_anchor` 本来就会滤掉约一半 anchors，所以 MaskTopk-0.5 与基线几乎无差别；SPA 低码率点的最大体积项变成 MLP 权重（32bit 口径 2.78MB 中的 2.57MB），下一步可叠加 MLP 量化。
-
-- 
+- 同锚点数（约 34.7k 编码锚点）对照：SPA 1.08 MB / 29.64 PSNR，编码端 topk
+  1.47 MB / 24.12 PSNR——SPA 高 5.52 dB 且体积还小 27%，编码端 topk 无法替代
+  训练侧 ADMM；
+- 基线编码端 `mask_anchor` 本来就会滤掉约一半 anchors，所以 MaskTopk-0.5 与基线
+  几乎无差别；SPA 低码率点的最大体积项是 MLP 权重（32bit 口径 2.78MB 中的
+  2.57MB）。

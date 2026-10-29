@@ -22,24 +22,14 @@
 
 ---
 
-## 1. 背景与假设
+## 1. 假设
 
-### 1.1 为什么做这个实验
-
-- SPA（`GaussianSpa` 式 ADMM 稀疏化）在 playroom 30k 给出同锚点下比编码端 top-k 高 5.5 dB 的强结果
-  （见 [SPA_阶段A报告](../03-reports/SPA_阶段A报告.md)），但 110k/高预算档增益收敛。
-- SPA 的机制是 `get_mask` 的 top-k：**只删不搬**。它无法改变幸存锚点的空间分布——
-  重叠（clustered）区域仍重叠，未覆盖（gappy）区域仍缺锚点。
-- Mini-Splatting（Fang & Wang, ECCV 2024）的核心观点是 *count is not the bottleneck —
-  placement is*：先按表面增密（blur split / depth reinit），再按交集保持/采样做简化（simplify），
-  把「位置」重新铺开。本工作把它移植到锚点/HAC++ 世界，只先做最高保真、可在 GPU 上测试的一半：
-  **depth reinitialization**。
-
-### 1.2 要验证的命题
-
-1. **H1（位置 > 预算）**：同 SPA 预算下，depth-reinit 重排锚点位置 → 质量显著提升，体积几乎不变。
-2. **H2（语义可叠加性）**：MiniSplat 与 DINO 语义监督（T-A2）是否正交，叠加是否仍值得。
-3. **H3（语义性价比）**：语义监督是否只是「用更多比特换质量」，而非「免费提升」。
+- SPA（`GaussianSpa` 式 ADMM 稀疏化）在 playroom 30k 给出同锚点数下比编码端 top-k 高 5.5 dB 的强结果
+  （见 [SPA_阶段A报告](../03-reports/SPA_阶段A报告.md)），但 110k/高预算档增益收敛；其机制是 `get_mask`
+  的 top-k，**只删不搬**，无法改变幸存锚点的空间分布。
+- **H1（位置 > 预算）**：同 SPA 预算下，depth-reinit 重排锚点位置 → 质量显著提升，体积几乎不变。
+- **H2（语义可叠加性）**：MiniSplat 与 DINO 语义监督（T-A2）是否正交，叠加是否仍值得。
+- **H3（语义性价比）**：语义监督是否只是「用更多比特换质量」，而非「免费提升」。
 
 ---
 
@@ -72,15 +62,14 @@
 
 ### 2.3 已修复的坑（供复现/扩展参考）
 
-- **semantic_cov 越界（device-side assert）**：cell4 在 19999 步崩溃。根因是
-  `append_depth_anchors` 里先手动 append 语义张量（长度 n_before+4000），再调
-  `_sync_semantic_state()`，而此时代码还没执行 `cat_tensors_to_optimizer`，
-  `get_anchor.shape[0]` 仍是增密前的 n_before → `_sync_semantic_state` 把 semantic_cov
-  反向截断回 n_before，锚点却已经 +4000 → 越界。
-  **修复：把 `_sync_semantic_state()` 移到 `cat_tensors_to_optimizer(d)` 之后**（commit `77ec99f`）。
+- **semantic_cov 越界（device-side assert，cell4 在 19999 步崩溃）**：根因是 `append_depth_anchors`
+  里先手动 append 语义张量、再调 `_sync_semantic_state()`，而此时代码还没执行
+  `cat_tensors_to_optimizer`，`get_anchor.shape[0]` 仍是增密前的数量 → semantic_cov 被反向截断、
+  与锚点数不匹配。**修复：把 `_sync_semantic_state()` 移到 `cat_tensors_to_optimizer(d)` 之后**
+  （commit `77ec99f`）。
 - **投影头参数组被当成锚点参数**：`cat_tensors_to_optimizer` 断言「每组一个参数」，投影头组有两个参数
-  （weight/bias）。生长/剪枝时需跳过 `semantic_proj_head` 组。
-- **语义目标必须用本次训练的锚点刷新**：早期用基线模型导出的目标与 30k 从零训练锚点索引对不上，
+  （weight/bias），生长/剪枝时需跳过 `semantic_proj_head` 组。
+- **语义目标必须用本次训练的锚点刷新**：用基线模型导出的目标与 30k 从零训练锚点索引对不上，
   目标为空、监督无效（那次的 +0.045 dB 不能归因）。正确协议是在 15k（生长停止）用当前锚点重建目标
   （覆盖率 100%），20k 起监督生效。
 
@@ -160,7 +149,7 @@
 | cell2 | +MiniSplat | 152,698 | 89,790 | 2.0021 | 2.1704 | 29.3146 | 29.3151 | 0.8993 | 0.2809 |
 
 **结果**：MiniSplat 在 drjohnson 上 **−0.073 dB**，体积 −1.8%，锚点数 −0.8%；两个 bitstream 均通过 bit-exact roundtrip。
-结论修正：MiniSplat 的“位置 > 预算”不是普适规律，在 playroom 正、4-28 接近零、drjohnson 为负，应报告为**场景依赖**。
+结论修正：MiniSplat 的"位置 > 预算"不是普适规律，在 playroom 正、4-28 接近零、drjohnson 为负，应报告为**场景依赖**。
 
 ### 4.3 4-28 大场景 B 组（非 SPA，30k，训练/验证 1050/150）
 
@@ -196,12 +185,9 @@
 
 ### 5.2 语义与预算的非单调关系
 
-- 低预算（0.52）：语义 +0.241 dB，体积 +16.6%（值得一试）
+- 低预算（0.52）：语义 +0.241 dB，体积 +16.6%
 - 中高预算（0.85）：+0.117 dB，体积 +18.2%
 - 高预算（0.92 / 0.97）：−0.002 / −0.023 dB，体积 +21.1% / +9.6%（**由正转负**）
-
-解释：语义监督让复杂度 MLP 学到「内容相关」的分配，但在锚点已充足的档位，它主要增加
-active 锚点与每锚点熵，质量饱和；低档位它反而能定向地把稀缺预算放到重要内容上。
 
 ### 5.3 MiniSplat 与语义的叠加
 
@@ -210,9 +196,7 @@ active 锚点与每锚点熵，质量饱和；低档位它反而能定向地把�
 
 ### 5.4 大场景
 
-4-28（45.5 万锚点）：语义 −0.041 dB，SSIM/LPIPS 基本不变。与 playroom 不同：锚点基数大、
-视觉内容更杂、DINO 目标对「复杂度分配」的指示在超大场景里被稀释；MiniSplat 目前**未在 4-28 验证**，
-是需要补的关键实验（见 §7 E4）。
+4-28（45.5 万锚点）：语义 −0.041 dB，SSIM/LPIPS 基本不变。MiniSplat 目前**未在 4-28 验证**。
 
 ---
 
@@ -226,96 +210,7 @@ active 锚点与每锚点熵，质量饱和；低档位它反而能定向地把�
 
 ---
 
-## 7. 后续实验设计（按优先级）
-
-> 设计原则：每个实验先给**假说 → 协议 → 判据 → 停止条件**；未过判据就关，避免无限堆叠。
-> 共同约束：单 seed / 单场景结论一律先当成「抽样」，多用 2–3 个 seed 复核；体积口径统一为
-> HAC++ 解码必需载荷。
-
-### E1（P0）MiniSplat × 预算曲线补齐
-
-- **状态：✅ 已完成（2026-08-23）**。结果见 §4.2.1：四点曲线 BD-PSNR **+0.124 dB**、
-  BD-rate **−8.6%**；低/中预算强、高档趋零（+0.150 / +0.199 / +0.031 / −0.001）。
-- **假说**：depth-reinit 在任意预算档都有效，尤其低档（锚点少时「位置」更重要）。
-- **协议**：r ∈ {0.52, 0.85, 0.92, 0.97} × MiniSplat±（0/1），playroom 30k，其余与 §3 相同；
-  全部 compress→decode→eval。
-- **判据**：与对应 baseline SPA 同档比 PSNR；与整条曲线比 BD-PSNR / BD-rate。
-- **停止**：若某档 MiniSplat < baseline（负增益）且只在高档出现 → 记录非单调，不加参数；
-  若全档稳定 ≥ +0.05 dB 且体积 < +3% → 转 E4/E7 泛化。
-- **同时可做**：cell2 与 cell4b 在低/高档重跑，补充「MiniSplat × 语义」的完整 2×2。
-- **后续（由本结果引出）**：a) 高档（0.92/0.97）为何增益趋零——用 E9 锚点分布定量分析；
-  b) 低档 + 语义（MiniSplat×语义 2×2 的“低档语义是否更值”）；c) 转 E7 多场景/多 seed 复核。
-
-### E2（P1）Mini-Splatting 完整版（未移植的另一半）
-
-- **假说**：blur split（每像素 argmax 贡献区域）+ intersection-preserving simplification 比
-  depth-reinit-only 更能提升「位置」质量；depth-reinit 只是次优近似。
-- **协议**：packed gsplat 需暴露每像素 contributor 索引（现 renderer 不提供），先做
-  `contribution_area` 的 GPU 实现；再实现简化；与 depth-reinit-only、MiniSplat+SPA 三组对照。
-- **判据**：完整版相对 depth-reinit-only 的 BD-PSNR ≥ +0.05 dB 才值得复杂化。
-- **停止**：若贡献面积计算不可行（packed 光栅化限制）→ 记录为工程限制，不硬做。
-
-### E3（P1）MiniSplat 参数敏感性
-
-- **假说**：`max_new` / `voxel` / `views` / reinit 轮次（1 次 vs 多次）影响「铺开」质量。
-- **协议**：单变量扫描（max_new ∈ {2k,4k,8k}；voxel ∈ {0, model_voxel, 2×}；views ∈ {4,8,16}；
-  reinit 在 15k 一次 vs 10k/15k 两次），playroom 30k，固定 r=0.85。
-- **判据**：选择 PSNR/体积最优组合；报告边界（过大 max_new 是否会破坏 SPA 预算收敛）。
-- **停止**：若所有参数都在 ±0.03 dB 内 → 说明实现鲁棒，写「无需调参」结论，只保留 1 组默认。
-
-### E4（P0）MiniSplat × 大场景（4-28）
-
-- **假说**：4-28（45.5 万锚点）目前**没做过 MiniSplat**；若「位置>预算」普适，则应显著正增益；
-  若负/零，说明机理与大场景（相机尺度/遮挡/多源）耦合。
-- **协议**：4-28 最优配置下 110k × MiniSplat± × SPA（r=0.85）与非 SPA 两档（可复用之前最优配置的数据）；λ ∈ {0.002, 0.004}；训练预算/时间按 5090 空卡排期（更新状态）。评估 1600w、test-every 8。
-- **判据**：同 λ/预算下 PSNR ≥ +0.05 dB 且总锚点/体积增量 < +5%；并与 playroom 单点行为对比。
-- **停止**：若大场景负增益 → 写「MiniSplat 场景依赖」，不推广；这与语义在大场景的无增益共同
-  构成「大场景锚点分配饱和」的证据链。
-
-### E5（P1）MiniSplat 与 SPA 的解耦消融（MiniSplat-only vs SPA-only）
-
-- **假说**：MiniSplat 的增益到底来自「SPA 预算下的重排」，还是单纯「增密」本身？
-- **协议**：(a) MiniSplat on / SPA off（允许预算自然增长）；(b) MiniSplat off / SPA on（cell1）；
-  (c) MiniSplat on / SPA on（cell2）；(d) 都不开 = 基线。全部 HAC++ 编码+解码。
-- **判据**：若 (a) 相对 (d) 的 PSNR 增益 ≈ (c) 相对 (b) 的增益 → 说明是「增密位置」而非 SPA 交互；
-  若 (c) 显著高于两者 → 说明需要 SPA 预算 + 重排的组合。
-- **停止**：若 (a) 体积大幅上涨而 PSNR 不涨 → 说明没有预算约束的增密只是浪费，直接保留 (c)。
-
-### E6（P1）语义先验重新定位（低预算 / 换目标）
-
-- **假说**：语义只在低预算段有价值（§5.2），或需要一个「与位置/几何更相关」的目标才能成为免费增益。
-- **协议**：
-  1. 低预算语义（r=0.52 已有）→ 补 MiniSplat+语义低档（E1 顺带），用 BD 判优劣；
-  2. 换目标：`mlp_complexity` 直接监督「渲染敏感度 × 语义」混合目标，或用 MiniSplat 派生目标
-     （表面覆盖率 / 局部密度）替代 DINO；
-  3. 若换目标 r（相关性门）< 0.3 → 关闭，不投入训练。
-- **判据**：同体积/同率下 BD-PSNR > 0；或者低预算段 PSNR/体积较 baseline 有 ≥ 2% 优势。
-- **停止**：若换目标 r 不过门，或高/低预算均无净增益 → 语义方向正式关闭（与 Stage A 门一致）。
-
-### E7（P1）泛化与统计稳健性
-
-- **假说**：cell2 的 +0.199 dB 在 drjohnson / T&T / Mip360 及多 seed 下仍成立。
-- **协议**：drjohnson（对标 playroom）、T&T train/truck、Mip360 garden/flowers/stump；each ×
-  seed ∈ {42, 2026} × {cell1, cell2}；30k，r=0.85。
-- **判据**：至少 3/4 场景 PSNR 增益 > 0，且跨 seed 标准差 < 增益的 1/2；记录 BD。
-- **停止**：若只在 playroom 成立 → 结论降级为「场景依赖」，论文只报 playroom + 说明。
-
-### E8（P2）码流与工程验证
-
-- 对最佳组合补 `codec_roundtrip_diagnostics.json`（bit-exact 全 0 不匹配）确认；
-  测量 encode/decode 时间与内存；确认 `total_MB` 口径不因 MiniSplat 增密变化（几何/掩码占比）。
-- **判据**：bit-exact 通过；体积口径与官方 HAC++ 可比；无新增侧信息。
-
-### E9（P2）机制验证（为什么位置更值钱）
-
-- 用渲染统计定量比较增密前后：局部锚点密度、均值/最邻近间距、per-pixel contributor 数、
-  SPA mask active 率；画出「锚点分布热图 vs 误差热图」。
-- **判据**：若增密后的 error hotspot 与锚点稀疏区对应关系改善 → 为「位置>预算」提供直接证据，
-  而非仅靠 PSNR 间接推断。
-
----
-
-## 8. 复现命令（5090）
+## 7. 复现命令（5090）
 
 ```bash
 # 训练（cell2 为例；baseline 去掉 --cfg.model.mini-splat-enabled）
@@ -332,7 +227,7 @@ python scripts/eval_decoded.py --artifact-dir runs/spa_minisplat_cell2/bitstream
 
 > 数字已同步至 `../data/experiments.csv`（group `phg_minisplat` / `phg_semantic_stageB`）。
 
-## 9. 相关文档
+## 8. 相关文档
 
 - [SPA_阶段A报告](SPA_阶段A报告.md)
 - [语义先验_阶段A报告](语义先验_阶段A报告.md)

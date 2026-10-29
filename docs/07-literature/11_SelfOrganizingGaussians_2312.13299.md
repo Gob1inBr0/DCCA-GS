@@ -5,11 +5,10 @@
 | arXiv | https://arxiv.org/abs/2312.13299 |
 | 发表 | CVPR 2024 |
 | 阅读材料 | 全文（.lit-cache/txt/2312.13299.txt） |
-| 与 DCCA-GS 的关系 | 同类竞品：无锚点、无码本的"2D 网格 + 现成图像编解码器"路线，和我们的哈希锚点 + 量化的路线正交 |
 
 > 一句话定位：把无序的高斯属性表重新排列成 2D 图像网格，让相邻位置属性连续，再用 JPEG XL 这类现成图像压缩器存盘，体积降到 3DGS 的 1/17 到 1/42（Table 1），渲染质量基本不掉。
 
-## 一学：问题与洞察（创新从哪来）
+## 问题与洞察
 
 ### 它认定的主要矛盾
 3DGS 渲染快、质量高，但"stores millions of parameters in a large unorganized list"（第 1 节），一个场景几百 MB，小设备放不下。它的判断是：问题不在参数数量本身，而在存储结构——无序列表没有可利用的冗余。高斯的排列顺序本来就不影响渲染结果（"numerous permutations of Gaussian parameters can equivalently represent a scene"，摘要），这份自由度被 3DGS 浪费了，应该用它换可压缩性。
@@ -25,7 +24,7 @@
 2. 向量量化/码本（当时 NeRF 压缩的主流）：它没走码本路线，而是把属性当图像压。理由是排布好之后，现成图像编解码器就够强，还能保留 3DGS 的数据结构、解码后直接进既有渲染器。
 3. 只在压缩时平滑（后处理）：它明确选择在训练期就把场景"推向"可压缩的等价解（第 3.2 节），而不是压完再修——Table 3 的对照组证明后处理路线质量掉太多。
 
-## 二学：机制（洞察怎么变成方法）
+## 机制
 
 ### 核心流程
 - 训练期：训练开始时排一次序；每次 densification（3DGS 的增密步骤）之后重新排序，修复增密和剪枝破坏的邻域关系。整个训练期间在 3DGS 损失上加一个 2D 平滑正则，梯度穿过渲染器，让优化器在"渲染质量相当"的解里偏好 2D 平滑的那一个。所有属性通道共用同一个排列（每个网格位置对应同一个高斯，Fig. 3）。
@@ -53,7 +52,7 @@ x_log 是网络存的原始坐标，经此激活后场景中心获得更高的�
 | 训练期还是编码期 | 排序和平滑正则在训练期（每次增密后重排）；量化是一次性的编码期后处理（结论中把"训练中量化"列为未来工作） |
 | 和渲染质量的距离（直接测质量还是代理量） | 代理量：平滑正则的梯度穿过渲染器，与渲染损失联合优化，间接服务质量 |
 
-## 三学：证明与包装（创新怎么立住）
+## 实验与结果
 
 ### 实验口径
 - 对比对象：vanilla 3DGS（.ply，全 SH）及其去 SH 版、Mip-NeRF 360、VQ-TensoRF、INGP 等，另有博客方案 Making Gaussian Splats smaller（Table 3）。
@@ -73,20 +72,3 @@ x_log 是网络存的原始坐标，经此激活后场景中心获得更高的�
 - Table 3 的"3DGS Our Compression"行是同预算对照：同一压缩管线，去掉排序+平滑后质量体积双崩，直接证明两个组件缺一不可。
 - Table 4：压缩格式替换实验（PLY/NPZ/无损 JXL/PNG16/EXR/有损 JXL），同一排序后的数据换编解码器，11.86 MB 时仍有 25.14 PSNR。
 - Fig. 8：渐进消融——按 opacity / scaling 从低到高删高斯，opacity 轴删 30% 不掉点，scaling 轴掉得快，支撑"按 opacity 溢出裁剪"的选择。
-- 值得学的写法：把"表示改造（训练期）"和"压缩器（编码期）"拆成可独立开关的两级来消融，对照组都用同一压缩器。
-
-### 贡献列表（原文照抄 + 逐条标注）
-1. "We propose a new compact scene representation and training concept for 3DGS, structuring the high-dimensional features in a smooth 2D grid, which can be efficiently encoded using state-of-the-art compression methods." —— [机制] 训练期塑造可压表示，这是全文核心。
-2. "We introduce an efficient 2D sorting algorithm called Parallel Linear Assignment Sorting (PLAS) that sorts millions of 3DGS parameters on the GPU in seconds." —— [机制] 让排序能嵌进训练循环的工程前提。
-3. "We provide a simple to use interface for compressing and decompressing the resulting 3D scenes. The decompressed reconstructions share the structure of 3DGS, allowing integration into established renderers." —— [工程] 兼容性卖点。
-4. "We efficiently reduce the storage size by a factor of 17x to 42x while maintaining high visual quality" —— [结果] 第 4 条偏结果陈述，算半条凑数。
-
-### 讲故事方式
-主线一句话：高斯顺序是自由度，把它花在"排成平滑图像"上，剩下的交给现成图像压缩器。最有力的是正文 Table 3：一张表同时给出"不排序直接压会崩"（21.98 PSNR）、"排序+平滑后同管线很好"（25.37）、"zip/博客方案都不行"三个对照，主创新和竞品差距一目了然。Fig. 1/Fig. 7 的彩色网格图则把"属性排完像图"这个抽象概念变成一眼能懂的画面。
-
-## 对 DCCA-GS 的可借鉴点
-
-1. "训练期塑造可压表示"的立论方式：它用 Table 3 的同管线对照证明"后处理压不掉的冗余，训练期可以预塑"。我们做消融时可以照搬这个两级对照——同一量化/熵编码管线，开/关 AQM 监督各跑一次，直接展示 I6 塑造出的参数分布更可压。
-2. 按属性敏感度分工的超参写法（附录 B.4）：对质量影响大的字段做精排序/精编码，影响小的字段靠平滑搭车。这和我们 AQM"按锚点分级"正交，是"按字段分级"的思路；我们的量化字段分组（feat/scaling/offsets）可以参考它的权重表形式报告各字段配置。
-3. 体积口径警示：它的压缩倍数混入了"高斯数更少"的贡献（致密化超参大改）。我们报告对比数字时应说明各方法的高斯/锚点数量，避免压缩率被剪枝稀释或夸大。
-4. 它不区分高斯重要性、全员平滑，因此对"少量高敏感高斯"没有保护机制；这正好是我们敏感度信号（I6）的差异化空间，对比实验可以直接引用它的 Table 3 管线作为无信号基线。

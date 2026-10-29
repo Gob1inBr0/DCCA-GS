@@ -20,8 +20,6 @@ You can install gsplat by compiling the wheel. In this way it will build the CUD
 
 ### Visual studio setup
 
-Setting up and activating Visual Studio can be done through these steps:
-
 1. Install Visual Studio Build Tools. If MSVC 143 does not work, you may also need to install MSVC 142 for Visual Studio 2019. And your CUDA environment should be set up properly.
 
 
@@ -67,7 +65,6 @@ We use `--no-cache-dir` to avoid the potential risk of getting pip using a wheel
 
 ### Install using the wheel published on `pypi.org`
 
-Setting up and activating Visual Studio can be done through these steps:
 You can install the `gsplat` using the wheel published on `pypi.org` by activating Visual Studio (see above) and then using 
 ```
 pip install gsplat
@@ -75,7 +72,7 @@ pip install gsplat
 The wheel that does not contain the compiled CUDA binaries. The CUDA code is not compiled during the installation when using wheels and will be compiled at the first import of `gsplat` which requires the Visual Studio executable `cl.exe` to be on the path (see pre-requisite section above). 
 
 ### Install using the clone of the Repository
-This can be done through these steps:
+
 1. Clone the `gsplat` repository:
     ```bash
     git clone --recursive https://github.com/nerfstudio-project/gsplat.git
