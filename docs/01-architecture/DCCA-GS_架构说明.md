@@ -1,6 +1,10 @@
 # DCCA-GS 改动说明文档（框架图版）（原 PHG）
 
-> 更新日期：2026-08-16
+> 以下为 2026-08-16 的架构快照。当前 `main` 的训练与编码入口见
+> [仓库 README](../../README.md)。训练内锚点合并由 `scaffold_gs/anchor_merge.py` 实现，
+> 在 `scaffold_gs/trainer.py` 启用。 [合并设计](../02-design/训练内锚点合并_设计.md)
+>
+> 快照日期：2026-08-16
 > 适用代码：本地 `mlp-quant`（HEAD `4833b98`）；主线 `main`（HEAD `61e60d5`）
 > 用途：记录 PHG 从 `gsplat2hac` 改名重建以来的全部改动、当前架构、创新点接入方式、
 > 实验结果与踩坑记录。

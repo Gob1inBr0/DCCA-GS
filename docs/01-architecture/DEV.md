@@ -1,6 +1,21 @@
 # Development
 
-## Installation
+## DCCA-GS on main
+
+Clone the DCCA-GS repository and use the CUDA environment documented in the
+[environment guide](../04-guides/环境配置与交接.md). Run the training entry point
+from the repository root with `python train.py train`. For the anchor-merge
+experiment, use the paired checkpoint and camera schedule documented in the
+[run guide](../04-guides/训练内锚点合并_指南.md). The test entry point is
+`python -m pytest tests/`. CUDA rendering and codec tests require the same
+extensions as training.
+
+## Historical gsplat development notes
+
+The following notes describe the upstream gsplat development setup. Paths
+such as `docs/source`, `lint/`, and `bootstrap.sh` refer to that checkout.
+
+### Installation
 
 Clone the repository and submodules with
 
@@ -23,7 +38,7 @@ If you won't touch the underlying CUDA code, you can just install with compiling
 pip install -e .[dev]
 ```
 
-## Protect Main Branch over Pull Request
+### Upstream contribution workflow
 
 Commit code into the main branch as a PR over a hard push (a PR protects the
 main branch if the code breaks tests; a hard push won't). Squash the commits
@@ -65,7 +80,7 @@ pytest -sv  # mirror the GPU CI (all tests live under tests/)
 `pytest` recognizes and runs all functions named as `test_*`; name test
 functions in this pattern. See `test_basic.py` as an example.
 
-## Build the Doc Locally
+### Build the upstream documentation
 
 The source code of the doc is in `docs/source` and the built doc will be in
 `_build/`.
@@ -76,7 +91,7 @@ pip install -r ../../requirements.txt
 sphinx-build docs/source _build 
 ```
 
-## Clangd setup (for Neovim)
+### Clangd setup (for Neovim)
 
 [clangd](https://clangd.llvm.org/) provides completions, type checking, and
 other helpful features in C++. Setup for CUDA development takes three steps.

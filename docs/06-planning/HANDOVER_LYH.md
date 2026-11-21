@@ -3,12 +3,16 @@ title: "LYH 环境交接手册（DCCA-GS / SHARC / 40T NFS）"
 type: handover
 tags: [dcca-gs, sharc, lyn, nfs, handover]
 created: "2026-08-27"
-updated: "2026-08-27"
+updated: "2026-11-21"
 ---
 
 # LYH 环境交接手册
 
 > 覆盖：LYH 机器访问、DCCA/SHARC 两套环境、40T NFS（/mnt）的卡死问题与绕过方案、目录/数据布局、数据集下载状态。关键决策已与用户确认。
+
+## 2026-11-21 运行位置补充
+
+`room` 锚点合并批次在 `/pfs/slfan/project03/T0ng` 的独立实验目录完成。训练环境、解码工具和检查点以该次的来源记录为准，历史存储路径在下文保留。 [当前实验运行位置和复现命令](../04-guides/训练内锚点合并_指南.md)
 
 ## 1. 机器与访问
 

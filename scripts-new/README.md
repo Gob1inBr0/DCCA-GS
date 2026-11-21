@@ -1,6 +1,6 @@
 # scripts-new 编号说明
 
-这里是当前 UAV-DCCA-ZC 代码主线需要的训练、测试、码流对比和消融脚本。旧 `scripts/` 目录保留历史实验、绘图、审计和底层工具；新实验优先使用本目录。
+这里提供 UAV-DCCA-ZC 的训练、测试、分层码流对比和消融入口。当前 `main` 的训练内锚点合并实验由 `scripts/compare_anchor_merge_saving_filter.py` 运行，依赖同一训练检查点和相机序列。 [锚点合并参数和配对命令](../docs/04-guides/训练内锚点合并_指南.md)
 
 实现唯一来源（2026-10-08 整理）：码流编解码只在 `scripts/c25_real_bitstream.py` + `scripts/zc_context.py`，训练 runner 只在 `scripts/runner_phg_cell.sh`，解码评估只在 `scripts/eval_decoded.py`。本目录的 05/06/07 是委托入口，`lib_zc_context.py` 是兼容垫片，不维护第二份拷贝，改实现只改 `scripts/` 一处。
 

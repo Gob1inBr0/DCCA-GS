@@ -9,7 +9,19 @@ description: 检查 LYH 服务器上 DCCA-GS GPU 训练的完整状态。每次�
 并把手头已完成的结果登记进 `docs/data/experiments.csv`。原则：**只读优先**——
 巡检本身绝不写入、不杀进程；只有登记 CSV 和 git 推送是写操作，且只写本地仓库。
 
-## 1. 一键巡检
+## 1. 当前锚点合并批次
+
+从运行变更记录或来源记录确认本次根目录。room 批次已核验使用
+`/pfs/slfan/project03/T0ng/DCCA-GS/runs`。按实验目录下的 `attempt_XX` 检查
+`*.gpu`、`*.log`、`*.exit` 和 `result.json`，并检查 runs 根目录下的
+`.experiment-gpu-locks/gpu-*/owner`。用 GPU UUID 和计算进程的 PID、命令确认归属。
+
+按各阶段的实际迭代速度给出预计完成时间。正式解码评测从各组
+`initial/decoded_eval/metrics.jsonl` 和 `final/decoded_eval/metrics.jsonl` 读取。
+以同组 `result.json` 核对逐位解码和实际文件字节。该批的视角数、运行路径和数据口径见
+`docs/04-guides/训练内锚点合并_指南.md` 和 `docs/03-reports/room训练内锚点合并_报告.md`。
+
+### 旧队列巡检
 
 ```bash
 bash .agents/skills/check-status/scripts/status_sweep.sh
@@ -22,7 +34,7 @@ bash .agents/skills/check-status/scripts/status_sweep.sh
 注意：训练日志是 tqdm 进度条，整段 tail 会刷出几十 KB。
 要看更多日志时必须用 `tail -c 1200 <log> | tr '\r' '\n' | tail -5`，禁止直接 `tail`。
 
-## 2. 判读规则
+## 2. 旧队列判读规则
 
 **GPU 归属**：我们的单卡任务约占 6 GB 显存；别人占的卡显存 35 GB 上下。
 **卡位政策（2026-09-23 写定；2026-10-01 更新为现实规则）**：占卡器 v2
