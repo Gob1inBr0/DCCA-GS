@@ -1,0 +1,10 @@
+2026-11-20T17:30:48+08:00
+6097ec962889b3ffcda50028d9f50b1635be8451
+/pfs/slfan/project03/T0ng/3DGSmixNeRF/data/room
+/pfs/slfan/project03/T0ng/GrowToCode/runs/dcca_ref/g2cref_room_l0002_s42/ckpts/ckpt_30000.pth
+/pfs/slfan/project03/T0ng/GrowToCode/envs/pcgs/bin/python
+9fc8ff04b63b05fbe53f6c060d580cc8ca1a0ee0ec436a7cd028d779a0c260d6  scaffold_gs/anchor_merge.py
+ffaa679cf35c87049998bd5553a6d02d899c7007214e245098617626ca84240d  scaffold_gs/trainer.py
+9058ddc5db37372d5237d56a5b22dba005e767dd7f52cfbc66215774886a41d4  scaffold_gs/config.py
+0ead2b2ee2ec94bbaadc08f9184cb0d1c6549637e14fe28813ff6c9a047cbac2  hacplus/scene/gaussian_model.py
+3cebf6625fdeccc3faae93b59178bf1d8f34054ae67741b1b4c432d9503f0370  scripts/run_in_training_anchor_merge.py

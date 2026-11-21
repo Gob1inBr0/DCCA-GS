@@ -1,0 +1,48 @@
+{
+  "initial_coded_anchors": 3296,
+  "final_coded_anchors": 2793,
+  "merges": 503,
+  "active_offsets": 7595,
+  "max_position_error_before_quantization": 2.342462539495216e-07,
+  "mean_response_rms": 0.03635745932473977,
+  "mean_estimated_saving_bytes": 13.61603986565611,
+  "expected_saving_min_bytes": 1.0,
+  "response_rms_max": 0.05,
+  "rounds": [
+    {
+      "candidates": 11989,
+      "accepted": 420
+    },
+    {
+      "candidates": 8195,
+      "accepted": 65
+    },
+    {
+      "candidates": 7697,
+      "accepted": 15
+    },
+    {
+      "candidates": 7530,
+      "accepted": 2
+    },
+    {
+      "candidates": 7514,
+      "accepted": 1
+    },
+    {
+      "candidates": 7503,
+      "accepted": 0
+    }
+  ],
+  "selection_cameras": [
+    "DSCF4668.JPG",
+    "DSCF4712.JPG",
+    "DSCF4756.JPG",
+    "DSCF4800.JPG",
+    "DSCF4845.JPG",
+    "DSCF4889.JPG",
+    "DSCF4933.JPG",
+    "DSCF4977.JPG"
+  ],
+  "iteration": 30001
+}

@@ -533,6 +533,17 @@ class TrainConfig:
     device: str = "cuda"
     seed: int = 42
     enable_tensorboard: bool = False
+    anchor_merge_step: Optional[int] = None
+    """Apply one new-position HAC++ anchor merge before this training step."""
+    anchor_merge_response_rms_limit: float = 0.05
+    """Maximum joint premultiplied RGB and opacity RMS error for a merge."""
+    anchor_merge_min_saving_bytes: Optional[float] = 1.0
+    """Minimum estimated byte saving per merge. None disables this filter."""
+    anchor_merge_candidate_neighbors: Optional[int] = None
+    """Nearest neighbors to consider per anchor. Unset uses the byte-derived radius
+    with the byte filter enabled, or 16 neighbors with the filter disabled."""
+    save_anchor_merge_initial: bool = False
+    """Save the merged state before its first training update."""
     resume: Optional[str] = None
     """Checkpoint path to resume from: restores model, optimizer, densification
     statistics and the anchor-reorganization runtime state, then continues the

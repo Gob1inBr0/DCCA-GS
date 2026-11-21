@@ -1,0 +1,11 @@
+python=/pfs/slfan/project03/T0ng/GrowToCode/envs/pcgs/bin/python
+scene=/pfs/slfan/project03/T0ng/3DGSmixNeRF/data/room
+checkpoint=/pfs/slfan/project03/T0ng/GrowToCode/runs/dcca_ref/g2cref_room_l0002_s42/ckpts/ckpt_30000.pth
+metadata=/pfs/slfan/project03/T0ng/GrowToCode/runs/dcca_ref/g2cref_room_l0002_s42/bitstreams/hac_meta.json
+started=2026-11-20T11:52:11+08:00
+6097ec962889b3ffcda50028d9f50b1635be8451
+c7b38612990c98bf539fac0a4ecd082a39e2be8bfc6273f06b54f130e7d117de  /pfs/slfan/project03/T0ng/GrowToCode/runs/dcca_ref/g2cref_room_l0002_s42/ckpts/ckpt_30000.pth
+7e6cd40f09660757419a455e0843cfc0050536ec611bace663ad8d0bdce3597b  /pfs/slfan/project03/T0ng/GrowToCode/runs/dcca_ref/g2cref_room_l0002_s42/bitstreams/hac_meta.json
+b03eeec332cae564a4e6b1063793ea19fce29b3b2b31b0e6eda9aa3a098dc802  scripts/merge_anchors_new_position.py
+a1cb0a3e98e1205bce533638d62d4c6e831c320476c1311832146b56f0ed7513  scripts/run_new_position_merge_lyh.sh
+gpu=4 (GPU-f61050fd-569b-309f-2c18-69583d8448b5)

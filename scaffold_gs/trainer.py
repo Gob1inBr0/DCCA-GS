@@ -55,6 +55,7 @@ def save_checkpoint(
                 "spa_post_base": getattr(model.core, "spa_post_base", 0),
                 "spa_reinit_step": getattr(model.core, "spa_reinit_step", 0),
                 "mini_splat_done": getattr(model.core, "mini_splat_done", False),
+                "anchor_merge_step": getattr(model.core, "anchor_merge_step", None),
             },
             "voxel_size": float(model.voxel_size),
             "spatial_lr_scale": float(model.spatial_lr_scale),
@@ -91,6 +92,7 @@ def load_checkpoint(
             core.spa_post_base = int(core_state.get("spa_post_base", 0))
             core.spa_reinit_step = int(core_state.get("spa_reinit_step", 0))
             core.mini_splat_done = bool(core_state.get("mini_splat_done", False))
+            core.anchor_merge_step = core_state.get("anchor_merge_step")
     return model, optim_cfg, int(ckpt["iteration"]), ckpt
 
 
@@ -206,6 +208,25 @@ def holdout_psnr(
 
 
 def run_training(cfg: TrainConfig) -> Dict[str, float]:
+    merge_step = cfg.anchor_merge_step
+    if merge_step is not None:
+        if not 0 < cfg.anchor_merge_response_rms_limit <= 1:
+            raise ValueError("anchor_merge_response_rms_limit must be in (0, 1]")
+        if (cfg.anchor_merge_candidate_neighbors is not None
+                and cfg.anchor_merge_candidate_neighbors < 1):
+            raise ValueError("anchor_merge_candidate_neighbors must be positive")
+        if cfg.model.model_name != "hac_pp":
+            raise ValueError("anchor_merge_step is supported for hac_pp")
+        last_topology_step = cfg.optim.update_until
+        if cfg.model.mini_splat_enabled:
+            last_topology_step = max(last_topology_step, cfg.model.mini_splat_reinit_iter)
+        if cfg.model.spa_post_ratio < 1.0:
+            last_topology_step = max(
+                last_topology_step,
+                cfg.model.mini_splat_reinit_iter + cfg.model.spa_post_window,
+            )
+        if not last_topology_step < merge_step <= cfg.optim.max_steps:
+            raise ValueError("anchor_merge_step must follow topology updates and be within training")
     print(
         "[TrainerVer] post_branch=loaded "
         f"spa_post_ratio={getattr(cfg.model, 'spa_post_ratio', 'MISSING')} "
@@ -276,6 +297,9 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
             f"mini_splat_done={getattr(model.core, 'mini_splat_done', None)})",
             flush=True,
         )
+    if merge_step is not None and start_iteration >= merge_step:
+        if getattr(model.core, "anchor_merge_step", None) != merge_step:
+            raise ValueError("The resume checkpoint is past the requested anchor merge step")
 
     camera_schedule = None
     if getattr(cfg, "camera_schedule", None):
@@ -351,6 +375,27 @@ def run_training(cfg: TrainConfig) -> Dict[str, float]:
     pbar = tqdm.tqdm(range(start_iteration + 1, optim.max_steps + 1), desc="Scaffold-GS training")
     final_metrics: Dict[str, float] = {}
     for iteration in pbar:
+        if iteration == merge_step and getattr(model.core, "anchor_merge_step", None) != iteration:
+            from .anchor_merge import merge_training_anchors
+
+            print(f"[AnchorMerge @{iteration}] measuring current coding cost", flush=True)
+            report = merge_training_anchors(
+                model, train_cams, result_dir,
+                response_rms_limit=cfg.anchor_merge_response_rms_limit,
+                min_saving_bytes=cfg.anchor_merge_min_saving_bytes,
+                candidate_neighbors=cfg.anchor_merge_candidate_neighbors,
+            )
+            model.core.anchor_merge_step = iteration
+            report["iteration"] = iteration
+            (result_dir / f"anchor_merge_{iteration}.json").write_text(
+                json.dumps(report, indent=2) + "\n"
+            )
+            if cfg.save_anchor_merge_initial:
+                save_checkpoint(
+                    model, optim, cfg.data, iteration - 1,
+                    result_dir / "after_anchor_merge.pth",
+                )
+            print(f"[AnchorMerge @{iteration}] {json.dumps(report)}", flush=True)
         model.update_learning_rate(iteration)
         if camera_schedule is not None:
             cam = train_cams[int(camera_schedule[iteration - 1])]

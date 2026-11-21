@@ -1,0 +1,104 @@
+{
+  "initial_coded_anchors": 3296,
+  "final_coded_anchors": 1857,
+  "merges": 1439,
+  "active_offsets": 7595,
+  "max_position_error_before_quantization": 2.3604184384851123e-07,
+  "mean_response_rms": 0.07109904630029415,
+  "mean_estimated_saving_bytes": 14.276790900991298,
+  "expected_saving_min_bytes": 1.0,
+  "response_rms_max": 0.1,
+  "rounds": [
+    {
+      "candidates": 11989,
+      "accepted": 968,
+      "rejected": {
+        "conflict": 9224,
+        "grid": 0,
+        "bytes": 109,
+        "response": 1688
+      }
+    },
+    {
+      "candidates": 4375,
+      "accepted": 323,
+      "rejected": {
+        "conflict": 1614,
+        "grid": 0,
+        "bytes": 218,
+        "response": 2220
+      }
+    },
+    {
+      "candidates": 2715,
+      "accepted": 120,
+      "rejected": {
+        "conflict": 372,
+        "grid": 0,
+        "bytes": 219,
+        "response": 2004
+      }
+    },
+    {
+      "candidates": 2177,
+      "accepted": 23,
+      "rejected": {
+        "conflict": 38,
+        "grid": 0,
+        "bytes": 220,
+        "response": 1896
+      }
+    },
+    {
+      "candidates": 2101,
+      "accepted": 3,
+      "rejected": {
+        "conflict": 16,
+        "grid": 0,
+        "bytes": 221,
+        "response": 1861
+      }
+    },
+    {
+      "candidates": 2082,
+      "accepted": 1,
+      "rejected": {
+        "conflict": 5,
+        "grid": 0,
+        "bytes": 221,
+        "response": 1855
+      }
+    },
+    {
+      "candidates": 2077,
+      "accepted": 1,
+      "rejected": {
+        "conflict": 0,
+        "grid": 0,
+        "bytes": 221,
+        "response": 1855
+      }
+    },
+    {
+      "candidates": 2069,
+      "accepted": 0,
+      "rejected": {
+        "conflict": 0,
+        "grid": 0,
+        "bytes": 221,
+        "response": 1848
+      }
+    }
+  ],
+  "selection_cameras": [
+    "DSCF4668.JPG",
+    "DSCF4712.JPG",
+    "DSCF4756.JPG",
+    "DSCF4800.JPG",
+    "DSCF4845.JPG",
+    "DSCF4889.JPG",
+    "DSCF4933.JPG",
+    "DSCF4977.JPG"
+  ],
+  "iteration": 30001
+}

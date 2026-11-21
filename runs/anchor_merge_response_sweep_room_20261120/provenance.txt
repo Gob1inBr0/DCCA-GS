@@ -1,0 +1,11 @@
+2026-11-20T17:46:27+08:00
+6097ec962889b3ffcda50028d9f50b1635be8451
+/pfs/slfan/project03/T0ng/DCCA-GS/runs/anchor_merge_inside_30k_room_20261120/attempt_01
+/pfs/slfan/project03/T0ng/3DGSmixNeRF/data/room
+/pfs/slfan/project03/T0ng/GrowToCode/envs/pcgs/bin/python
+1e51bf9957a463c935983d6bc54313c2620a51554fa51cb281c72204ff57c002  scaffold_gs/anchor_merge.py
+636700b12afdab60121d6c834c92e9f1ca9d40cc23977f7b3c3006dd3e0f7912  scaffold_gs/config.py
+f060ef39bb290c6c3d0d3967f7c772f71e9819d6bcf661d7e50a9305e98162a5  scaffold_gs/trainer.py
+0ead2b2ee2ec94bbaadc08f9184cb0d1c6549637e14fe28813ff6c9a047cbac2  hacplus/scene/gaussian_model.py
+050bcaaa80ef68679f079bc04760b51fc61a1dd81675928a91685907b56b79c9  scripts/run_in_training_anchor_merge.py
+861b27ffe0a016b415193919372a1e34a9484197d2cdd8afd01e20b3c7d27870  scripts/compare_anchor_merge_response.py

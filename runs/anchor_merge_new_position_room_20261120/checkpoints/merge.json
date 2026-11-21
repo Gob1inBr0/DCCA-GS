@@ -1,0 +1,48 @@
+{
+  "initial_coded_anchors": 118306,
+  "final_coded_anchors": 95292,
+  "merges": 23014,
+  "active_offsets": 398604,
+  "max_position_error_before_quantization": 3.737493415201243e-06,
+  "mean_response_rms": 0.03318828525554761,
+  "mean_estimated_saving_bytes": 9.19002574449566,
+  "expected_saving_min_bytes": 1.0,
+  "response_rms_max": 0.05,
+  "rounds": [
+    {
+      "candidates": 522190,
+      "accepted": 19144
+    },
+    {
+      "candidates": 267741,
+      "accepted": 3362
+    },
+    {
+      "candidates": 230098,
+      "accepted": 445
+    },
+    {
+      "candidates": 223578,
+      "accepted": 57
+    },
+    {
+      "candidates": 222693,
+      "accepted": 6
+    },
+    {
+      "candidates": 222589,
+      "accepted": 0
+    }
+  ],
+  "selection_cameras": [
+    "DSCF4668.JPG",
+    "DSCF4712.JPG",
+    "DSCF4756.JPG",
+    "DSCF4800.JPG",
+    "DSCF4845.JPG",
+    "DSCF4889.JPG",
+    "DSCF4933.JPG",
+    "DSCF4977.JPG"
+  ],
+  "reference": "/pfs/slfan/project03/T0ng/GrowToCode/runs/dcca_ref/g2cref_room_l0002_s42/ckpts/ckpt_30000.pth"
+}

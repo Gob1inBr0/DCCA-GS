@@ -517,6 +517,7 @@ class HACPlusModel(BaseGaussianModel):
 
     def create_optimizer(self, optim_cfg: OptimConfig) -> None:
         self.optim_cfg = optim_cfg
+        self.core.spatial_lr_scale = self.spatial_lr_scale
         self.core.spa_start_iter = int(optim_cfg.update_from)
         self.core.spa_update_until = int(optim_cfg.update_until)
         args = SimpleNamespace(

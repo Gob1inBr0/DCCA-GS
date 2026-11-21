@@ -1,0 +1,42 @@
+{
+  "control_initial": {
+    "compact_bytes": 2038751,
+    "decoder_config_and_weights_bytes": 183010,
+    "coded_anchors": 118306,
+    "active_offsets": 398604,
+    "reconstruction_matches_standard": true,
+    "artifact_files": 249
+  },
+  "merged_initial": {
+    "compact_bytes": 1934442,
+    "decoder_config_and_weights_bytes": 183010,
+    "coded_anchors": 95292,
+    "active_offsets": 398604,
+    "reconstruction_matches_standard": true,
+    "artifact_files": 201
+  },
+  "smoke": {
+    "compact_bytes": 1900336,
+    "decoder_config_and_weights_bytes": 183010,
+    "coded_anchors": 95292,
+    "active_offsets": 398604,
+    "reconstruction_matches_standard": true,
+    "artifact_files": 201
+  },
+  "control": {
+    "compact_bytes": 2030949,
+    "decoder_config_and_weights_bytes": 183010,
+    "coded_anchors": 118306,
+    "active_offsets": 398604,
+    "reconstruction_matches_standard": true,
+    "artifact_files": 249
+  },
+  "merged": {
+    "compact_bytes": 1891831,
+    "decoder_config_and_weights_bytes": 183010,
+    "coded_anchors": 95292,
+    "active_offsets": 398604,
+    "reconstruction_matches_standard": true,
+    "artifact_files": 201
+  }
+}

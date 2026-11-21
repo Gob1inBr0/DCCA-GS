@@ -1215,7 +1215,7 @@ class GaussianModel(nn.Module):
         self.offset_gradient_accum[combined_mask] += grad_norm
         self.offset_denom[combined_mask] += 1
 
-    def _prune_anchor_optimizer(self, mask):
+    def _prune_anchor_optimizer(self, mask, *, preserve_parameters=False):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             if (
@@ -1227,30 +1227,24 @@ class GaussianModel(nn.Module):
             ):
                 continue
 
-            stored_state = self.optimizer.state.get(group['params'][0], None)
+            original = group["params"][0]
+            requires_grad = original.requires_grad if preserve_parameters else True
+            stored_state = self.optimizer.state.get(original)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
                 stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
+                if preserve_parameters and "max_exp_avg_sq" in stored_state:
+                    stored_state["max_exp_avg_sq"] = stored_state["max_exp_avg_sq"][mask]
 
-                del self.optimizer.state[group['params'][0]]
-                group["params"][0] = nn.Parameter(
-                    group["params"][0].detach()[mask], requires_grad=True
-                )
-                self.optimizer.state[group['params'][0]] = stored_state
-                if group['name'] == "scaling":
-                    scales = group["params"][0]
-                    with torch.no_grad():
-                        scales[:, 3:].clamp_(max=0.05)
-                optimizable_tensors[group["name"]] = group["params"][0]
-            else:
-                group["params"][0] = nn.Parameter(
-                    group["params"][0].detach()[mask], requires_grad=True
-                )
-                if group['name'] == "scaling":
-                    scales = group["params"][0]
-                    with torch.no_grad():
-                        scales[:, 3:].clamp_(max=0.05)
-                optimizable_tensors[group["name"]] = group["params"][0]
+                del self.optimizer.state[original]
+            kept = nn.Parameter(original.detach()[mask], requires_grad=requires_grad)
+            group["params"][0] = kept
+            if stored_state is not None:
+                self.optimizer.state[kept] = stored_state
+            if group["name"] == "scaling" and not preserve_parameters:
+                with torch.no_grad():
+                    kept[:, 3:].clamp_(max=0.05)
+            optimizable_tensors[group["name"]] = kept
 
 
         return optimizable_tensors
@@ -1278,7 +1272,7 @@ class GaussianModel(nn.Module):
         self.semantic_target = t.contiguous()
         self.semantic_cov = c.contiguous()
 
-    def prune_anchor(self, mask):
+    def prune_anchor(self, mask, *, preserve_parameters=False):
         valid_points_mask = ~mask
         n_target = int(valid_points_mask.shape[0])
         self._sync_semantic_state()
@@ -1312,7 +1306,9 @@ class GaussianModel(nn.Module):
             elif tensor.shape[0] > n_target:
                 setattr(self, name, tensor[:n_target])
 
-        optimizable_tensors = self._prune_anchor_optimizer(valid_points_mask)
+        optimizable_tensors = self._prune_anchor_optimizer(
+            valid_points_mask, preserve_parameters=preserve_parameters
+        )
 
         self._anchor = optimizable_tensors["anchor"]
         self._offset = optimizable_tensors["offset"]
