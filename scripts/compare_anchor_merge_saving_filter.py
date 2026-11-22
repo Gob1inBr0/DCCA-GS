@@ -52,7 +52,10 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("schedule", type=Path)
+    parser.add_argument("--candidate-neighbors", type=int, default=NEIGHBORS)
     args = parser.parse_args()
+    if args.candidate_neighbors < 1:
+        parser.error("--candidate-neighbors must be positive")
     stage, root = args.stage, args.root
     archive = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     assert archive["iteration"] == MERGE_STEP - 1
@@ -71,13 +74,13 @@ def main():
         final = run_arm(
             archive, data, root, stage, start, final_step, MERGE_STEP, args.schedule,
             response_rms_limit=0.10, save_merge_initial=True, min_saving_bytes=LIMITS[stage],
-            candidate_neighbors=NEIGHBORS,
+            candidate_neighbors=args.candidate_neighbors,
         )
         out = root / stage
         initial = out / "after_anchor_merge.pth"
         report = json.loads((out / f"anchor_merge_{MERGE_STEP}.json").read_text())
         assert report["expected_saving_min_bytes"] == LIMITS[stage]
-        assert report["candidate_neighbors"] == NEIGHBORS and report["merges"] > 0
+        assert report["candidate_neighbors"] == args.candidate_neighbors and report["merges"] > 0
         assert bool(report["accepted_below_one_estimated_byte"]) == (LIMITS[stage] is None), report
         result = {
             "merge": report,

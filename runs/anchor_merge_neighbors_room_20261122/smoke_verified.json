@@ -1,0 +1,427 @@
+{
+  "provenance": "2026-11-22T21:16:47+08:00\n6097ec962889b3ffcda50028d9f50b1635be8451\n/pfs/slfan/project03/T0ng/GrowToCode/envs/pcgs/bin/python\n/pfs/slfan/project03/T0ng/DCCA-GS/runs/anchor_merge_response_sweep_room_20261120/attempt_01/source\n/pfs/slfan/project03/T0ng/DCCA-GS/runs/anchor_merge_new_position_room_20261120/attempt_02\n584a3e4dafe681fe1490b46a3679a8c8daa4e998cae0a9415912c8d34593167e  /pfs/slfan/project03/T0ng/DCCA-GS/runs/anchor_merge_inside_30k_room_20261120/attempt_01/common/ckpts/ckpt_18000.pth\nb61141800a6e7a58f43463e2aeefbd629523aca004f94a022e09470bfccb5fb0  /pfs/slfan/project03/T0ng/DCCA-GS/runs/anchor_merge_inside_30k_room_20261120/attempt_01/camera_schedule.npy\nff1d85fd09356f093751f5c49e750b335c4d833a26c15d26239c8d85f79fdb43  /pfs/slfan/project03/T0ng/DCCA-GS/runs/anchor_merge_neighbors_room_20261122/attempt_01/run_on_lyh.sh\nb1475612483efca27a6d09f54d99cdce6e05f366d1bf9257c8d18245f3544de1  scaffold_gs/anchor_merge.py\n2cb97d1e14d9a0c5591ef7f937a361865eefdd25604397ad7460af2c82817b3b  scaffold_gs/config.py\n4dd01aa921f5263d7506acc809662bc580d131a428a4490fbfd689053d8d14dd  scaffold_gs/hacpp.py\ncb5a8064fcd7ea0ba0fa2639d587d29320b0213cc8b8841afaea70c7ea9af70a  scaffold_gs/trainer.py\n461f0c740c91e361d468a8dedcac2ed4a4a93df7ace27d1fd65b38a22dd34c1e  scripts/run_in_training_anchor_merge.py\n861b27ffe0a016b415193919372a1e34a9484197d2cdd8afd01e20b3c7d27870  scripts/compare_anchor_merge_response.py\nc9e277b01697160d7277802d16ce1a253be5487b155c42f544c87d40e9f852b6  scripts/compare_anchor_merge_saving_filter.py\n",
+  "results": {
+    "smoke": {
+      "merge": {
+        "initial_coded_anchors": 4034,
+        "final_coded_anchors": 1535,
+        "merges": 2499,
+        "active_offsets": 11308,
+        "max_position_error_before_quantization": 3.089904785369413e-07,
+        "mean_response_rms": 0.05588648566535834,
+        "mean_estimated_saving_bytes": -48.748982011176615,
+        "expected_saving_min_bytes": null,
+        "candidate_neighbors": 64,
+        "accepted_below_one_estimated_byte": 780,
+        "accepted_nonpositive_estimated_saving": 760,
+        "response_rms_max": 0.1,
+        "rounds": [
+          {
+            "candidates": 153207,
+            "accepted": 1749,
+            "rejected": {
+              "conflict": 145815,
+              "grid": 0,
+              "bytes": 0,
+              "response": 5643
+            }
+          },
+          {
+            "candidates": 57363,
+            "accepted": 663,
+            "rejected": {
+              "conflict": 46582,
+              "grid": 0,
+              "bytes": 0,
+              "response": 10118
+            }
+          },
+          {
+            "candidates": 15075,
+            "accepted": 81,
+            "rejected": {
+              "conflict": 3344,
+              "grid": 0,
+              "bytes": 0,
+              "response": 11650
+            }
+          },
+          {
+            "candidates": 11544,
+            "accepted": 6,
+            "rejected": {
+              "conflict": 104,
+              "grid": 0,
+              "bytes": 0,
+              "response": 11434
+            }
+          },
+          {
+            "candidates": 11278,
+            "accepted": 0,
+            "rejected": {
+              "conflict": 0,
+              "grid": 0,
+              "bytes": 0,
+              "response": 11278
+            }
+          }
+        ],
+        "selection_cameras": [
+          "DSCF4668.JPG",
+          "DSCF4712.JPG",
+          "DSCF4756.JPG",
+          "DSCF4800.JPG",
+          "DSCF4845.JPG",
+          "DSCF4889.JPG",
+          "DSCF4933.JPG",
+          "DSCF4977.JPG"
+        ],
+        "iteration": 18001
+      },
+      "updates": {
+        "learning_rates": {
+          "anchor": 0.0,
+          "offset": 0.003132451324866978,
+          "mask": 0.019672039838142218,
+          "anchor_feat": 0.0075,
+          "opacity": 0.02,
+          "scaling": 0.007,
+          "rotation": 0.002,
+          "mlp_opacity": 0.00011867611725506563,
+          "mlp_cov": 0.004000000000000002,
+          "mlp_color": 0.00035581948844219923,
+          "encoding_xyz": 0.00011056094319484009,
+          "mlp_grid": 0.00011056094319484009,
+          "mlp_deform": 0.0012179702236460137,
+          "mlp_complexity": 0.0012179702236460137
+        },
+        "changed_values": {
+          "_anchor": 0,
+          "_offset": 24682,
+          "_mask": 15969
+        }
+      },
+      "initial": {
+        "iteration": 18000,
+        "psnr": 8.630167386470697,
+        "ssim": 0.07651915375549251,
+        "lpips": 0.5085622034011743,
+        "num_val_views": 39,
+        "payload_bytes": 320333,
+        "active_offsets": 11308,
+        "coded_anchors": 1535,
+        "matches_standard": true,
+        "meta": {
+          "codec": "hac_pp",
+          "num_anchors": 1535,
+          "num_anchors_total": 1597,
+          "q_scale_feat": 1.0,
+          "q_scale_scaling": 1.0,
+          "q_scale_offsets": 1.0,
+          "mask_keep_ratio": null,
+          "attr_ctx_enabled": false,
+          "bit_attr_ctx": 0,
+          "bit_anchor": 37216,
+          "bit_feat": 92336,
+          "bit_scaling": 44408,
+          "bit_offsets": 311544,
+          "bit_hash": 571184,
+          "bit_masks": 12904,
+          "bit_mlp": 1340288,
+          "bit_bounds": 192,
+          "bit_header": 8112,
+          "bit_bg_codebook": 0,
+          "num_bg_anchors": 0,
+          "total_bits": 2418184,
+          "total_MB": 0.2883
+        },
+        "payload_files": {
+          "hash.b": 71398,
+          "feat_0_2_0.b": 2724,
+          "xyz_gpcc.npz": 4652,
+          "x_bound_min.pkl": 1200,
+          "codec_roundtrip_diagnostics.json": 210,
+          "scaling_0_0.b": 5551,
+          "decoder_config_and_weights.pth": 183010,
+          "content_aware_q_meta.json": 145,
+          "feat_0_1_0.b": 2811,
+          "x_bound_max.pkl": 1200,
+          "codec_header.json": 869,
+          "feat_0_0_0.b": 3625,
+          "offsets_0_0.b": 38943,
+          "feat_0_3_0.b": 2382,
+          "masks.b": 1613
+        }
+      },
+      "final": {
+        "iteration": 18400,
+        "psnr": 14.197660739605244,
+        "ssim": 0.5875382194152245,
+        "lpips": 0.492775797079771,
+        "num_val_views": 39,
+        "payload_bytes": 241669,
+        "active_offsets": 5119,
+        "coded_anchors": 1343,
+        "matches_standard": true,
+        "meta": {
+          "codec": "hac_pp",
+          "num_anchors": 1343,
+          "num_anchors_total": 1597,
+          "q_scale_feat": 1.0,
+          "q_scale_scaling": 1.0,
+          "q_scale_offsets": 1.0,
+          "mask_keep_ratio": null,
+          "attr_ctx_enabled": false,
+          "bit_attr_ctx": 0,
+          "bit_anchor": 33064,
+          "bit_feat": 35344,
+          "bit_scaling": 48976,
+          "bit_offsets": 75248,
+          "bit_hash": 234632,
+          "bit_masks": 13016,
+          "bit_mlp": 1340288,
+          "bit_bounds": 192,
+          "bit_header": 8112,
+          "bit_bg_codebook": 0,
+          "num_bg_anchors": 0,
+          "total_bits": 1788872,
+          "total_MB": 0.2133
+        },
+        "payload_files": {
+          "feat_0_1_0.b": 1027,
+          "content_aware_q_meta.json": 145,
+          "codec_roundtrip_diagnostics.json": 210,
+          "decoder_config_and_weights.pth": 183010,
+          "offsets_0_0.b": 9406,
+          "feat_0_3_0.b": 856,
+          "hash.b": 29329,
+          "masks.b": 1627,
+          "codec_header.json": 869,
+          "x_bound_min.pkl": 1200,
+          "feat_0_0_0.b": 1503,
+          "x_bound_max.pkl": 1200,
+          "feat_0_2_0.b": 1032,
+          "xyz_gpcc.npz": 4133,
+          "scaling_0_0.b": 6122
+        }
+      }
+    },
+    "baseline_smoke": {
+      "merge": {
+        "initial_coded_anchors": 4034,
+        "final_coded_anchors": 1603,
+        "merges": 2431,
+        "active_offsets": 11308,
+        "max_position_error_before_quantization": 3.089904785369413e-07,
+        "mean_response_rms": 0.0544854016923181,
+        "mean_estimated_saving_bytes": -27.03570650641867,
+        "expected_saving_min_bytes": null,
+        "candidate_neighbors": 16,
+        "accepted_below_one_estimated_byte": 671,
+        "accepted_nonpositive_estimated_saving": 652,
+        "response_rms_max": 0.1,
+        "rounds": [
+          {
+            "candidates": 38885,
+            "accepted": 1669,
+            "rejected": {
+              "conflict": 34419,
+              "grid": 0,
+              "bytes": 0,
+              "response": 2797
+            }
+          },
+          {
+            "candidates": 16057,
+            "accepted": 655,
+            "rejected": {
+              "conflict": 11469,
+              "grid": 0,
+              "bytes": 0,
+              "response": 3933
+            }
+          },
+          {
+            "candidates": 5179,
+            "accepted": 93,
+            "rejected": {
+              "conflict": 954,
+              "grid": 0,
+              "bytes": 0,
+              "response": 4132
+            }
+          },
+          {
+            "candidates": 3904,
+            "accepted": 11,
+            "rejected": {
+              "conflict": 84,
+              "grid": 0,
+              "bytes": 0,
+              "response": 3809
+            }
+          },
+          {
+            "candidates": 3780,
+            "accepted": 3,
+            "rejected": {
+              "conflict": 20,
+              "grid": 0,
+              "bytes": 0,
+              "response": 3757
+            }
+          },
+          {
+            "candidates": 3728,
+            "accepted": 0,
+            "rejected": {
+              "conflict": 0,
+              "grid": 0,
+              "bytes": 0,
+              "response": 3728
+            }
+          }
+        ],
+        "selection_cameras": [
+          "DSCF4668.JPG",
+          "DSCF4712.JPG",
+          "DSCF4756.JPG",
+          "DSCF4800.JPG",
+          "DSCF4845.JPG",
+          "DSCF4889.JPG",
+          "DSCF4933.JPG",
+          "DSCF4977.JPG"
+        ],
+        "iteration": 18001
+      },
+      "updates": {
+        "learning_rates": {
+          "anchor": 0.0,
+          "offset": 0.003132451324866978,
+          "mask": 0.019672039838142218,
+          "anchor_feat": 0.0075,
+          "opacity": 0.02,
+          "scaling": 0.007,
+          "rotation": 0.002,
+          "mlp_opacity": 0.00011867611725506563,
+          "mlp_cov": 0.004000000000000002,
+          "mlp_color": 0.00035581948844219923,
+          "encoding_xyz": 0.00011056094319484009,
+          "mlp_grid": 0.00011056094319484009,
+          "mlp_deform": 0.0012179702236460137,
+          "mlp_complexity": 0.0012179702236460137
+        },
+        "changed_values": {
+          "_anchor": 0,
+          "_offset": 25160,
+          "_mask": 16649
+        }
+      },
+      "initial": {
+        "iteration": 18000,
+        "psnr": 8.63126847682855,
+        "ssim": 0.07764185724469523,
+        "lpips": 0.5079458562227396,
+        "num_val_views": 39,
+        "payload_bytes": 319708,
+        "active_offsets": 11308,
+        "coded_anchors": 1603,
+        "matches_standard": true,
+        "meta": {
+          "codec": "hac_pp",
+          "num_anchors": 1603,
+          "num_anchors_total": 1665,
+          "q_scale_feat": 1.0,
+          "q_scale_scaling": 1.0,
+          "q_scale_offsets": 1.0,
+          "mask_keep_ratio": null,
+          "attr_ctx_enabled": false,
+          "bit_attr_ctx": 0,
+          "bit_anchor": 38368,
+          "bit_feat": 97960,
+          "bit_scaling": 46784,
+          "bit_offsets": 296144,
+          "bit_hash": 571184,
+          "bit_masks": 14152,
+          "bit_mlp": 1340288,
+          "bit_bounds": 192,
+          "bit_header": 8112,
+          "bit_bg_codebook": 0,
+          "num_bg_anchors": 0,
+          "total_bits": 2413184,
+          "total_MB": 0.2877
+        },
+        "payload_files": {
+          "xyz_gpcc.npz": 4796,
+          "feat_0_2_0.b": 2895,
+          "feat_0_1_0.b": 2977,
+          "codec_header.json": 869,
+          "x_bound_max.pkl": 1200,
+          "offsets_0_0.b": 37018,
+          "hash.b": 71398,
+          "codec_roundtrip_diagnostics.json": 210,
+          "scaling_0_0.b": 5848,
+          "content_aware_q_meta.json": 145,
+          "masks.b": 1769,
+          "decoder_config_and_weights.pth": 183010,
+          "feat_0_3_0.b": 2534,
+          "feat_0_0_0.b": 3839,
+          "x_bound_min.pkl": 1200
+        }
+      },
+      "final": {
+        "iteration": 18400,
+        "psnr": 14.301390525622246,
+        "ssim": 0.5801748480552282,
+        "lpips": 0.49211731476661486,
+        "num_val_views": 39,
+        "payload_bytes": 242463,
+        "active_offsets": 5159,
+        "coded_anchors": 1387,
+        "matches_standard": true,
+        "meta": {
+          "codec": "hac_pp",
+          "num_anchors": 1387,
+          "num_anchors_total": 1665,
+          "q_scale_feat": 1.0,
+          "q_scale_scaling": 1.0,
+          "q_scale_offsets": 1.0,
+          "mask_keep_ratio": null,
+          "attr_ctx_enabled": false,
+          "bit_attr_ctx": 0,
+          "bit_anchor": 33976,
+          "bit_feat": 46776,
+          "bit_scaling": 41512,
+          "bit_offsets": 71160,
+          "bit_hash": 239864,
+          "bit_masks": 13344,
+          "bit_mlp": 1340288,
+          "bit_bounds": 192,
+          "bit_header": 8112,
+          "bit_bg_codebook": 0,
+          "num_bg_anchors": 0,
+          "total_bits": 1795224,
+          "total_MB": 0.214
+        },
+        "payload_files": {
+          "scaling_0_0.b": 5189,
+          "masks.b": 1668,
+          "feat_0_1_0.b": 1371,
+          "hash.b": 29983,
+          "feat_0_2_0.b": 1323,
+          "decoder_config_and_weights.pth": 183010,
+          "xyz_gpcc.npz": 4247,
+          "content_aware_q_meta.json": 145,
+          "codec_header.json": 869,
+          "codec_roundtrip_diagnostics.json": 210,
+          "x_bound_max.pkl": 1200,
+          "x_bound_min.pkl": 1200,
+          "feat_0_0_0.b": 2065,
+          "feat_0_3_0.b": 1088,
+          "offsets_0_0.b": 8895
+        }
+      }
+    }
+  }
+}
