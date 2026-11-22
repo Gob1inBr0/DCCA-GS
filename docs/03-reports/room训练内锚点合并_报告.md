@@ -53,6 +53,31 @@
 
 空间子集的配对短跑续训 400 步，64 近邻的最终文件少 794 字节，PSNR 低 0.104 dB。该诊断和全场景数据分别登记于实验 CSV。 [短跑核验](../../runs/anchor_merge_neighbors_room_20261122/smoke_verified.json)
 
+## DCCA 与其他方法的可视化对照
+
+![room 压缩文件大小与解码 PSNR](../figures/room_anchor_merge_comparison_20261122.png)
+
+左图是本项目相同检查点、相机序列、训练终点和评测视角下的实测对照。64 近邻组从未合并模型的 2.082 MB、30.805 dB，降至 1.188 MB、30.276 dB，文件小 42.93%，PSNR 低 0.529 dB。保留下限组和取消下限的 16 近邻组也使用实际解码文件大小。
+
+右图使用 room 单场景的作者公开结果。公开点按作者原始大小换算为十进制 MB，并保留各自的训练、分辨率和打包设置。COSA-GS 的 15+30k 设置在低码率点报告 0.8780 MiB、31.1372 dB，换算为 0.920650 MB。该公开点相对本次合并模型具有更小文件和更高 PSNR。右图反映各方法公开结果的位置，训练协议差异同时保留在来源记录中。
+
+| 方法 | 图中数据来源 | 大小口径 |
+| --- | --- | --- |
+| DCCA 与三个合并组 | 本报告的配对实验和逐位解码核验 | 实际独立解码文件字节之和 |
+| HAC / HAC++ | 作者发布的 room CSV | 作者 Size [Bytes] |
+| ContextGS | 作者发布的 room CSV | 作者 Size [Bytes] |
+| Smol-GS | 作者发布的 room CSV | 作者 Size [Bytes]，论文采用场景压缩包 |
+| COSA-GS | 表 11 的 room 五个点，15k+30k | MiB 换算为十进制 MB |
+| CRP-GS | 表 III 的 room 完整模型点，30k+10k | 原表 MB |
+
+- [HAC 官方 room 数据](https://raw.githubusercontent.com/YihangChen-ee/HAC/main/results/MipNeRF360/room.csv)
+- [HAC++ 官方 room 数据](https://raw.githubusercontent.com/YihangChen-ee/HAC-plus/main/results/MipNeRF360/room.csv)
+- [ContextGS 官方 room 数据](https://raw.githubusercontent.com/wyf0912/ContextGS/main/results/MipNeRF360/room.csv)
+- [Smol-GS 官方 room 数据](https://raw.githubusercontent.com/AaltoML/Smol-GS/main/results/MipNeRF360/room.csv)
+- [COSA-GS 表 11 和附录 A.1](https://arxiv.org/html/2609.30245v1)
+- [CRP-GS 表 III 和实验设置](https://arxiv.org/html/2609.23005v1)
+- [原始公开数据快照](../data/room_reference_20261122/) · [绘图脚本](../../scripts/plot_room_anchor_merge_comparison.py) · [矢量 PDF](../figures/room_anchor_merge_comparison_20261122.pdf)
+
 ## 文件大小与复现
 
 表内文件大小是可独立解码的实际文件字节之和，包含几何、属性码流、解码配置和权重。核验脚本用收到的二值哈希网格解码属性，并检查恢复的张量与标准解码逐位一致。实验登记表同时保留 HAC++ 按字段统计的大小和实测文件大小。表内采用 `metric_type=compact_payload_bytes` 对应的字节数。训练、复现和检查点说明见 [运行指南](../04-guides/训练内锚点合并_指南.md)。

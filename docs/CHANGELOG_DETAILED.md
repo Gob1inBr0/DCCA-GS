@@ -441,3 +441,9 @@ DCCA-GS（原名 PHG / PKUGS-HAC-Gsplat）是基于 gsplat + Scaffold-GS + HAC++
 - 空间子集结果单独登记到 `docs/data/experiments.csv`，核验文件和运行脚本位于 `runs/anchor_merge_neighbors_room_20261122/`。
 
 - 全场景近邻候选对照已完成训练、独立解码和逐文件字节核验。将初始状态和终点登记到实验表，同步 room 实验报告和仓库 README。来源为本批 `verified_results.json`，并核对偏移和掩码的非零学习率及参数变化。
+
+## 2026-11-22 · 未提交 · 可视化与文献数据登记 · room 锚点合并与公开方法对照
+
+- 从作者公开 CSV 和论文逐场景表核对并登记 room 参考点，保留原始数据快照和来源。图中统一十进制文件大小单位，记录原表 MiB 的换算。
+- 生成同协议配对结果与其他方法公开结果的对照图，提供 PNG、PDF 和从实验登记表读取数据的绘图脚本。
+- 同步 README、文档图索引和 room 实验报告，注明公开结果的训练预算、分辨率和打包口径。

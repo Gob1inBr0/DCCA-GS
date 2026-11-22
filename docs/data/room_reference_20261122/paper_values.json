@@ -1,0 +1,59 @@
+{
+  "retrieved_at": "2026-11-22",
+  "scope": "Mip-NeRF360 room, author-reported references",
+  "sources": {
+    "COSA-GS": {
+      "source": "https://arxiv.org/html/2609.30245v1",
+      "table": "Table 11, room, 15+30K setting",
+      "original_size_unit": "MiB",
+      "points": [
+        {
+          "lambda": "0.0006",
+          "psnr": "32.4597",
+          "ssim": "0.9301",
+          "lpips": "0.1934",
+          "size_mib": "4.4935"
+        },
+        {
+          "lambda": "0.0010",
+          "psnr": "32.3367",
+          "ssim": "0.9280",
+          "lpips": "0.1990",
+          "size_mib": "3.5764"
+        },
+        {
+          "lambda": "0.0020",
+          "psnr": "32.1010",
+          "ssim": "0.9219",
+          "lpips": "0.2156",
+          "size_mib": "2.3999"
+        },
+        {
+          "lambda": "0.0040",
+          "psnr": "31.6762",
+          "ssim": "0.9111",
+          "lpips": "0.2426",
+          "size_mib": "1.4816"
+        },
+        {
+          "lambda": "0.0080",
+          "psnr": "31.1372",
+          "ssim": "0.8982",
+          "lpips": "0.2697",
+          "size_mib": "0.8780"
+        }
+      ]
+    },
+    "CRP-GS": {
+      "source": "https://arxiv.org/html/2609.23005v1",
+      "table": "Table III, Our full model, Room",
+      "original_size_unit": "MB",
+      "points": [
+        {
+          "psnr": "32.01",
+          "size_mb": "3.43"
+        }
+      ]
+    }
+  }
+}
