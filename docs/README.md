@@ -13,6 +13,7 @@
 | 合并候选、新锚点位置、偏移重算与训练时机 | [锚点合并设计](02-design/训练内锚点合并_设计.md) |
 | 未合并、保留下限、取消下限的配对对照，以及早期阈值扫描和总计 45k 续训 | [room 实验报告](03-reports/room训练内锚点合并_报告.md) |
 | 训练参数、检查点、解码验证及 LYH 运行路径 | [运行指南](04-guides/训练内锚点合并_指南.md) |
+| 从 30k 续训到 45k 的画质、字节与训练损失曲线 | [曲线](figures/room_anchor_merge_45k_20261122.png) · [PDF](figures/room_anchor_merge_45k_20261122.pdf) |
 | 代码和历史实验入口 | [仓库 README](../README.md) · [变更记录](CHANGELOG_DETAILED.md) |
 
 以上文档对应 GitHub 的 `main`。较早的架构、交接和研究文档按各自标注日期查阅。
